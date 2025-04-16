@@ -1,0 +1,616 @@
+package commands
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/cix-code/gogo/internal/git"
+	"github.com/cix-code/gogo/internal/hook"
+	"github.com/cix-code/gogo/internal/manifest"
+	"github.com/spf13/cobra"
+)
+
+// RepoConfig 表示repo配置
+type RepoConfig struct {
+	ManifestURL            string `json:"manifest_url"`
+	ManifestBranch         string `json:"manifest_branch"`
+	ManifestName           string `json:"manifest_name"`
+	Groups                 string `json:"groups"`
+	Platform               string `json:"platform"`
+	Mirror                 bool   `json:"mirror"`
+	Archive                bool   `json:"archive"`
+	Worktree               bool   `json:"worktree"`
+	Reference              string `json:"reference"`
+	NoSmartCache           bool   `json:"no_smart_cache"`
+	Dissociate             bool   `json:"dissociate"`
+	Depth                  int    `json:"depth"`
+	PartialClone           bool   `json:"partial_clone"`
+	PartialCloneExclude    string `json:"partial_clone_exclude"`
+	CloneFilter            string `json:"clone_filter"`
+	UseSuperproject        bool   `json:"use_superproject"`
+	CloneBundle            bool   `json:"clone_bundle"`
+	GitLFS                 bool   `json:"git_lfs"`
+	RepoURL                string `json:"repo_url"`
+	RepoRev                string `json:"repo_rev"`
+	NoRepoVerify           bool   `json:"no_repo_verify"`
+	StandaloneManifest     bool   `json:"standalone_manifest"`
+	Submodules             bool   `json:"submodules"`
+	CurrentBranch          bool   `json:"current_branch"`
+	Tags                   bool   `json:"tags"`
+}
+
+// InitOptions 包含init命令的选项
+type InitOptions struct {
+	CommonManifestOptions
+	Verbose            bool
+	Quiet              bool
+	ManifestURL        string
+	ManifestBranch     string
+	ManifestName       string
+	Groups             string
+	Platform           string
+	Submodules         bool
+	StandaloneManifest bool
+	CurrentBranch      bool
+	NoCurrentBranch    bool
+	Tags               bool
+	NoTags             bool
+	Mirror             bool
+	Archive            bool
+	Worktree           bool
+	Reference          string
+	NoSmartCache       bool
+	Dissociate         bool
+	Depth              int
+	PartialClone       bool
+	NoPartialClone     bool
+	PartialCloneExclude string
+	CloneFilter        string
+	UseSuperproject    bool
+	NoUseSuperproject  bool
+	CloneBundle       bool
+	NoCloneBundle     bool
+	GitLFS            bool
+	NoGitLFS          bool
+	RepoURL           string
+	RepoRev           string
+	NoRepoVerify      bool
+	ConfigName        bool
+}
+
+// InitCmd 返回init命令
+func InitCmd() *cobra.Command {
+	opts := &InitOptions{}
+
+	cmd := &cobra.Command{
+		Use:   "init [options] [manifest url]",
+		Short: "Initialize a repo client checkout in the current directory",
+		Long: `Initialize a repository client checkout in the current directory.`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				opts.ManifestURL = args[0]
+			}
+			return runInit(opts)
+		},
+	}
+
+	// 日志选项
+	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show all output")
+	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
+
+	// 清单选项
+	cmd.Flags().StringVarP(&opts.ManifestURL, "manifest-url", "u", "", "manifest repository location")
+	cmd.Flags().StringVarP(&opts.ManifestBranch, "manifest-branch", "b", "", "manifest branch or revision (use HEAD for default)")
+	cmd.Flags().StringVarP(&opts.ManifestName, "manifest-name", "m", "default.xml", "initial manifest file")
+	cmd.Flags().StringVarP(&opts.Groups, "groups", "g", "", "restrict manifest projects to ones with specified group(s)")
+	// 修改这里，将 -p 改为 -P 或其他未使用的短标志
+	cmd.Flags().StringVarP(&opts.Platform, "platform", "P", "", "restrict manifest projects to ones with a specified platform group")
+	cmd.Flags().BoolVar(&opts.Submodules, "submodules", false, "sync any submodules associated with the manifest repo")
+	cmd.Flags().BoolVar(&opts.StandaloneManifest, "standalone-manifest", false, "download the manifest as a static file")
+
+	// 清单检出选项
+	cmd.Flags().BoolVar(&opts.CurrentBranch, "current-branch", false, "fetch only current manifest branch")
+	cmd.Flags().BoolVar(&opts.NoCurrentBranch, "no-current-branch", false, "fetch all manifest branches")
+	cmd.Flags().BoolVar(&opts.Tags, "tags", false, "fetch tags in the manifest")
+	cmd.Flags().BoolVar(&opts.NoTags, "no-tags", false, "don't fetch tags in the manifest")
+
+	// 检出模式
+	cmd.Flags().BoolVar(&opts.Mirror, "mirror", false, "create a replica of the remote repositories")
+	cmd.Flags().BoolVar(&opts.Archive, "archive", false, "checkout an archive instead of a git repository")
+	cmd.Flags().BoolVar(&opts.Worktree, "worktree", false, "use git-worktree to manage projects")
+
+	// 项目检出优化
+	cmd.Flags().StringVar(&opts.Reference, "reference", "", "location of mirror directory")
+	cmd.Flags().BoolVar(&opts.NoSmartCache, "no-smart-cache", false, "disable CIX smart cache feature")
+	cmd.Flags().BoolVar(&opts.Dissociate, "dissociate", false, "dissociate from reference mirrors after clone")
+	cmd.Flags().IntVar(&opts.Depth, "depth", 0, "create a shallow clone with given depth")
+	cmd.Flags().BoolVar(&opts.PartialClone, "partial-clone", false, "perform partial clone")
+	cmd.Flags().BoolVar(&opts.NoPartialClone, "no-partial-clone", false, "disable use of partial clone")
+	cmd.Flags().StringVar(&opts.PartialCloneExclude, "partial-clone-exclude", "", "exclude projects from partial clone")
+	cmd.Flags().StringVar(&opts.CloneFilter, "clone-filter", "blob:none", "filter for use with --partial-clone")
+	cmd.Flags().BoolVar(&opts.UseSuperproject, "use-superproject", false, "use the manifest superproject to sync projects")
+	cmd.Flags().BoolVar(&opts.NoUseSuperproject, "no-use-superproject", false, "disable use of manifest superprojects")
+	cmd.Flags().BoolVar(&opts.CloneBundle, "clone-bundle", false, "enable use of /clone.bundle on HTTP/HTTPS")
+	cmd.Flags().BoolVar(&opts.NoCloneBundle, "no-clone-bundle", false, "disable use of /clone.bundle on HTTP/HTTPS")
+	cmd.Flags().BoolVar(&opts.GitLFS, "git-lfs", false, "enable Git LFS support")
+	cmd.Flags().BoolVar(&opts.NoGitLFS, "no-git-lfs", false, "disable Git LFS support")
+
+	// repo版本选项
+	cmd.Flags().StringVar(&opts.RepoURL, "repo-url", "", "repo repository location")
+	cmd.Flags().StringVar(&opts.RepoRev, "repo-rev", "", "repo branch or revision")
+	cmd.Flags().BoolVar(&opts.NoRepoVerify, "no-repo-verify", false, "do not verify repo source code")
+
+	// 其他选项
+	cmd.Flags().BoolVar(&opts.ConfigName, "config-name", false, "Always prompt for name/e-mail")
+
+	// 多清单选项
+	AddManifestFlags(cmd, &opts.CommonManifestOptions)
+
+	return cmd
+}
+
+// saveRepoConfig 保存repo配置
+func saveRepoConfig(cfg *RepoConfig) error {
+	// 确保.repo目录存在
+	if err := os.MkdirAll(".repo", 0755); err != nil {
+		return fmt.Errorf("failed to create .repo directory: %w", err)
+	}
+	
+	// 序列化配置
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to serialize config: %w", err)
+	}
+	
+	// 写入配置文件
+	configPath := filepath.Join(".repo", "config.json")
+	if err := os.WriteFile(configPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config file: %w", err)
+	}
+	
+	return nil
+}
+
+// loadGitConfig 加载Git配置
+func loadGitConfig() error {
+	// 检查Git是否安装
+	gitRunner := git.NewCommandRunner()
+	if _, err := gitRunner.Run("--version"); err != nil {
+		return fmt.Errorf("git not found: %w", err)
+	}
+	
+	// 检查Git配置
+	output, err := gitRunner.Run("config", "--get", "user.name")
+	if err != nil {
+		return fmt.Errorf("failed to get user name: %w", err)
+	}
+	userName := strings.TrimSpace(string(output)) // 添加 string() 转换
+	
+	output, err = gitRunner.Run("config", "--get", "user.email")
+	if err != nil {
+		return fmt.Errorf("failed to get user email: %w", err)
+	}
+	userEmail := strings.TrimSpace(string(output)) // 添加 string() 转换
+	
+	// 使用userName和userEmail变量
+	fmt.Printf("Using user: %s <%s>\n", userName, userEmail)
+	if err != nil || strings.TrimSpace(string(output)) == "" {
+		return fmt.Errorf("git user.email not set, please run 'git config --global user.email \"your.email@example.com\"'")
+	}
+	
+	return nil
+}
+
+// promptForUserInfo 提示用户输入信息
+func promptForUserInfo() error {
+	gitRunner := git.NewCommandRunner()
+	
+	// 检查用户名
+	output, _ := gitRunner.Run("config", "--get", "user.name")
+	if strings.TrimSpace(string(output)) == "" { // 添加string()转换
+		fmt.Print("Enter your name: ")
+		var name string
+		fmt.Scanln(&name)
+		if name != "" {
+			if _, err := gitRunner.Run("config", "--global", "user.name", name); err != nil {
+				return fmt.Errorf("failed to set git user.name: %w", err)
+			}
+		}
+	}
+	
+	// 检查邮箱
+	output, _ = gitRunner.Run("config", "--get", "user.email")
+	if strings.TrimSpace(string(output)) == "" { // 添加string()转换
+		fmt.Print("Enter your email: ")
+		var email string
+		fmt.Scanln(&email)
+		if email != "" {
+			if _, err := gitRunner.Run("config", "--global", "user.email", email); err != nil {
+				return fmt.Errorf("failed to set git user.email: %w", err)
+			}
+		}
+	}
+	
+	return nil
+}
+
+// cloneManifestRepo 克隆清单仓库
+func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
+	// 创建.repo/manifests目录
+	manifestsDir := filepath.Join(".repo", "manifests")
+	if err := os.MkdirAll(manifestsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create manifests directory: %w", err)
+	}
+	
+	// 构建克隆命令
+	args := []string{"clone"}
+	
+	// 添加深度参数
+	if cfg.Depth > 0 {
+		args = append(args, fmt.Sprintf("--depth=%d", cfg.Depth))
+	}
+	
+	// 添加分支参数
+	if cfg.ManifestBranch != "" {
+		args = append(args, "-b", cfg.ManifestBranch)
+	}
+	
+	// 添加镜像参数
+	if cfg.Mirror {
+		args = append(args, "--mirror")
+	}
+	
+	// 添加引用参数
+	if cfg.Reference != "" {
+		args = append(args, fmt.Sprintf("--reference=%s", cfg.Reference))
+	}
+	
+	// 添加部分克隆参数
+	if cfg.PartialClone {
+		args = append(args, "--filter="+cfg.CloneFilter)
+	}
+	
+	// 添加URL和目标目录
+	args = append(args, cfg.ManifestURL, manifestsDir)
+	
+	// 执行克隆命令
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		_, err := gitRunner.Run(args...)
+		if err == nil {
+			break
+		}
+		lastErr = err
+		if strings.Contains(err.Error(), "Permission denied (publickey)") {
+			return fmt.Errorf("SSH authentication failed: please ensure your SSH key is properly configured and added to the git server\nOriginal error: %w", err)
+		}
+		if i < 2 {
+			time.Sleep(time.Second * 2)
+		}
+	}
+	if lastErr != nil {
+		return fmt.Errorf("克隆清单仓库失败: %s", lastErr)
+	}
+	
+	// 如果需要子模块
+	if cfg.Submodules {
+		// 切换到manifests目录
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+		
+		if err := os.Chdir(manifestsDir); err != nil {
+			return fmt.Errorf("failed to change to manifests directory: %w", err)
+		}
+		
+		// 初始化子模块
+		if _, err := gitRunner.Run("submodule", "update", "--init", "--recursive"); err != nil {
+			if err := os.Chdir(currentDir); err != nil { // 确保返回原目录
+				return fmt.Errorf("failed to return to original directory: %w", err)
+			}
+			return fmt.Errorf("failed to initialize submodules: %w", err)
+		}
+		
+		// 返回原目录
+		if err := os.Chdir(currentDir); err != nil {
+			return fmt.Errorf("failed to return to original directory: %w", err)
+		}
+	}
+	
+	return nil
+}
+
+// runInit 执行init命令
+func runInit(opts *InitOptions) error {
+	if opts.Verbose {
+		fmt.Println("Initializing repo in current directory")
+	}
+
+	// 验证选项冲突
+	if opts.CurrentBranch && opts.NoCurrentBranch {
+		return fmt.Errorf("cannot specify both --current-branch and --no-current-branch")
+	}
+	if opts.Tags && opts.NoTags {
+		return fmt.Errorf("cannot specify both --tags and --no-tags")
+	}
+	if opts.PartialClone && opts.NoPartialClone {
+		return fmt.Errorf("cannot specify both --partial-clone and --no-partial-clone")
+	}
+	if opts.UseSuperproject && opts.NoUseSuperproject {
+		return fmt.Errorf("cannot specify both --use-superproject and --no-use-superproject")
+	}
+	if opts.CloneBundle && opts.NoCloneBundle {
+		return fmt.Errorf("cannot specify both --clone-bundle and --no-clone-bundle")
+	}
+	if opts.GitLFS && opts.NoGitLFS {
+		return fmt.Errorf("cannot specify both --git-lfs and --no-git-lfs")
+	}
+	if opts.OuterManifest && opts.NoOuterManifest {
+		return fmt.Errorf("cannot specify both --outer-manifest and --no-outer-manifest")
+	}
+
+	// 创建配置
+	cfg := &RepoConfig{
+		ManifestURL:            opts.ManifestURL,
+		ManifestBranch:         opts.ManifestBranch,
+		ManifestName:           opts.ManifestName,
+		Groups:                 opts.Groups,
+		Platform:               opts.Platform,
+		Mirror:                 opts.Mirror,
+		Archive:                opts.Archive,
+		Worktree:               opts.Worktree,
+		Reference:              opts.Reference,
+		NoSmartCache:           opts.NoSmartCache,
+		Dissociate:             opts.Dissociate,
+		Depth:                  opts.Depth,
+		PartialClone:           opts.PartialClone,
+		PartialCloneExclude:    opts.PartialCloneExclude,
+		CloneFilter:            opts.CloneFilter,
+		UseSuperproject:        opts.UseSuperproject,
+		CloneBundle:            opts.CloneBundle,
+		GitLFS:                 opts.GitLFS,
+		RepoURL:                opts.RepoURL,
+		RepoRev:                opts.RepoRev,
+		NoRepoVerify:           opts.NoRepoVerify,
+		StandaloneManifest:     opts.StandaloneManifest,
+		Submodules:             opts.Submodules,
+		CurrentBranch:          opts.CurrentBranch,
+		Tags:                   opts.Tags,
+	}
+
+	// 处理配置名称提示
+	if opts.ConfigName {
+		if err := promptForUserInfo(); err != nil {
+			return fmt.Errorf("failed to prompt for user info: %w", err)
+		}
+	} else {
+		// 只检查Git是否安装，不强制要求配置用户信息
+		gitRunner := git.NewCommandRunner()
+		if _, err := gitRunner.Run("--version"); err != nil {
+			return fmt.Errorf("git not found: %w", err)
+		}
+	}
+	
+	gitRunner := git.NewCommandRunner()
+	if opts.Verbose {
+		gitRunner.SetVerbose(true)
+	}
+	if opts.Quiet {
+		gitRunner.SetQuiet(true)
+	}
+
+	// 设置Git LFS
+	if opts.GitLFS {
+		if _, err := gitRunner.Run("lfs", "install"); err != nil {
+			return fmt.Errorf("failed to install Git LFS: %w", err)
+		}
+	}
+
+	// 创建.repo目录结构
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	// 初始化Git配置和hooks
+	if err := initRepoStructure(currentDir); err != nil {
+		return fmt.Errorf("failed to initialize repo structure: %w", err)
+	}
+
+	// 克隆清单仓库
+	if err := cloneManifestRepo(gitRunner, cfg); err != nil {
+		return fmt.Errorf("failed to clone manifest repository: %w", err)
+	}
+
+	// 解析清单文件
+	parser := manifest.NewParser()
+	manifestPath := filepath.Join(".repo", "manifests", cfg.ManifestName)
+	manifestObj, err := parser.ParseFromFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	// 处理include标签
+	if len(manifestObj.Includes) > 0 && !opts.ThisManifestOnly {
+		if opts.Verbose {
+			fmt.Printf("Processing %d include(s)\n", len(manifestObj.Includes))
+		}
+		
+		// 创建清单合并器
+		merger := manifest.NewMerger(parser, filepath.Join(".repo", "manifests"))
+		
+		// 加载所有包含的清单
+		includedManifests := []*manifest.Manifest{manifestObj}
+		
+		for _, include := range manifestObj.Includes {
+			includePath := filepath.Join(".repo", "manifests", include.Name)
+			if opts.Verbose {
+				fmt.Printf("Loading included manifest: %s\n", include.Name)
+			}
+			
+			includeManifest, err := parser.ParseFromFile(includePath)
+			if err != nil {
+				return fmt.Errorf("failed to parse included manifest %s: %w", include.Name, err)
+			}
+			
+			includedManifests = append(includedManifests, includeManifest)
+		}
+		
+		// 合并清单
+		mergedManifest, err := merger.Merge(includedManifests)
+		if err != nil {
+			return fmt.Errorf("failed to merge manifests: %w", err)
+		}
+		
+		// 更新清单对象
+		manifestObj = mergedManifest
+		
+		// 保存合并后的清单
+		mergedPath := filepath.Join(".repo", "manifest.xml")
+		mergedData, err := manifestObj.ToXML()
+		if err != nil {
+			return fmt.Errorf("failed to convert merged manifest to XML: %w", err)
+		}
+		
+		if err := os.WriteFile(mergedPath, []byte(mergedData), 0644); err != nil {
+			return fmt.Errorf("failed to write merged manifest: %w", err)
+		}
+		
+		if opts.Verbose {
+			fmt.Println("Manifest includes processed and merged")
+		}
+	}
+
+	// 保存配置
+	if err := saveRepoConfig(cfg); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	// 处理多清单选项
+	if opts.OuterManifest {
+		// 实现加载外部清单的逻辑
+		if opts.Verbose {
+			fmt.Println("Loading outer manifests")
+		}
+		
+		// 查找外部清单
+		outerManifestPath := filepath.Join("..", ".repo", "manifest.xml")
+		if _, err := os.Stat(outerManifestPath); err == nil {
+			// 加载外部清单
+			outerManifest, err := parser.ParseFromFile(outerManifestPath)
+			if err != nil {
+				return fmt.Errorf("failed to parse outer manifest: %w", err)
+			}
+			
+			// 合并外部清单
+			merger := manifest.NewMerger(parser, filepath.Join(".repo"))
+			mergedManifest, err := merger.Merge([]*manifest.Manifest{outerManifest, manifestObj})
+			if err != nil {
+				return fmt.Errorf("failed to merge with outer manifest: %w", err)
+			}
+			
+			// 更新清单对象
+			manifestObj = mergedManifest
+			
+			// 保存合并后的清单
+			mergedPath := filepath.Join(".repo", "manifest.xml")
+			mergedData, err := manifestObj.ToXML()
+			if err != nil {
+				return fmt.Errorf("failed to convert merged manifest to XML: %w", err)
+			}
+			
+			if err := os.WriteFile(mergedPath, []byte(mergedData), 0644); err != nil {
+				return fmt.Errorf("failed to write merged manifest: %w", err)
+			}
+		}
+	}
+	
+	if opts.ThisManifestOnly {
+		// 实现仅处理当前清单的逻辑
+		if opts.Verbose {
+			fmt.Println("Processing only this manifest")
+		}
+		// 移除所有include标签
+		manifestObj.Includes = nil
+	}
+	
+	if opts.AllManifests {
+		// 实现处理所有清单的逻辑
+		if opts.Verbose {
+			fmt.Println("Processing all manifests")
+		}
+		// 确保处理所有include标签
+		if len(manifestObj.Includes) > 0 && !opts.ThisManifestOnly {
+			merger := manifest.NewMerger(parser, filepath.Join(".repo", "manifests"))
+			includedManifests := []*manifest.Manifest{manifestObj}
+			
+			for _, include := range manifestObj.Includes {
+				includePath := filepath.Join(".repo", "manifests", include.Name)
+				if opts.Verbose {
+					fmt.Printf("Loading included manifest: %s\n", include.Name)
+				}
+				
+				includeManifest, err := parser.ParseFromFile(includePath)
+				if err != nil {
+					return fmt.Errorf("failed to parse included manifest %s: %w", include.Name, err)
+				}
+				
+				includedManifests = append(includedManifests, includeManifest)
+			}
+			
+			// 合并清单
+			mergedManifest, err := merger.Merge(includedManifests)
+			if err != nil {
+				return fmt.Errorf("failed to merge manifests: %w", err)
+			}
+			
+			// 更新清单对象
+			manifestObj = mergedManifest
+		}
+	}
+
+	if opts.Verbose {
+		fmt.Println("Repo initialization completed successfully")
+	}
+	return nil
+}
+
+// initRepoStructure 初始化repo目录结构和配置
+func initRepoStructure(repoDir string) error {
+	// 创建.repo目录结构
+	dirs := []string{
+		".repo",
+		".repo/manifests",
+		".repo/project-objects",
+		".repo/projects",
+		".repo/hooks",
+	}
+	
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(repoDir, dir), 0755); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+	
+	// 初始化Git hooks
+	if err := hook.InitHooks(repoDir); err != nil {
+		return fmt.Errorf("failed to initialize hooks: %w", err)
+	}
+	
+	// 创建repo.git配置文件
+	if err := hook.CreateRepoGitConfig(repoDir); err != nil {
+		return fmt.Errorf("failed to create repo.git config: %w", err)
+	}
+	
+	// 创建repo.gitconfig配置文件
+	if err := hook.CreateRepoGitconfig(repoDir); err != nil {
+		return fmt.Errorf("failed to create repo.gitconfig: %w", err)
+	}
+	
+	return nil
+}

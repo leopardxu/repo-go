@@ -1,0 +1,25 @@
+
+#### .gitignore 文件
+
+```text:d%3A%5Ccix-code%5Cgogo%5C.gitignore
+# 编译输出
+/bin/
+/dist/
+
+# 依赖目录
+/vendor/
+
+# IDE文件
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 测试覆盖率
+coverage.txt
+*.out
+
+# 临时文件
+*.tmp
+*.log
+.DS_Store
