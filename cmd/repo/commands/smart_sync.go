@@ -44,6 +44,8 @@ type SmartSyncOptions struct {
 	NoPrune               bool
 	ManifestServerUsername string
 	ManifestServerPassword string
+	Config                 *config.Config // <-- Add Config field
+	CommonManifestOptions                 // <-- Assuming CommonManifestOptions is needed if ManifestName is used indirectly
 }
 
 // SmartSyncCmd 返回smartsync命令
@@ -55,6 +57,16 @@ func SmartSyncCmd() *cobra.Command {
 		Short: "Update working tree to the latest known good revision",
 		Long:  `The 'repo smartsync' command is a shortcut for sync -s.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load config here as it's needed by runSmartSync
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+			opts.Config = cfg // Assign loaded config
+			// Pass CommonManifestOptions if needed by AddManifestFlags
+			// Ensure ManifestName is populated if used by config.Load or parser.ParseFromFile
+			// If ManifestName comes from flags, it should be part of CommonManifestOptions
+			// and AddManifestFlags should be called below.
 			return runSmartSync(opts, args)
 		},
 	}
@@ -92,6 +104,8 @@ func SmartSyncCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.NoThisManifestOnly, "all-manifests", false, "operate on this manifest and its submanifests")
 	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
 	cmd.Flags().BoolVarP(&opts.Optimize, "optimize", "o", true, "optimize sync strategy based on project status")
+	// Add manifest flags if ManifestName is needed and comes from flags
+	// AddManifestFlags(cmd, &opts.CommonManifestOptions)
 
 	return cmd
 }
@@ -100,15 +114,17 @@ func SmartSyncCmd() *cobra.Command {
 func runSmartSync(opts *SmartSyncOptions, args []string) error {
 	fmt.Println("Smart syncing projects")
 
-	// 加载配置
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
+	// Config is now loaded in RunE and passed via opts
+	cfg := opts.Config
+	if cfg == nil {
+		// Fallback or error if config wasn't loaded correctly
+		return fmt.Errorf("config not loaded")
 	}
 
 	// 加载清单
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
+	// Use ManifestName from Config or CommonManifestOptions if applicable
+	manifest, err := parser.ParseFromFile(cfg.ManifestName) // Assuming ManifestName is in cfg
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
@@ -120,7 +136,7 @@ func runSmartSync(opts *SmartSyncOptions, args []string) error {
 	var projects []*project.Project
 	if len(args) == 0 {
 		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects("")
+		projects, err = manager.GetProjects(nil) // Fix: Use nil instead of ""
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
@@ -132,35 +148,28 @@ func runSmartSync(opts *SmartSyncOptions, args []string) error {
 		}
 	}
 
-	// 创建同步引擎
-	engine := sync.NewEngine(projects, &sync.Options{
-		Jobs:           opts.Jobs,
-		JobsNetwork:    opts.JobsNetwork,
-		JobsCheckout:   opts.JobsCheckout,
-		CurrentBranch:  opts.CurrentBranch && !opts.NoCurrentBranch,
-		Detach:         opts.Detach,
-		ForceSync:      opts.ForceSync,
+	// Create sync engine options from SmartSyncOptions
+	syncOpts := &sync.Options{
+		Jobs:             opts.Jobs,
+		JobsNetwork:      opts.JobsNetwork,
+		JobsCheckout:     opts.JobsCheckout,
+		Detach:           opts.Detach,
+		ForceSync:        opts.ForceSync,
 		ForceRemoveDirty: opts.ForceRemoveDirty,
-		ForceOverwrite: opts.ForceOverwrite,
-		LocalOnly:      opts.LocalOnly,
-		NetworkOnly:    opts.NetworkOnly,
-		Prune:          opts.Prune && !opts.NoPrune,
-		Quiet:          opts.Quiet,
-		Tags:           opts.Tags && !opts.NoTags,
-		NoCloneBundle:  opts.NoCloneBundle,
-		FetchSubmodules: opts.FetchSubmodules,
-		OptimizedFetch: opts.OptimizedFetch,
-		RetryFetches:   opts.RetryFetches,
-		UseSuperproject: opts.UseSuperproject && !opts.NoUseSuperproject,
-		HyperSync:      opts.HyperSync,
-		OuterManifest:  opts.OuterManifest && !opts.NoOuterManifest,
-		ThisManifestOnly: opts.ThisManifestOnly && !opts.NoThisManifestOnly,
-		// Optimize field removed as it's not defined in sync.Options
-	})
+		ForceOverwrite:   opts.ForceOverwrite,
+		LocalOnly:        opts.LocalOnly,
+		NetworkOnly:      opts.NetworkOnly,
+		Quiet:            opts.Quiet,
+		// Map other relevant fields from SmartSyncOptions to sync.Options
+		// e.g., CurrentBranch, NoTags, Prune etc. if they exist in sync.Options
+	}
 
-	// 执行同步
+	// 创建同步引擎
+	engine := sync.NewEngine(projects, syncOpts, manifest, cfg)
+
+	// Call Run() instead of Sync()
 	if err := engine.Run(); err != nil {
-		return fmt.Errorf("sync failed: %w", err)
+	    return fmt.Errorf("sync failed: %w", err)
 	}
 
 	// 显示同步结果

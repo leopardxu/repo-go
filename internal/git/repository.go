@@ -116,3 +116,15 @@ func (r *Repository) HasChangesToPush(branch string) (bool, error) {
 	count := strings.TrimSpace(string(output))
 	return count != "0", nil
 }
+
+// GetBranchName 获取当前分支名称
+func (r *Repository) GetBranchName() (string, error) {
+	// 使用 Runner 而不是 runner
+	// 使用 Path 而不是 path
+	output, err := r.Runner.RunInDir(r.Path, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("failed to get current branch: %w", err)
+	}
+	
+	return strings.TrimSpace(string(output)), nil
+}

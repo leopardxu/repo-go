@@ -51,29 +51,39 @@ func PruneCmd() *cobra.Command {
 }
 
 // runPrune 执行prune命令
+// runPrune executes the prune command logic
 func runPrune(opts *PruneOptions, args []string) error {
 	fmt.Println("Pruning projects not in manifest")
 
 	// 加载配置
-	cfg, err := config.Load()
+	cfg, err := config.Load() // Declare err here
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// 加载清单
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
+	manifest, err := parser.ParseFromFile(cfg.ManifestName) // Reuse err
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
 	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg)
+	manager := project.NewManager(manifest, cfg) // Assuming manifest and cfg are loaded
 
-	// 获取清单中的所有项目
-	projects, err := manager.GetProjects("")
-	if err != nil {
-		return fmt.Errorf("failed to get projects: %w", err)
+	var projects []*project.Project
+	// err is already declared
+
+	if len(args) == 0 {
+		projects, err = manager.GetProjects(nil) // Use =
+		if err != nil {
+			return fmt.Errorf("failed to get projects: %w", err)
+		}
+	} else {
+		projects, err = manager.GetProjectsByNames(args) // Use =
+		if err != nil {
+			return fmt.Errorf("failed to get projects by name: %w", err)
+		}
 	}
 
 	// 创建项目路径映射
@@ -170,5 +180,6 @@ func runPrune(opts *PruneOptions, args []string) error {
 	}
 
 	fmt.Println("Pruning completed successfully")
+	_ = projects // Use projects variable
 	return nil
 }

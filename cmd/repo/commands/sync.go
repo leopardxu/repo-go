@@ -39,14 +39,13 @@ type SyncOptions struct {
 	NoManifestUpdate bool
 	ManifestServerUsername string
 	ManifestServerPassword string
-	UseSuperproject bool
-	NoUseSuperproject bool
-	HyperSync      bool
-	SmartTag       string
-	OuterManifest  bool
-	NoOuterManifest bool
-	ThisManifestOnly bool
-	NoThisManifestOnly bool
+	UseSuperproject        bool
+	NoUseSuperproject      bool
+	HyperSync              bool
+	SmartTag               string
+	NoThisManifestOnly     bool
+	Config                 *config.Config
+	CommonManifestOptions
 }
 
 // SyncCmd 返回sync命令
@@ -105,73 +104,89 @@ func SyncCmd() *cobra.Command {
 }
 
 // runSync 执行sync命令
+// runSync executes the sync command logic
 func runSync(opts *SyncOptions, args []string) error {
-	if !opts.Quiet {
-		fmt.Println("Syncing repositories")
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	// 加载清单
-	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
-	if err != nil {
-		return fmt.Errorf("failed to parse manifest: %w", err)
-	}
+    // Load config
+    cfg, err := config.Load() // Declare err here
+    if err != nil {
+        return fmt.Errorf("failed to load config: %w", err)
+    }
+    opts.Config = cfg // Assign loaded config
 
-	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg)
+    // Load manifest
+    parser := manifest.NewParser()
+    manifest, err := parser.ParseFromFile(cfg.ManifestName) // Reuse err
+    if err != nil {
+        return fmt.Errorf("failed to parse manifest: %w", err)
+    }
 
-	// 获取要同步的项目
-	projects, err := manager.GetProjects(opts.Groups)
-	if err != nil {
-		return fmt.Errorf("failed to get projects: %w", err)
-	}
+    // Create project manager
+    manager := project.NewManager(manifest, cfg)
 
-	// 创建同步引擎
-	// 处理组选项
-	var groups []string
-	if opts.Groups != "" {
-		groups = strings.Split(opts.Groups, ",")
-	}
+    var projects []*project.Project
+    // err is already declared
 
-	engine := sync.NewEngine(projects, &sync.Options{
-		Jobs:           opts.Jobs,
-		JobsNetwork:    opts.JobsNetwork,
-		JobsCheckout:   opts.JobsCheckout,
-		CurrentBranch:  opts.CurrentBranch && !opts.NoCurrentBranch,
-		Detach:         opts.Detach,
-		ForceSync:      opts.ForceSync,
-		ForceRemoveDirty: opts.ForceRemoveDirty,
-		ForceOverwrite: opts.ForceOverwrite,
-		LocalOnly:      opts.LocalOnly,
-		NetworkOnly:    opts.NetworkOnly,
-		Prune:          opts.Prune,
-		Quiet:          opts.Quiet,
-		SmartSync:      opts.SmartSync,
-		Tags:           opts.Tags && !opts.NoTags,
-		NoCloneBundle:  opts.NoCloneBundle,
-		FetchSubmodules: opts.FetchSubmodules,
-		OptimizedFetch: opts.OptimizedFetch,
-		RetryFetches:   opts.RetryFetches,
-		Groups:         groups,
-		FailFast:       opts.FailFast,
-		NoManifestUpdate: opts.NoManifestUpdate,
-		UseSuperproject: opts.UseSuperproject && !opts.NoUseSuperproject,
-		HyperSync:      opts.HyperSync,
-		SmartTag:       opts.SmartTag,
-		OuterManifest:  opts.OuterManifest && !opts.NoOuterManifest,
-		ThisManifestOnly: opts.ThisManifestOnly && !opts.NoThisManifestOnly,
-	})
+    if len(args) == 0 {
+        // Assuming nil means all projects if no args/groups are given
+        projects, err = manager.GetProjects(nil) // Use =
+        if err != nil {
+            return fmt.Errorf("failed to get projects: %w", err)
+        }
+    } else {
+        projects, err = manager.GetProjectsByNames(args) // Use =
+        if err != nil {
+            return fmt.Errorf("failed to get projects by name: %w", err)
+        }
+    }
 
-	// 执行同步
-	if err := engine.Run(); err != nil {
-		return fmt.Errorf("sync failed: %w", err)
-	}
-
-	if !opts.Quiet {
-		fmt.Println("Sync completed successfully")
-	}
-	return nil
+    if err != nil {
+        return fmt.Errorf("获取项目失败: %w", err)
+    }
+    
+    // 处理组选项
+    var groups []string
+    if opts.Groups != "" {
+        groups = strings.Split(opts.Groups, ",")
+    }
+    
+    // 创建同步引擎
+    engine := sync.NewEngine(projects, &sync.Options{
+        Jobs:           opts.Jobs,
+        JobsNetwork:    opts.JobsNetwork,
+        JobsCheckout:   opts.JobsCheckout,
+        CurrentBranch:  opts.CurrentBranch && !opts.NoCurrentBranch,
+        Detach:         opts.Detach,
+        ForceSync:      opts.ForceSync,
+        ForceRemoveDirty: opts.ForceRemoveDirty,
+        ForceOverwrite: opts.ForceOverwrite,
+        LocalOnly:      opts.LocalOnly,
+        NetworkOnly:    opts.NetworkOnly,
+        Prune:          opts.Prune,
+        Quiet:          opts.Quiet,
+        SmartSync:      opts.SmartSync,
+        Tags:           opts.Tags && !opts.NoTags,
+        NoCloneBundle:  opts.NoCloneBundle,
+        FetchSubmodules: opts.FetchSubmodules,
+        OptimizedFetch: opts.OptimizedFetch,
+        RetryFetches:   opts.RetryFetches,
+        Groups:         groups,
+        FailFast:       opts.FailFast,
+        NoManifestUpdate: opts.NoManifestUpdate,
+        UseSuperproject: opts.UseSuperproject && !opts.NoUseSuperproject,
+        HyperSync:      opts.HyperSync,
+        SmartTag:       opts.SmartTag,
+        ManifestServerUsername: opts.ManifestServerUsername,
+        ManifestServerPassword: opts.ManifestServerPassword,
+    }, manifest, cfg)
+    
+    // 执行同步
+    if err := engine.Run(); err != nil {
+        return fmt.Errorf("同步失败: %w", err)
+    }
+    
+    if !opts.Quiet {
+        fmt.Println("同步成功完成")
+    }
+    _ = projects // Use projects variable
+    return nil
 }

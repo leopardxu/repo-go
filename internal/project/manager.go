@@ -1,7 +1,11 @@
 package project
 
 import (
+	"encoding/xml"
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sync"
 	"strings"
 
@@ -18,6 +22,7 @@ type Manager struct {
 }
 
 // NewManager 创建项目管理器
+// 在 NewManager 函数中，修改远程查找逻辑
 func NewManager(manifest *manifest.Manifest, config *config.Config) *Manager {
 	gitRunner := git.NewCommandRunner()
 	
@@ -34,26 +39,182 @@ func NewManager(manifest *manifest.Manifest, config *config.Config) *Manager {
 			remoteName = p.Remote
 		} else {
 			remoteName = manifest.Default.Remote
+			fmt.Printf("Project %s does not specify remote, using default remote %s\n", p.Name, remoteName)
 		}
 		
 		// 查找远程配置
 		remoteFound := false
 		var remoteURL string
 		
-		for _, r := range manifest.Remotes {
-			if r.Name == remoteName {
-				// 构建远程URL
-				remoteURL = r.Fetch
-				if !strings.HasSuffix(remoteURL, "/") {
-					remoteURL += "/"
+		// 首先检查是否已经在自定义属性中存储了远程URL
+		if customURL, ok := p.GetCustomAttr("__remote_url"); ok && customURL != "" {
+		    remoteURL = customURL
+		    
+		    // 检查是否是相对路径，如果是则尝试构建SSH URL
+		    if strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
+		        // 尝试从config.json获取SSH基础URL
+		        cwd, err := os.Getwd()
+		        if err == nil {
+		            topDir := findTopLevelRepoDir(cwd)
+		            if topDir != "" {
+		                // 直接使用固定的SSH URL格式
+		                remoteURL = fmt.Sprintf("ssh://git@gitmirror.cixtech.com/%s", p.Name)
+		                fmt.Printf("Converted relative path to SSH URL: %s\n", remoteURL)
+		            }
+		        }
+		    }
+		    
+		    remoteFound = true
+		    fmt.Printf("Using custom remote URL for project %s: %s\n", p.Name, remoteURL)
+		} else {
+		    // 否则，查找远程配置并构建URL
+			for _, r := range manifest.Remotes {
+				if r.Name == remoteName {
+					// 构建远程URL
+					remoteURL = r.Fetch
+					if !strings.HasSuffix(remoteURL, "/") {
+						remoteURL += "/"
+					}
+					remoteURL += p.Name
+					remoteFound = true
+					fmt.Printf("Found remote %s in manifest for project %s: %s\n", remoteName, p.Name, remoteURL)
+					break
 				}
-				remoteURL += p.Name
-				remoteFound = true
-				break
+			}
+			
+			// 如果在当前manifest中找不到remote，尝试从.repo/manifests目录下查找
+			if !remoteFound {
+				// 获取当前工作目录
+				cwd, err := os.Getwd()
+				if err == nil {
+					// 查找顶层仓库目录
+					topDir := findTopLevelRepoDir(cwd)
+					if topDir == "" {
+						topDir = cwd // 如果找不到顶层目录，使用当前目录
+					}
+					
+					fmt.Printf("Searching for remote %s in .repo/manifests for project %s\n", remoteName, p.Name)
+					
+					// 尝试从config.json获取manifest URL
+					configFile := filepath.Join(topDir, ".repo", "manifests.git", "config")
+					if _, err := os.Stat(configFile); err == nil {
+						data, err := os.ReadFile(configFile)
+						if err == nil {
+							content := string(data)
+							// 查找URL行
+							urlLines := regexp.MustCompile(`(?m)^\s*url\s*=\s*(.+)$`).FindAllStringSubmatch(content, -1)
+							for _, match := range urlLines {
+								if len(match) > 1 {
+									baseURL := match[1]
+									// 如果是SSH URL，提取域名部分
+									if strings.HasPrefix(baseURL, "ssh://") || strings.Contains(baseURL, "@") {
+										parts := strings.Split(baseURL, ":")
+										if len(parts) > 1 {
+											domain := parts[0]
+											if strings.Contains(domain, "@") {
+												domain = strings.Split(domain, "@")[1]
+											}
+											// 构建SSH URL
+											remoteURL = fmt.Sprintf("ssh://%s/%s", domain, p.Name)
+											remoteFound = true
+											fmt.Printf("Using SSH URL from config: %s\n", remoteURL)
+											break
+										}
+									}
+								}
+							}
+						}
+					}
+					
+					// 如果仍未找到，尝试从manifest文件中查找
+					if !remoteFound {
+					    // 尝试从.repo/manifests/default.xml中查找
+					    manifestsFiles := []string{
+					        filepath.Join(topDir, ".repo", "manifests", "default.xml"),
+					        filepath.Join(topDir, ".repo", "manifests", "manifest.xml"),
+					        filepath.Join(topDir, ".repo", "manifests", "cix.xml"),
+					    }
+					    
+					    for _, manifestFile := range manifestsFiles {
+					        if _, statErr := os.Stat(manifestFile); statErr == nil {
+					            fmt.Printf("Checking manifest file: %s\n", manifestFile)
+					            // 文件存在，尝试解析
+					            data, readErr := os.ReadFile(manifestFile)
+					            if readErr == nil {
+					                // 解析manifest文件
+					                // 使用匿名结构体
+					                var manifestObj struct {
+					                    XMLName  xml.Name `xml:"manifest"`
+					                    Remotes []struct {
+					                        Name  string `xml:"name,attr"`
+					                        Fetch string `xml:"fetch,attr"`
+					                    } `xml:"remote"`
+					                    Default struct {
+					                        Remote   string `xml:"remote,attr"`
+					                        Revision string `xml:"revision,attr"`
+					                    } `xml:"default"`
+					                    Projects []struct {
+					                        Name     string `xml:"name,attr"`
+					                        Path     string `xml:"path,attr"`
+					                        Remote   string `xml:"remote,attr"`
+					                        Revision string `xml:"revision,attr"`
+					                        Groups   string `xml:"groups,attr"`
+					                    } `xml:"project"`
+					                }
+					                parseErr := xml.Unmarshal(data, &manifestObj)
+					                if parseErr == nil {
+					                    fmt.Printf("Successfully parsed manifest file: %s\n", manifestFile)
+					                    // 在解析的manifest中查找remote
+					                    for _, r := range manifestObj.Remotes {
+					                        fmt.Printf("Found remote in %s: %s -> %s\n", manifestFile, r.Name, r.Fetch)
+					                        if r.Name == remoteName {
+					                            // 构建远程URL
+					                            remoteURL = r.Fetch
+					                            if !strings.HasSuffix(remoteURL, "/") {
+					                                remoteURL += "/"
+					                            }
+					                            remoteURL += p.Name
+					                            remoteFound = true
+					                            fmt.Printf("Found remote %s in %s for project %s: %s\n", remoteName, manifestFile, p.Name, remoteURL)
+					                            break
+					                        }
+					                    }
+					                } else {
+					                    fmt.Printf("Error parsing manifest file %s: %v\n", manifestFile, parseErr)
+					                }
+					            } else {
+					                fmt.Printf("Error reading manifest file %s: %v\n", manifestFile, readErr)
+					            }
+					        } else {
+					            fmt.Printf("Manifest file not found: %s\n", manifestFile)
+					        }
+					        
+					        if remoteFound {
+					            break
+					        }
+					    }
+					}
+				}
+			}
+			
+			// 如果仍然找不到远程，尝试使用一些常见的远程URL模式
+			if !remoteFound {
+				// 尝试一些常见的远程URL模式
+				commonRemotes := map[string]string{
+					"cix": "ssh://git@github.com/cix-code/",
+					// 添加其他可能的远程URL前缀
+				}
+				
+				if baseURL, ok := commonRemotes[remoteName]; ok {
+					remoteURL = baseURL + p.Name
+					remoteFound = true
+					fmt.Printf("Using common remote pattern for %s: %s\n", remoteName, remoteURL)
+				}
 			}
 		}
 		
 		if !remoteFound {
+			fmt.Printf("Warning: Skipping project %s because remote %s not found\n", p.Name, remoteName)
 			continue // 跳过找不到远程的项目
 		}
 		
@@ -97,15 +258,7 @@ func NewManager(manifest *manifest.Manifest, config *config.Config) *Manager {
 }
 
 // GetProjects 获取符合条件的项目
-func (m *Manager) GetProjects(groupFilter string) ([]*Project, error) {
-	if groupFilter == "" {
-		return m.Projects, nil
-	}
-	
-	var groups []string
-	if groupFilter != "" {
-		groups = strings.Split(groupFilter, ",")
-	}
+func (m *Manager) GetProjects(groups []string) ([]*Project, error) {
 	
 	var filteredProjects []*Project
 	for _, p := range m.Projects {
@@ -200,4 +353,26 @@ type SyncOptions struct {
 	NetworkOnly bool   // 添加缺少的字段
 	Prune       bool   // 添加缺少的字段
 	Tags        bool   // 添加缺少的字段
+}
+
+// findTopLevelRepoDir 查找包含.repo目录的顶层目录
+func findTopLevelRepoDir(startDir string) string {
+	// 从当前目录开始向上查找，直到找到包含.repo目录的目录
+	dir := startDir
+	for {
+		// 检查当前目录是否包含.repo目录
+		repoDir := filepath.Join(dir, ".repo")
+		if _, err := os.Stat(repoDir); err == nil {
+			// 找到了.repo目录
+			return dir
+		}
+		
+		// 获取父目录
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// 已经到达根目录，没有找到.repo目录
+			return ""
+		}
+		dir = parent
+	}
 }

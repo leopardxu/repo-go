@@ -8,17 +8,37 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time" // 添加这一行
 )
 
 // Manifest 表示repo的清单文件
 // 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属性
+// 在现有的 manifest.go 文件中添加以下字段和方法
+
+// Manifest 表示清单文件
 type Manifest struct {
+	XMLName        xml.Name         `xml:"manifest"`
 	Remotes        []Remote        `xml:"remote"`
 	Default        Default         `xml:"default"`
 	Projects       []Project       `xml:"project"`
 	Includes       []Include       `xml:"include"`
 	RemoveProjects []RemoveProject `xml:"remove-project"`
 	CustomAttrs    map[string]string `xml:"-"` // 存储自定义属性
+	
+	// 添加与 engine.go 兼容的字段
+	Subdir        string // 清单子目录
+	RepoDir       string // 仓库目录
+	Topdir        string // 顶层目录
+	WorkDir       string // 工作目录
+	ManifestServer string // 清单服务器
+	Server        string // 服务器
+	
+	// 添加新的缺失字段
+	ManifestProject *Project // 清单项目
+	RepoProject *Project // 仓库项目
+	IsArchive bool // 是否为归档
+	CloneFilter string // 克隆过滤器
+	PartialCloneExclude string // 部分克隆排除
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -73,12 +93,22 @@ type Project struct {
 	Copyfiles  []Copyfile `xml:"copyfile"`
 	Linkfiles  []Linkfile `xml:"linkfile"`
 	CustomAttrs map[string]string `xml:"-"` // 存储自定义属性
+	
+	// 添加与 engine.go 兼容的字段
+	LastFetch  time.Time  // 最后一次获取的时间
+	NeedGC     bool       // 是否需要垃圾回收
 }
 
 // GetCustomAttr 获取自定义属性值
 func (p *Project) GetCustomAttr(name string) (string, bool) {
 	val, ok := p.CustomAttrs[name]
 	return val, ok
+}
+
+// GetBranch 获取当前分支
+func (p *Project) GetBranch() string {
+	// 简单实现，返回修订版本作为分支
+	return p.Revision
 }
 
 // Include 表示包含的清单文件
@@ -192,9 +222,11 @@ type Parser struct {
 }
 
 // NewParser 创建清单解析器
+// 这是一个包级别函数，供外部调用
 func NewParser() *Parser {
 	return &Parser{}
 }
+
 
 // ParseFromFile 从文件解析清单
 func (p *Parser) ParseFromFile(filename string) (*Manifest, error) {
@@ -340,12 +372,68 @@ func (p *Parser) Parse(data []byte) (*Manifest, error) {
 	manifest.CustomAttrs = make(map[string]string)
 	manifest.Default.CustomAttrs = make(map[string]string)
 
+	// 初始化新添加的字段
+	manifest.IsArchive = false // 默认不是归档
+	manifest.CloneFilter = "" // 默认无克隆过滤器
+	manifest.PartialCloneExclude = "" // 默认无部分克隆排除
+	
+	// 尝试从自定义属性中获取值
+	if isArchive, ok := manifest.GetCustomAttr("is-archive"); ok {
+		manifest.IsArchive = isArchive == "true"
+	}
+	if cloneFilter, ok := manifest.GetCustomAttr("clone-filter"); ok {
+		manifest.CloneFilter = cloneFilter
+	}
+	if partialCloneExclude, ok := manifest.GetCustomAttr("partial-clone-exclude"); ok {
+		manifest.PartialCloneExclude = partialCloneExclude
+	}
+	
 	for i := range manifest.Remotes {
 		manifest.Remotes[i].CustomAttrs = make(map[string]string)
 	}
 
 	for i := range manifest.Projects {
 		manifest.Projects[i].CustomAttrs = make(map[string]string)
+		// 如果项目没有指定路径，则使用项目名称作为默认路径
+		if manifest.Projects[i].Path == "" {
+			manifest.Projects[i].Path = manifest.Projects[i].Name
+			fmt.Printf("Project %s does not specify path, using name as default path\n", manifest.Projects[i].Name)
+		}
+		// 如果项目没有指定远程仓库，则使用默认远程仓库
+		if manifest.Projects[i].Remote == "" {
+			manifest.Projects[i].Remote = manifest.Default.Remote
+			fmt.Printf("Project %s does not specify remote, using default remote %s\n", manifest.Projects[i].Name, manifest.Default.Remote)
+		}
+		// 如果项目没有指定修订版本，则使用默认修订版本
+		if manifest.Projects[i].Revision == "" {
+			manifest.Projects[i].Revision = manifest.Default.Revision
+			fmt.Printf("Project %s does not specify revision, using default revision %s\n", manifest.Projects[i].Name, manifest.Default.Revision)
+		}
+		// 验证远程仓库是否存在
+		remoteExists := false
+		var remoteObj *Remote
+		for j := range manifest.Remotes {
+			if manifest.Remotes[j].Name == manifest.Projects[i].Remote {
+				remoteExists = true
+				remoteObj = &manifest.Remotes[j]
+				break
+			}
+		}
+		if !remoteExists {
+			// 如果找不到远程仓库，记录警告但不中断处理
+			fmt.Printf("Warning: project %s references non-existent remote %s, this may cause sync failures\n", manifest.Projects[i].Name, manifest.Projects[i].Remote)
+		} else {
+			// 记录远程仓库的Fetch属性，用于后续构建完整URL
+			manifest.Projects[i].CustomAttrs["__remote_fetch"] = remoteObj.Fetch
+			
+			// 构建完整的远程URL并存储在自定义属性中
+			remoteURL := remoteObj.Fetch
+			if !strings.HasSuffix(remoteURL, "/") {
+				remoteURL += "/"
+			}
+			remoteURL += manifest.Projects[i].Name
+			manifest.Projects[i].CustomAttrs["__remote_url"] = remoteURL
+		}
 		for j := range manifest.Projects[i].Copyfiles {
 			manifest.Projects[i].Copyfiles[j].CustomAttrs = make(map[string]string)
 		}

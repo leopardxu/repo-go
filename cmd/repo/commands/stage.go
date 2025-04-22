@@ -88,7 +88,7 @@ func runStage(opts *StageOptions, args []string) error {
 	var projects []*project.Project
 	if len(projectNames) == 0 {
 		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects("")
+		projects, err = manager.GetProjects(nil) // Use nil instead of ""
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}

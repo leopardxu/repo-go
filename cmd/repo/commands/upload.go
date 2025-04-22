@@ -105,7 +105,7 @@ func runUpload(opts *UploadOptions, args []string) error {
 	var projects []*project.Project
 	if len(args) == 0 {
 		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects("")
+		projects, err = manager.GetProjects(nil)
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}

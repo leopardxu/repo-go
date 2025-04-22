@@ -69,6 +69,7 @@ This is similar to running: repo forall -c 'echo "$REPO_PATH : $REPO_PROJECT"'`,
 }
 
 // runList 执行list命令
+// runList executes list command
 func runList(opts *ListOptions, args []string) error {
 	if !opts.Quiet {
 		fmt.Println("Listing projects")
@@ -88,19 +89,22 @@ func runList(opts *ListOptions, args []string) error {
 	}
 
 	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg)
-
+	manager := project.NewManager(manifest, cfg) // Use loaded cfg
 	// 获取要处理的项目
-	var projects []*project.Project
+	var projects []*project.Project // Declare projects variable
 	if len(args) == 0 {
 		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects(opts.Groups)
+		var groupsArg []string
+		if opts.Groups != "" { // Use opts.Groups
+			groupsArg = []string{opts.Groups}
+		}
+		projects, err = manager.GetProjects(groupsArg) // Assign to projects
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
 		// 否则，只处理指定的项目
-		projects, err = manager.GetProjectsByNames(args)
+		projects, err = manager.GetProjectsByNames(args) // Assign to projects
 		if err != nil {
 			if !opts.MissingOK {
 				return fmt.Errorf("failed to get projects: %w", err)

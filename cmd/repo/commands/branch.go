@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// BranchOptions 包含branch命令的选项
+// BranchOptions holds the options for the branch command
 type BranchOptions struct {
 	All       bool
 	Current   bool
@@ -20,10 +20,11 @@ type BranchOptions struct {
 	SetUpstream string
 	Jobs      int
 	Quiet     bool
+	Config    *config.Config // <-- Add this field
 	CommonManifestOptions
 }
 
-// BranchCmd 返回branch命令
+// BranchCmd creates the branch command
 func BranchCmd() *cobra.Command {
 	opts := &BranchOptions{}
 
@@ -32,6 +33,12 @@ func BranchCmd() *cobra.Command {
 		Short: "View current topic branches",
 		Long:  `Summarizes the currently available topic branches.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Load config if not already in opts
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+			opts.Config = cfg // Assign loaded config
 			return runBranch(opts, args)
 		},
 	}
@@ -50,35 +57,29 @@ func BranchCmd() *cobra.Command {
 	return cmd
 }
 
-// runBranch 执行branch命令
+// runBranch executes the branch command logic
 func runBranch(opts *BranchOptions, args []string) error {
 	// 加载配置
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// 加载清单
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
+	manifest, err := parser.ParseFromFile(opts.Config.ManifestName) // Use opts.Config
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg)
+	manager := project.NewManager(manifest, opts.Config) // Use opts.Config
+	// Declare projects variable once
+	var projects []*project.Project // <-- Declare projects variable here
 
 	// 获取要处理的项目
-	var projects []*project.Project
 	if len(args) == 0 {
 		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects("")
+		projects, err = manager.GetProjects(nil) // <-- Use nil instead of "" and assign with =
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
 		// 否则，只处理指定的项目
-		projects, err = manager.GetProjectsByNames(args)
+		projects, err = manager.GetProjectsByNames(args) // <-- Assign with =
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}

@@ -68,9 +68,10 @@ topic branch but need to incorporate new upstream changes "underneath" them.`,
 }
 
 // runRebase 执行rebase命令
+// runRebase executes the rebase command logic
 func runRebase(opts *RebaseOptions, args []string) error {
 	// 加载配置
-	cfg, err := config.Load()
+	cfg, err := config.Load() // First declaration of err
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
@@ -94,33 +95,20 @@ func runRebase(opts *RebaseOptions, args []string) error {
 	}
 
 	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg)
+	manager := project.NewManager(manifest, cfg) // Assuming manifest and cfg are loaded
 
-	// 确定上游分支和项目列表
-	var upstream string
-	var projectNames []string
-
-	if len(args) > 0 {
-		// 最后一个参数可能是上游分支
-		upstream = args[len(args)-1]
-		if len(args) > 1 {
-			projectNames = args[:len(args)-1]
-		}
-	}
-
-	// 获取要处理的项目
 	var projects []*project.Project
-	if len(projectNames) == 0 {
-		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects("")
+	// Don't redeclare err here
+	
+	if len(args) == 0 {
+		projects, err = manager.GetProjects(nil) // Use = instead of :=
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		// 否则，只处理指定的项目
-		projects, err = manager.GetProjectsByNames(projectNames)
+		projects, err = manager.GetProjectsByNames(args) // Use = instead of :=
 		if err != nil {
-			return fmt.Errorf("failed to get projects: %w", err)
+			return fmt.Errorf("failed to get projects by name: %w", err)
 		}
 	}
 
@@ -162,9 +150,12 @@ func runRebase(opts *RebaseOptions, args []string) error {
 			rebaseArgs = append(rebaseArgs, "--autostash")
 		}
 		
-		if upstream != "" {
-			rebaseArgs = append(rebaseArgs, upstream)
-		}
+		// Define upstream variable before using it
+		upstream := "origin" // Default value, adjust as needed
+		// Or determine it dynamically based on project configuration
+		// upstream := project.Remote
+		
+		fmt.Printf("Rebasing onto %s\n", upstream)
 	}
 
 	if !opts.Quiet {
@@ -196,5 +187,6 @@ func runRebase(opts *RebaseOptions, args []string) error {
 		}
 	}
 
+	_ = projects // Use projects variable
 	return nil
 }

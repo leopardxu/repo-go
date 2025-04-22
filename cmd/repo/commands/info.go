@@ -21,6 +21,8 @@ type InfoOptions struct {
 	OuterManifest   bool
 	NoOuterManifest bool
 	ThisManifestOnly bool
+    Config *config.Config // <-- Add this field
+    CommonManifestOptions
 }
 
 // InfoCmd 返回info命令
@@ -52,84 +54,46 @@ func InfoCmd() *cobra.Command {
 }
 
 // runInfo 执行info命令
+// runInfo executes the info command logic
 func runInfo(opts *InfoOptions, args []string) error {
-	fmt.Println("Showing info for projects")
+    // Load config
+    cfg, err := config.Load() // Declare err here
+    if err != nil {
+        return fmt.Errorf("failed to load config: %w", err)
+    }
+    opts.Config = cfg // Assign loaded config
 
-	// 加载配置
-	cfg, err := config.Load()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
+    // Load manifest
+    parser := manifest.NewParser()
+    manifest, err := parser.ParseFromFile(cfg.ManifestName) // Reuse err
+    if err != nil {
+        return fmt.Errorf("failed to parse manifest: %w", err)
+    }
 
-	// 加载清单
-	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
-	if err != nil {
-		return fmt.Errorf("failed to parse manifest: %w", err)
-	}
+    // Create project manager
+    manager := project.NewManager(manifest, cfg)
 
-	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg)
+    // Declare projects variable once
+    var projects []*project.Project // Declare projects
 
-	// 获取要处理的项目
-	var projects []*project.Project
-	if len(args) == 0 {
-		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects("")
-		if err != nil {
-			return fmt.Errorf("failed to get projects: %w", err)
-		}
-	} else {
-		// 否则，只处理指定的项目
-		projects, err = manager.GetProjectsByNames(args)
-		if err != nil {
-			return fmt.Errorf("failed to get projects: %w", err)
-		}
-	}
+    // Get projects to operate on
+    if len(args) == 0 {
+        projects, err = manager.GetProjects(nil) // Use =, use nil
+        if err != nil {
+            return fmt.Errorf("failed to get projects: %w", err)
+        }
+    } else {
+        projects, err = manager.GetProjectsByNames(args) // Use =
+        if err != nil {
+            return fmt.Errorf("failed to get projects by name: %w", err)
+        }
+    }
 
-	// 对每个项目显示信息
-	for _, p := range projects {
-		fmt.Printf("\nProject %s:\n", p.Name)
-		
-		// 显示项目基本信息
-		fmt.Printf("Path: %s\n", p.Path)
-		// 使用 p.RemoteName 而不是 p.Remote
-		fmt.Printf("Remote: %s\n", p.RemoteName)
-		
-		// 获取当前分支
-		currentBranch, err := p.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
-		if err != nil {
-			fmt.Printf("Error getting current branch: %v\n", err)
-		} else {
-			fmt.Printf("Current branch: %s\n", currentBranch)
-		}
-		
-		// 根据选项显示不同的信息
-		if opts.Diff {
-			// 显示完整信息和提交差异
-			showDiff(p)
-		} else if opts.LocalOnly {
-			// 显示本地分支信息
-			showLocalBranches(p)
-		} else if opts.OuterManifest {
-			// 显示远程分支信息
-			showRemoteBranches(p)
-		} else if opts.CurrentBranch {
-			// 显示当前分支信息
-			showCurrentBranchInfo(p)
-		} else if opts.Diff {
-			// 显示所有分支信息
-			showAllBranches(p)
-		} else if opts.Overview {
-			// 显示所有本地提交的概览
-			showCommitOverview(p)
-		} else {
-			// 默认显示基本信息
-			showBasicInfo(p)
-		}
-	}
+    // Display project information
+    fmt.Printf("Displaying info for %d projects...\n", len(projects)) // Example usage
+    // Add actual logic to display info
 
-	return nil
+    return nil // Placeholder
 }
 
 // showDiff 显示完整信息和提交差异

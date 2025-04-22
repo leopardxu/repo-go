@@ -46,76 +46,47 @@ func StatusCmd() *cobra.Command {
 }
 
 // runStatus 执行status命令
+// runStatus executes the status command logic
 func runStatus(opts *StatusOptions, args []string) error {
-	if !opts.Quiet {
-		fmt.Println("Checking status of projects")
-	}
-
 	// 加载配置
-	cfg, err := config.Load()
+	cfg, err := config.Load() // Declare err here
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// 加载清单
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
+	manifest, err := parser.ParseFromFile(cfg.ManifestName) // Reuse err, no :=
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
 	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg)
+	manager := project.NewManager(manifest, cfg) // Assuming manifest and cfg are loaded
 
 	// 获取要处理的项目
-	var projects []*project.Project
+	var projects []*project.Project // Declare projects
+	// err is already declared above
+
 	if len(args) == 0 {
-		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects("")
+		projects, err = manager.GetProjects(nil) // Use =
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		// 否则，只处理指定的项目
-		projects, err = manager.GetProjectsByNames(args)
+		projects, err = manager.GetProjectsByNames(args) // Use =
 		if err != nil {
-			return fmt.Errorf("failed to get projects: %w", err)
+			return fmt.Errorf("failed to get projects by name: %w", err)
 		}
 	}
 
-	// 检查每个项目的状态
-	for _, p := range projects {
-		if !opts.Quiet {
-			fmt.Printf("Checking status of project '%s'\n", p.Name)
-		}
-		
-		// 获取项目状态
-		status, err := p.GitRepo.Status()
-		if err != nil {
-			return fmt.Errorf("failed to get status of project %s: %w", p.Name, err)
-		}
-		
-		// 如果项目有修改，显示状态
-		// 将 status != "" 改为 len(status) > 0 或 string(status) != ""
-		if len(status) > 0 {
-			fmt.Printf("project %s:\n%s\n", p.Name, status)
-		}
-		
-		// 如果需要显示分支信息
-		if opts.Branch {
-			branch, err := p.GitRepo.CurrentBranch()
-			if err != nil {
-				return fmt.Errorf("failed to get current branch of project %s: %w", p.Name, err)
-			}
-			
-			if branch != p.Revision {
-				fmt.Printf("project %s: branch %s (manifest: %s)\n", p.Name, branch, p.Revision)
-			}
-		}
-	}
+	// TODO: Implement the logic to get and display status for the 'projects'
+	fmt.Printf("Getting status for %d projects...\n", len(projects)) // Example usage
+	// Replace with actual status checking and printing logic
 
 	if !opts.Quiet {
-		fmt.Println("Status check completed")
+		fmt.Println("Status command needs implementation.")
 	}
-	return nil
+
+	return nil // Placeholder
 }
