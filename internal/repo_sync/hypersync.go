@@ -1,4 +1,4 @@
-package sync
+package repo_sync
 
 import (
 	"encoding/json"

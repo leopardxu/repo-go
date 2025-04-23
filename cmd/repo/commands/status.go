@@ -80,13 +80,45 @@ func runStatus(opts *StatusOptions, args []string) error {
 		}
 	}
 
-	// TODO: Implement the logic to get and display status for the 'projects'
-	fmt.Printf("Getting status for %d projects...\n", len(projects)) // Example usage
-	// Replace with actual status checking and printing logic
-
-	if !opts.Quiet {
-		fmt.Println("Status command needs implementation.")
+		// 使用goroutine池并发获取项目状态
+	type statusResult struct {
+		Project *project.Project
+		Status  string
+		Err     error
 	}
 
-	return nil // Placeholder
+	results := make(chan statusResult, len(projects))
+	sem := make(chan struct{}, opts.Jobs)
+
+	for _, p := range projects {
+		p := p
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+			
+			status, err := p.GetStatus()
+			results <- statusResult{
+				Project: p,
+				Status:  status,
+				Err:     err,
+			}
+		}()
+	}
+
+	// 等待所有goroutine完成
+	for i := 0; i < len(projects); i++ {
+		res := <-results
+		if res.Err != nil {
+			if !opts.Quiet {
+				fmt.Printf("Error getting status for %s: %v\n", res.Project.Name, res.Err)
+			}
+			continue
+		}
+		
+		if !opts.Quiet {
+			fmt.Printf("%s: %s\n", res.Project.Name, res.Status)
+		}
+	}
+
+	return nil
 }

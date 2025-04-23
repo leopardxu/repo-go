@@ -148,6 +148,15 @@ func (p *Project) Sync(opts SyncOptions) error {
 	return nil
 }
 
+// GetStatus 获取项目状态
+func (p *Project) GetStatus() (string, error) {
+	status, err := p.GitRepo.Status()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project status: %w", err)
+	}
+	return string(status), nil
+}
+
 // DeleteWorktree 删除工作树
 func (p *Project) DeleteWorktree(quiet bool, forceRemoveDirty bool) error {
 	// 检查工作树是否存在
@@ -240,15 +249,13 @@ func (p *Project) SyncLocalHalf(detach bool, forceSync bool, forceOverwrite bool
 }
 
 // GetBranch 获取当前分支
-func (p *Project) GetBranch() string {
-	// 修改为使用 git.Repository 中可用的方法
-	// 假设 git.Repository 有一个 GetBranchName 方法
-	branch, err := p.GitRepo.GetBranchName()
-	if err != nil {
-		return "master" // 默认分支
-	}
-	
-	return branch
+func (p *Project) GetCurrentBranch() (string, error) {
+    return p.GitRepo.CurrentBranch()
+}
+
+func (p *Project) DeleteBranch(branch string) error {
+    _, err := p.GitRepo.RunCommand("branch", "-D", branch)
+    return err
 }
 
 // GC 执行垃圾回收

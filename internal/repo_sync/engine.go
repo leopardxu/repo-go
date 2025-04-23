@@ -1,4 +1,4 @@
-package sync
+package repo_sync
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -16,39 +17,11 @@ import (
 )
 
 // Options 包含同步引擎的选项
-type Options struct {
-	Jobs           int
-	JobsNetwork    int
-	JobsCheckout   int
-	CurrentBranch  bool
-	Detach         bool
-	ForceSync      bool
-	ForceRemoveDirty bool
-	ForceOverwrite bool
-	LocalOnly      bool
-	NetworkOnly    bool
-	Prune          bool
-	Quiet          bool
-	SmartSync      bool
-	Tags           bool
-	NoCloneBundle  bool
-	FetchSubmodules bool
-	OptimizedFetch bool
-	RetryFetches   int
-	Groups         []string
-	FailFast       bool
-	NoManifestUpdate bool
-	UseSuperproject bool
-	HyperSync      bool
-	SmartTag       string
-	OuterManifest  bool
-	ThisManifestOnly bool
-	ManifestServerUsername string
-	ManifestServerPassword string
-}
+// Options moved to options.go to avoid duplicate declarations
 
 // Engine 是同步引擎
 type Engine struct {
+	manifestCache []byte
 	projects []*project.Project
 	options  *Options
 	manifest *manifest.Manifest
@@ -60,16 +33,36 @@ type Engine struct {
 	fetchTimesLock sync.Mutex
 	errResults     []string
 	errEvent       chan struct{}
+	
+	// 仓库根目录
+	repoRoot string
 }
 
 // NewEngine 创建一个新的同步引擎
 func NewEngine(projects []*project.Project, options *Options, manifest *manifest.Manifest, config *config.Config) *Engine {
+	// 确保options.HTTPTimeout和options.Debug可用
+	if options.HTTPTimeout == 0 {
+		options.HTTPTimeout = 30 * time.Second
+	}
 	// 设置默认值
 	if options.JobsNetwork <= 0 {
 		options.JobsNetwork = options.Jobs
 	}
 	if options.JobsCheckout <= 0 {
 		options.JobsCheckout = options.Jobs
+	}
+	
+	// 获取仓库根目录
+	var repoRoot string
+	if len(projects) > 0 && projects[0].Worktree != "" {
+		// 通过项目路径推断 repo 根目录
+		repoRoot = filepath.Dir(projects[0].Worktree)
+	} else if config != nil {
+		// 从配置中获取
+		repoRoot = config.RepoRoot
+	} else {
+		// 默认使用当前目录
+		repoRoot, _ = os.Getwd()
 	}
 	
 	return &Engine{
@@ -79,6 +72,7 @@ func NewEngine(projects []*project.Project, options *Options, manifest *manifest
 		config:     config,
 		fetchTimes: make(map[string]float64),
 		errEvent:   make(chan struct{}, 1),
+		repoRoot:   repoRoot,
 	}
 }
 
@@ -130,8 +124,7 @@ func (e *Engine) Run() error {
 	}
 	
 	// 执行网络同步
-	allProjects, err := e.fetchMain(hyperSyncProjects)
-	if err != nil {
+	if err := e.fetchMain(e.projects); err != nil {
 		return err
 	}
 	
@@ -144,7 +137,7 @@ func (e *Engine) Run() error {
 	}
 	
 	// 执行本地检出
-	if err := e.checkout(allProjects, hyperSyncProjects); err != nil {
+	if err := e.checkout(e.projects, hyperSyncProjects); err != nil {
 		return err
 	}
 	
@@ -154,6 +147,11 @@ func (e *Engine) Run() error {
 	}
 	
 	return nil
+}
+
+// Errors 返回同步过程中收集的错误
+func (e *Engine) Errors() []string {
+	return e.errResults
 }
 
 // updateProjectList 更新项目列表
@@ -267,6 +265,7 @@ func (e *Engine) updateCopyLinkfileList() error {
 	return nil
 }
 
+
 // reloadManifest 重新加载清单
 func (e *Engine) reloadManifest(manifestName string, localOnly bool) error {
     if manifestName == "" {
@@ -312,34 +311,31 @@ func (e *Engine) getProjects() ([]*project.Project, error) {
     return e.projects, nil
 }
 
-// 删除重复声明的 reloadManifest 方法
-/*
-func (e *Engine) reloadManifest(manifestName string, localOnly bool) error {
-    if manifestName == "" {
-        manifestName = e.config.ManifestName
+// reloadManifestFromCache 重新加载manifest
+func (e *Engine) reloadManifestFromCache() error {
+    if len(e.manifestCache) == 0 {
+        return fmt.Errorf("manifest cache is empty")
     }
-    
-    // 解析清单
+
+    // 解析缓存的manifest数据
     parser := manifest.NewParser()
-    newManifest, err := parser.ParseFromFile(manifestName)
+    newManifest, err := parser.ParseFromBytes(e.manifestCache)
     if err != nil {
-        return fmt.Errorf("failed to parse manifest: %w", err)
+        return fmt.Errorf("failed to parse manifest from cache: %w", err)
     }
-    
-    // 更新清单
+
+    // 更新引擎中的manifest
     e.manifest = newManifest
-    
-    // 更新项目列表 - 修复参数类型
+
+    // 重新获取项目列表
     projects, err := project.NewManager(e.manifest, e.config).GetProjects(e.options.Groups)
     if err != nil {
-        return fmt.Errorf("failed to get projects: %w", err)
+        return fmt.Errorf("failed to get projects from cached manifest: %w", err)
     }
-    
     e.projects = projects
-    
+
     return nil
 }
-*/
 
 // updateProjectsRevisionId 方法
 func (e *Engine) updateProjectsRevisionId() (string, error) {

@@ -11,10 +11,86 @@ import (
 
 // DiffOptions holds the options for the diff command
 type DiffOptions struct {
-	// Add specific options for diff if needed
 	Quiet  bool
-	Config *config.Config // <-- Add Config field
+	Config *config.Config
 	CommonManifestOptions
+}
+
+// 加载配置
+func loadConfig() (*config.Config, error) {
+	return config.Load()
+}
+
+// 解析清单
+func loadManifest(cfg *config.Config) (*manifest.Manifest, error) {
+	parser := manifest.NewParser()
+	return parser.ParseFromFile(cfg.ManifestName)
+}
+
+// 获取项目列表
+func getProjects(manager *project.Manager, projectNames []string) ([]*project.Project, error) {
+	if len(projectNames) == 0 {
+		return manager.GetProjects(nil)
+	}
+	return manager.GetProjectsByNames(projectNames)
+}
+
+// 并发执行diff操作
+type diffResult struct {
+	Name string
+	Output string
+	Err   error
+}
+
+func runDiff(opts *DiffOptions, projectNames []string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	opts.Config = cfg
+
+	mf, err := loadManifest(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	manager := project.NewManager(mf, cfg)
+	projects, err := getProjects(manager, projectNames)
+	if err != nil {
+		return fmt.Errorf("failed to get projects: %w", err)
+	}
+
+	if !opts.Quiet {
+		fmt.Printf("Diff %d project(s)\n", len(projects))
+	}
+
+	maxConcurrency := 8
+	sem := make(chan struct{}, maxConcurrency)
+	results := make(chan diffResult, len(projects))
+
+	for _, p := range projects {
+		sem <- struct{}{}
+		go func(proj *project.Project) {
+			defer func() { <-sem }()
+			out, err := proj.GitRepo.RunCommand("diff")
+			results <- diffResult{Name: proj.Name, Output: out, Err: err}
+		}(p)
+	}
+
+	for i := 0; i < len(projects); i++ {
+		res := <-results
+		if res.Err != nil {
+			fmt.Printf("Error in %s: %v\n", res.Name, res.Err)
+			continue
+		}
+		if res.Output != "" {
+			fmt.Printf("--- %s ---\n%s\n", res.Name, res.Output)
+		} else if !opts.Quiet {
+			fmt.Printf("--- %s ---\n(No changes)\n", res.Name)
+		}
+	}
+
+	return nil
 }
 
 // DiffCmd creates the diff command
@@ -25,73 +101,11 @@ func DiffCmd() *cobra.Command {
 		Short: "Show changes between commit, working tree, etc",
 		Long:  `Shows changes between the working tree and the index or a commit.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load() // Load config
-			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
-			opts.Config = cfg // Assign loaded config
 			return runDiff(opts, args)
 		},
 	}
 
-	// Add flags
 	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
-	AddManifestFlags(cmd, &opts.CommonManifestOptions) // Pass opts.CommonManifestOptions
-
+	AddManifestFlags(cmd, &opts.CommonManifestOptions)
 	return cmd
-}
-
-// runDiff executes the diff command logic
-func runDiff(opts *DiffOptions, projectNames []string) error {
-	// Load manifest
-	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(opts.Config.ManifestName)
-	if err != nil {
-		return fmt.Errorf("failed to parse manifest: %w", err)
-	}
-
-	// Create project manager
-	manager := project.NewManager(manifest, opts.Config)
-
-	// Declare projects variable once
-	var projects []*project.Project
-
-	// Get projects to operate on
-	if len(projectNames) == 0 {
-		projects, err = manager.GetProjects(nil) // <-- Use nil, assign with =
-		if err != nil {
-			return fmt.Errorf("failed to get projects: %w", err)
-		}
-	} else {
-		// Correct assignment mismatch
-		projects, err = manager.GetProjectsByNames(projectNames) // <-- Assign both projects and err
-		if err != nil {
-			return fmt.Errorf("failed to get projects by name: %w", err)
-		}
-	}
-
-	// Perform diff operation
-	if !opts.Quiet {
-		fmt.Printf("Showing diff for %d projects...\n", len(projects))
-	}
-
-	for _, p := range projects {
-		if !opts.Quiet {
-			fmt.Printf("--- Diff for %s ---\n", p.Name)
-		}
-		// Example: Run git diff command
-		diffOutput, err := p.GitRepo.RunCommand("diff")
-		if err != nil {
-			// Handle error appropriately
-			fmt.Printf("Error running diff in %s: %v\n", p.Name, err)
-			continue // Or return error
-		}
-		if diffOutput != "" {
-			fmt.Println(diffOutput)
-		} else if !opts.Quiet {
-			fmt.Println("(No changes)")
-		}
-	}
-
-	return nil // Adjust error handling as needed
 }

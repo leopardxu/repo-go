@@ -89,11 +89,58 @@ func runInfo(opts *InfoOptions, args []string) error {
         }
     }
 
-    // Display project information
-    fmt.Printf("Displaying info for %d projects...\n", len(projects)) // Example usage
-    // Add actual logic to display info
+    // 并发获取项目信息
+type infoResult struct {
+	Project *project.Project
+	Output  string
+	Err     error
+}
 
-    return nil // Placeholder
+results := make(chan infoResult, len(projects))
+sem := make(chan struct{}, 8) // 控制并发数
+
+for _, p := range projects {
+	sem <- struct{}{}
+	go func(proj *project.Project) {
+		defer func() { <-sem }()
+		
+		var output string
+		var err error
+		
+		// 根据选项显示不同信息
+		switch {
+		case opts.Diff:
+			output, err = proj.GitRepo.RunCommand("log", "--oneline", "HEAD..@{upstream}")
+		case opts.Overview:
+			output, err = proj.GitRepo.RunCommand("log", "--oneline", "-10")
+		case opts.CurrentBranch:
+			output, err = proj.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
+		default:
+			output, err = proj.GitRepo.RunCommand("status", "--short")
+		}
+		
+		results <- infoResult{Project: proj, Output: output, Err: err}
+	}(p)
+}
+
+// 收集并显示结果
+for i := 0; i < len(projects); i++ {
+	res := <-results
+	if res.Err != nil {
+		if !opts.Quiet {
+			fmt.Printf("Error getting info for %s: %v\n", res.Project.Name, res.Err)
+		}
+		continue
+	}
+	
+	if res.Output != "" {
+		fmt.Printf("--- %s ---\n%s\n", res.Project.Name, res.Output)
+	} else if !opts.Quiet {
+		fmt.Printf("--- %s ---\n(No changes)\n", res.Project.Name)
+	}
+}
+
+return nil
 }
 
 // showDiff 显示完整信息和提交差异

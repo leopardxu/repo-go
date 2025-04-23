@@ -89,97 +89,130 @@ func runList(opts *ListOptions, args []string) error {
 	}
 
 	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg) // Use loaded cfg
-	// 获取要处理的项目
-	var projects []*project.Project // Declare projects variable
-	if len(args) == 0 {
-		// 如果没有指定项目，则处理所有项目
-		var groupsArg []string
-		if opts.Groups != "" { // Use opts.Groups
-			groupsArg = []string{opts.Groups}
-		}
-		projects, err = manager.GetProjects(groupsArg) // Assign to projects
-		if err != nil {
-			return fmt.Errorf("failed to get projects: %w", err)
-		}
-	} else {
-		// 否则，只处理指定的项目
-		projects, err = manager.GetProjectsByNames(args) // Assign to projects
-		if err != nil {
-			if !opts.MissingOK {
-				return fmt.Errorf("failed to get projects: %w", err)
-			}
-			// 如果设置了missing-ok，则忽略错误
-			if !opts.Quiet {
-				fmt.Printf("Warning: %v\n", err)
-			}
-		}
+	manager := project.NewManager(manifest, cfg)
+
+	// 使用通道和goroutine池并发获取项目
+	type projectResult struct {
+		Projects []*project.Project
+		Err      error
 	}
 
-	// 过滤路径前缀
-	if opts.PathPrefix != "" {
-		filteredProjects := []*project.Project{}
+	resultChan := make(chan projectResult, 1)
+
+	go func() {
+		var projects []*project.Project
+		var err error
+		
+		if len(args) == 0 {
+			var groupsArg []string
+			if opts.Groups != "" {
+				groupsArg = []string{opts.Groups}
+			}
+			projects, err = manager.GetProjects(groupsArg)
+		} else {
+			projects, err = manager.GetProjectsByNames(args)
+			if err != nil && opts.MissingOK {
+				if !opts.Quiet {
+					fmt.Printf("Warning: %v\n", err)
+				}
+				err = nil
+			}
+		}
+		resultChan <- projectResult{projects, err}
+	}()
+
+	result := <-resultChan
+	if result.Err != nil {
+		return fmt.Errorf("failed to get projects: %w", result.Err)
+	}
+	projects := result.Projects
+
+	// 并发过滤和输出项目
+	maxWorkers := 8
+	sem := make(chan struct{}, maxWorkers)
+	errChan := make(chan error, 1)
+	done := make(chan struct{})
+
+	// 过滤函数
+	filterProjects := func(projects []*project.Project, filterFunc func(*project.Project) bool) []*project.Project {
+		filtered := make([]*project.Project, 0, len(projects))
 		for _, p := range projects {
-			if strings.HasPrefix(p.Path, opts.PathPrefix) {
-				filteredProjects = append(filteredProjects, p)
+			if filterFunc(p) {
+				filtered = append(filtered, p)
 			}
 		}
-		projects = filteredProjects
+		return filtered
 	}
 
-	// 过滤正则表达式
+	// 路径前缀过滤
+	if opts.PathPrefix != "" {
+		projects = filterProjects(projects, func(p *project.Project) bool {
+			return strings.HasPrefix(p.Path, opts.PathPrefix)
+		})
+	}
+
+	// 正则表达式过滤
 	if opts.Regex != "" {
-		filteredProjects := []*project.Project{}
 		regex, err := regexp.Compile(opts.Regex)
 		if err != nil {
 			return fmt.Errorf("invalid regex pattern: %w", err)
 		}
-		for _, p := range projects {
-			if regex.MatchString(p.Name) || regex.MatchString(p.Path) {
-				filteredProjects = append(filteredProjects, p)
-			}
-		}
-		projects = filteredProjects
+		projects = filterProjects(projects, func(p *project.Project) bool {
+			return regex.MatchString(p.Name) || regex.MatchString(p.Path)
+		})
 	}
 
-	// 显示项目列表
+	// 并发输出项目信息
 	for _, p := range projects {
-		var output string
-		
-		path := p.Path
-		if opts.RelativeTo != "" {
-			relPath, err := filepath.Rel(opts.RelativeTo, p.Path)
-			if err == nil {
-				path = relPath
+		sem <- struct{}{}
+		go func(p *project.Project) {
+			defer func() { <-sem }()
+
+			var output string
+			path := p.Path
+			if opts.RelativeTo != "" {
+				relPath, err := filepath.Rel(opts.RelativeTo, p.Path)
+				if err == nil {
+					path = relPath
+				}
 			}
-		}
-		
-		if opts.Path {
-			// 显示项目目录
-			output = path
-		} else if opts.Name {
-			// 只显示项目名
-			output = p.Name
-		} else if opts.URL {
-			// 显示项目URL
-			output = p.RemoteName
-		} else if opts.FullName {
-			// 显示项目名和目录
-			output = fmt.Sprintf("%s : %s", p.Name, path)
-		} else if opts.FullPath {
-			// 显示完整路径
-			absPath, err := filepath.Abs(p.Path)
-			if err == nil {
-				output = absPath
-			} else {
-				output = p.Path
+
+			switch {
+			case opts.Path:
+				output = path
+			case opts.Name:
+				output = p.Name
+			case opts.URL:
+				output = p.RemoteName
+			case opts.FullName:
+				output = fmt.Sprintf("%s : %s", p.Name, path)
+			case opts.FullPath:
+				absPath, err := filepath.Abs(p.Path)
+				if err == nil {
+					output = absPath
+				} else {
+					output = p.Path
+				}
+			default:
+				output = path
 			}
-		} else {
-			// 默认显示项目路径
-			output = path
+
+			fmt.Println(output)
+		}(p)
+	}
+
+	// 等待所有goroutine完成
+	go func() {
+		for i := 0; i < maxWorkers; i++ {
+			sem <- struct{}{}
 		}
-		
-		fmt.Println(output)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case err := <-errChan:
+		return err
 	}
 
 	return nil

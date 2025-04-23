@@ -143,91 +143,97 @@ func diffManifestsXML(manifest1Path, manifest2Path string) error {
 }
 
 // compareManifests 比较两个清单对象并返回差异列表
-func compareManifests(manifest1, manifest2 *manifest.Manifest, opts *DiffManifestsOptions) []string {
+func compareProjectsConcurrently(projects1, projects2 map[string]manifest.Project, opts *DiffManifestsOptions) []string {
+	type diffResult struct {
+		Diff string
+	}
+	results := make(chan diffResult, len(projects1)+len(projects2))
+	sem := make(chan struct{}, 16) // 控制最大并发数
+
+	// 检查项目1中存在但项目2中不存在的项目
+	for name := range projects1 {
+		sem <- struct{}{}
+		go func(name string) {
+			defer func() { <-sem }()
+			if _, exists := projects2[name]; !exists {
+				if opts.Raw {
+					results <- diffResult{Diff: fmt.Sprintf("R %s", name)}
+				} else {
+					results <- diffResult{Diff: fmt.Sprintf("Project removed: %s", name)}
+				}
+			}
+		}(name)
+	}
+
+	// 检查项目2中存在但项目1中不存在的项目
+	for name, p2 := range projects2 {
+		sem <- struct{}{}
+		go func(name string, p2 manifest.Project) {
+			defer func() { <-sem }()
+			p1, exists := projects1[name]
+			if !exists {
+				if opts.Raw {
+					results <- diffResult{Diff: fmt.Sprintf("A %s", name)}
+				} else {
+					results <- diffResult{Diff: fmt.Sprintf("Project added: %s", name)}
+				}
+				return
+			}
+
+			// 比较项目属性
+			if (opts.Path || opts.All) && p1.Path != p2.Path {
+				if opts.Raw {
+					results <- diffResult{Diff: fmt.Sprintf("C %s %s %s", name, p1.Path, p2.Path)}
+				} else {
+					results <- diffResult{Diff: fmt.Sprintf("Project %s path: %s -> %s", name, p1.Path, p2.Path)}
+				}
+			}
+			if (opts.Revision || opts.All) && p1.Revision != p2.Revision {
+				if opts.Raw {
+					results <- diffResult{Diff: fmt.Sprintf("C %s %s %s", name, p1.Revision, p2.Revision)}
+				} else {
+					results <- diffResult{Diff: fmt.Sprintf("Project %s revision: %s -> %s", name, p1.Revision, p2.Revision)}
+				}
+			}
+			if (opts.Groups || opts.All) && p1.Groups != p2.Groups {
+				if opts.Raw {
+					results <- diffResult{Diff: fmt.Sprintf("C %s %s %s", name, p1.Groups, p2.Groups)}
+				} else {
+					results <- diffResult{Diff: fmt.Sprintf("Project %s groups: %s -> %s", name, p1.Groups, p2.Groups)}
+				}
+			}
+		}(name, p2)
+	}
+
+	// 收集结果
 	diffs := []string{}
-	
-	// 比较默认远程仓库
-	if manifest1.Default.Remote != manifest2.Default.Remote {
-		if opts.Raw {
-			diffs = append(diffs, fmt.Sprintf("C default %s %s", manifest1.Default.Remote, manifest2.Default.Remote))
-		} else {
-			diffs = append(diffs, fmt.Sprintf("Default remote: %s -> %s", 
-				manifest1.Default.Remote, manifest2.Default.Remote))
+	total := len(projects1) + len(projects2)
+	for i := 0; i < total; i++ {
+		select {
+		case res := <-results:
+			if res.Diff != "" {
+				diffs = append(diffs, res.Diff)
+			}
+		default:
+			// 无结果时提前退出
+			if len(diffs) >= total {
+				break
+			}
 		}
 	}
-	
-	// 比较默认修订版本
-	if manifest1.Default.Revision != manifest2.Default.Revision {
-		if opts.Raw {
-			diffs = append(diffs, fmt.Sprintf("C default %s %s", manifest1.Default.Revision, manifest2.Default.Revision))
-		} else {
-			diffs = append(diffs, fmt.Sprintf("Default revision: %s -> %s", 
-				manifest1.Default.Revision, manifest2.Default.Revision))
-		}
-	}
-	
-	// 创建项目映射以便于比较
+	return diffs
+}
+
+func compareManifests(manifest1, manifest2 *manifest.Manifest, opts *DiffManifestsOptions) []string {
 	projects1 := make(map[string]manifest.Project)
 	for _, p := range manifest1.Projects {
 		projects1[p.Name] = p
 	}
-	
+
 	projects2 := make(map[string]manifest.Project)
 	for _, p := range manifest2.Projects {
 		projects2[p.Name] = p
 	}
-	
-	// 检查项目1中存在但项目2中不存在的项目
-	for name := range projects1 {
-		if _, exists := projects2[name]; !exists {
-			if opts.Raw {
-				diffs = append(diffs, fmt.Sprintf("R %s", name))
-			} else {
-				diffs = append(diffs, fmt.Sprintf("Project removed: %s", name))
-			}
-		}
-	}
-	
-	// 检查项目2中存在但项目1中不存在的项目
-	for name, p2 := range projects2 {
-		p1, exists := projects1[name]
-		if !exists {
-			if opts.Raw {
-				diffs = append(diffs, fmt.Sprintf("A %s", name))
-			} else {
-				diffs = append(diffs, fmt.Sprintf("Project added: %s", name))
-			}
-			continue
-		}
-		
-		// 比较项目属性
-		if (opts.Path || opts.All) && p1.Path != p2.Path {
-			if opts.Raw {
-				diffs = append(diffs, fmt.Sprintf("C %s %s %s", name, p1.Path, p2.Path))
-			} else {
-				diffs = append(diffs, fmt.Sprintf("Project %s path: %s -> %s", 
-					name, p1.Path, p2.Path))
-			}
-		}
-		
-		if (opts.Revision || opts.All) && p1.Revision != p2.Revision {
-			if opts.Raw {
-				diffs = append(diffs, fmt.Sprintf("C %s %s %s", name, p1.Revision, p2.Revision))
-			} else {
-				diffs = append(diffs, fmt.Sprintf("Project %s revision: %s -> %s", 
-					name, p1.Revision, p2.Revision))
-			}
-		}
-		
-		if (opts.Groups || opts.All) && p1.Groups != p2.Groups {
-			if opts.Raw {
-				diffs = append(diffs, fmt.Sprintf("C %s %s %s", name, p1.Groups, p2.Groups))
-			} else {
-				diffs = append(diffs, fmt.Sprintf("Project %s groups: %s -> %s", 
-					name, p1.Groups, p2.Groups))
-			}
-		}
-	}
-	
-	return diffs
+
+	return compareProjectsConcurrently(projects1, projects2, opts)
 }

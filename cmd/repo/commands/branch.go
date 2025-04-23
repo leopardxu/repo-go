@@ -33,19 +33,12 @@ func BranchCmd() *cobra.Command {
 		Short: "View current topic branches",
 		Long:  `Summarizes the currently available topic branches.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Load config if not already in opts
-			cfg, err := config.Load()
-			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
-			}
-			opts.Config = cfg // Assign loaded config
 			return runBranch(opts, args)
 		},
 	}
 
-	// 添加命令行选项
-	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "show all branches") 
-	cmd.Flags().BoolVar(&opts.Current, "current", false, "consider only the current branch") 
+	cmd.Flags().BoolVarP(&opts.All, "all", "a", false, "show all branches")
+	cmd.Flags().BoolVar(&opts.Current, "current", false, "consider only the current branch")
 	cmd.Flags().StringVar(&opts.Color, "color", "auto", "control color usage: auto, always, never")
 	cmd.Flags().BoolVarP(&opts.List, "list", "l", false, "list branches")
 	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show hash and subject, give twice for upstream branch")
@@ -59,83 +52,88 @@ func BranchCmd() *cobra.Command {
 
 // runBranch executes the branch command logic
 func runBranch(opts *BranchOptions, args []string) error {
-	// 加载配置
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(opts.Config.ManifestName) // Use opts.Config
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName)
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
+	manager := project.NewManager(manifestObj, cfg)
 
-	manager := project.NewManager(manifest, opts.Config) // Use opts.Config
-	// Declare projects variable once
-	var projects []*project.Project // <-- Declare projects variable here
-
-	// 获取要处理的项目
+	var projects []*project.Project
 	if len(args) == 0 {
-		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects(nil) // <-- Use nil instead of "" and assign with =
+		projects, err = manager.GetProjects(nil)
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		// 否则，只处理指定的项目
-		projects, err = manager.GetProjectsByNames(args) // <-- Assign with =
+		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	}
 
-	// 收集所有分支信息
+	type branchResult struct {
+		ProjectName string
+		CurrentBranch string
+		Branches []string
+		Err error
+	}
+	results := make(chan branchResult, len(projects))
+	sem := make(chan struct{}, opts.Jobs)
+	for _, p := range projects {
+		p := p
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+			currentBranch, err := p.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
+			if err != nil {
+				results <- branchResult{ProjectName: p.Name, Err: err}
+				return
+			}
+			branchesOutput, err := p.GitRepo.RunCommand("branch", "--list")
+			if err != nil {
+				results <- branchResult{ProjectName: p.Name, Err: err}
+				return
+			}
+			branches := strings.Split(strings.TrimSpace(branchesOutput), "\n")
+			results <- branchResult{ProjectName: p.Name, CurrentBranch: strings.TrimSpace(currentBranch), Branches: branches}
+		}()
+	}
 	branchInfo := make(map[string][]string)
 	currentBranches := make(map[string]bool)
-
-	for _, p := range projects {
-		// 获取当前分支
-		currentBranch, err := p.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
-		if err != nil {
+	for i := 0; i < len(projects); i++ {
+		res := <-results
+		if res.Err != nil {
 			if !opts.Quiet {
-				fmt.Printf("Error getting current branch for %s: %v\n", p.Name, err)
+				fmt.Printf("Error getting branches for %s: %v\n", res.ProjectName, res.Err)
 			}
 			continue
 		}
-		currentBranches[strings.TrimSpace(currentBranch)] = true
-
-		// 获取所有分支
-		branchesOutput, err := p.GitRepo.RunCommand("branch", "--list")
-		branches := strings.Split(strings.TrimSpace(branchesOutput), "\n")
-		if err != nil {
-			if !opts.Quiet {
-				fmt.Printf("Error getting branches for %s: %v\n", p.Name, err)
+		currentBranches[res.CurrentBranch] = true
+		for _, branch := range res.Branches {
+			branch = strings.TrimSpace(branch)
+			if branch == "" {
+				continue
 			}
-			continue
-		}
-
-		for _, branch := range branches {
-			branchInfo[branch] = append(branchInfo[branch], p.Name)
+			branchInfo[branch] = append(branchInfo[branch], res.ProjectName)
 		}
 	}
-
-	// 显示分支信息
-	for branch, projects := range branchInfo {
-		// 第一列：当前分支标记
+	for branch, projs := range branchInfo {
 		if currentBranches[branch] {
 			fmt.Print("*")
 		} else {
 			fmt.Print(" ")
 		}
-
-		// 第二列：上传状态（暂留空）
-		fmt.Print(" ") 
-
-		// 第三列：分支名
+		fmt.Print(" ")
 		fmt.Printf(" %-30s", branch)
-
-		// 第四列：项目列表
-		if len(projects) < len(projects) {
-			fmt.Printf(" | in %s", strings.Join(projects, ", "))
+		if len(projs) < len(projects) {
+			fmt.Printf(" | in %s", strings.Join(projs, ", "))
 		}
 		fmt.Println()
 	}
-
 	return nil
 }

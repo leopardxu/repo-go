@@ -162,31 +162,57 @@ func runRebase(opts *RebaseOptions, args []string) error {
 		fmt.Println("Rebasing projects")
 	}
 
-	// 对每个项目执行rebase
+	// 并发执行rebase操作
+	type rebaseResult struct {
+		Project *project.Project
+		Output  string
+		Err     error
+	}
+
+	results := make(chan rebaseResult, len(projects))
+	sem := make(chan struct{}, 8) // 控制并发数为8
+
 	for _, p := range projects {
-		if !opts.Quiet {
-			fmt.Printf("\nProject %s:\n", p.Name)
-		}
-		
-		// 执行rebase命令
-		output, err := p.GitRepo.RunCommand(rebaseArgs...)
-		if err != nil {
+		p := p
+		go func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			
+			output, err := p.GitRepo.RunCommand(rebaseArgs...)
+			results <- rebaseResult{
+				Project: p,
+				Output:  output,
+				Err:     err,
+			}
+		}()
+	}
+
+	var hasError bool
+	for i := 0; i < len(projects); i++ {
+		res := <-results
+		if res.Err != nil {
+			hasError = true
 			if opts.Verbose {
-				fmt.Printf("Error in project %s: %v\n", p.Name, err)
+				fmt.Printf("Error in project %s: %v\n", res.Project.Name, res.Err)
 			}
 			if opts.FailFast {
-				return fmt.Errorf("failed to rebase project %s: %w", p.Name, err)
+				return fmt.Errorf("failed to rebase project %s: %w", res.Project.Name, res.Err)
 			}
 			continue
 		}
 		
-		if output != "" && !opts.Quiet {
-			fmt.Println(output)
-		} else if !opts.Quiet {
-			fmt.Println("Rebase completed successfully")
+		if !opts.Quiet {
+			fmt.Printf("\nProject %s:\n", res.Project.Name)
+			if res.Output != "" {
+				fmt.Println(res.Output)
+			} else {
+				fmt.Println("Rebase completed successfully")
+			}
 		}
 	}
 
-	_ = projects // Use projects variable
+	if hasError {
+		return fmt.Errorf("some projects failed to rebase")
+	}
 	return nil
 }

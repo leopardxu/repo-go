@@ -2,9 +2,9 @@ package commands
 
 import (
 	"fmt"
-	"os/exec" // <-- Add import for exec
-	// "regexp" // Remove if not used
-	"strings" // <-- Add import for strings
+	"sync"
+	"os/exec" 
+	"strings"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -66,19 +66,19 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 	}
 
 	// Create project manager
-	manager := project.NewManager(manifest, opts.Config) // <-- Use opts.Config
+	manager := project.NewManager(manifest, opts.Config)
 
 	// Declare projects variable once
-	var projects []*project.Project // <-- Declare projects variable here
+	var projects []*project.Project
 
 	// Get projects to operate on
 	var groupsArg []string
 	if opts.Groups != "" {
-		groupsArg = strings.Split(opts.Groups, ",") // Now strings is defined
+		groupsArg = strings.Split(opts.Groups, ",")
 	}
 
 	if len(projectNames) == 0 {
-		projects, err = manager.GetProjects(groupsArg) // <-- Use groupsArg, assign with =
+		projects, err = manager.GetProjects(groupsArg)
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
@@ -113,51 +113,84 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 	if opts.FilesWithMatches {
 		grepArgs = append(grepArgs, "-l")
 	}
-	grepArgs = append(grepArgs, "--color=always") // Assuming color is desired
+	grepArgs = append(grepArgs, "--color=always")
 	grepArgs = append(grepArgs, "-e", opts.Pattern)
 
-	// Execute grep in each project
+	// Execute grep in each project concurrently
 	if !opts.Quiet {
 		fmt.Printf("Grepping for '%s' in %d projects...\n", opts.Pattern, len(projects))
 	}
 
-	var foundMatches bool
+	type grepResult struct {
+		project *project.Project
+		output []byte
+		err    error
+	}
+
+	// Create worker pool
+	maxWorkers := 8
+	sem := make(chan struct{}, maxWorkers)
+	results := make(chan grepResult, len(projects))
+	var wg sync.WaitGroup
+
 	for _, p := range projects {
-		if p.Worktree == "" { // Skip projects without a worktree
+		if p.Worktree == "" {
 			continue
 		}
-		// Run git grep within the project directory
-		cmd := exec.Command("git", grepArgs...) // Now exec is defined
-		cmd.Dir = p.Worktree
-		output, err := cmd.CombinedOutput() // Capture combined stdout/stderr
 
-		// git grep exits with 1 if no matches are found, 0 if matches are found, >1 on error
-		if err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
+		wg.Add(1)
+		go func(p *project.Project) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			cmd := exec.Command("git", grepArgs...)
+			cmd.Dir = p.Worktree
+			output, err := cmd.CombinedOutput()
+			results <- grepResult{p, output, err}
+		}(p)
+	}
+
+	// Close results channel when all workers are done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Process results
+	var foundMatches bool
+	var errors []error
+
+	for res := range results {
+		if res.err != nil {
+			if exitErr, ok := res.err.(*exec.ExitError); ok {
 				if exitErr.ExitCode() == 1 {
-					// No matches found, not necessarily an error for grep
 					continue
 				}
 			}
-			// Actual error occurred
-			fmt.Printf("Error grepping in %s: %v\nOutput:\n%s\n", p.Name, err, string(output))
-			continue // Or handle error differently
+			errors = append(errors, fmt.Errorf("error grepping in %s: %v\nOutput:\n%s", 
+					res.project.Name, res.err, string(res.output)))
+			continue
 		}
 
-		// Matches found
-		foundMatches = true
-		if len(output) > 0 {
-			// Prefix output with project name
-			lines := strings.Split(strings.TrimSpace(string(output)), "\n") // Now strings is defined
+		if len(res.output) > 0 {
+			foundMatches = true
+			lines := strings.Split(strings.TrimSpace(string(res.output)), "\n")
 			for _, line := range lines {
-				fmt.Printf("%s:%s\n", p.Name, line)
+				fmt.Printf("%s:%s\n", res.project.Name, line)
 			}
+		}
+	}
+
+	if len(errors) > 0 {
+		for _, err := range errors {
+			fmt.Println(err)
 		}
 	}
 
 	if !foundMatches && !opts.Quiet {
-		// fmt.Println("No matches found.") // Optional: Inform if no matches anywhere
+		// fmt.Println("No matches found.")
 	}
 
-	return nil // Adjust error handling based on whether grep errors should fail the command
+	return nil
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
-	"github.com/cix-code/gogo/internal/sync"
+	"github.com/cix-code/gogo/internal/repo_sync"
 	"github.com/spf13/cobra"
 )
 
@@ -107,15 +107,15 @@ func SyncCmd() *cobra.Command {
 // runSync executes the sync command logic
 func runSync(opts *SyncOptions, args []string) error {
     // Load config
-    cfg, err := config.Load() // Declare err here
+    cfg, err := config.Load()
     if err != nil {
         return fmt.Errorf("failed to load config: %w", err)
     }
-    opts.Config = cfg // Assign loaded config
+    opts.Config = cfg
 
     // Load manifest
     parser := manifest.NewParser()
-    manifest, err := parser.ParseFromFile(cfg.ManifestName) // Reuse err
+    manifest, err := parser.ParseFromFile(cfg.ManifestName)
     if err != nil {
         return fmt.Errorf("failed to parse manifest: %w", err)
     }
@@ -124,33 +124,24 @@ func runSync(opts *SyncOptions, args []string) error {
     manager := project.NewManager(manifest, cfg)
 
     var projects []*project.Project
-    // err is already declared
-
     if len(args) == 0 {
-        // Assuming nil means all projects if no args/groups are given
-        projects, err = manager.GetProjects(nil) // Use =
-        if err != nil {
-            return fmt.Errorf("failed to get projects: %w", err)
-        }
+        projects, err = manager.GetProjects(nil)
     } else {
-        projects, err = manager.GetProjectsByNames(args) // Use =
-        if err != nil {
-            return fmt.Errorf("failed to get projects by name: %w", err)
-        }
+        projects, err = manager.GetProjectsByNames(args)
     }
-
+    
     if err != nil {
         return fmt.Errorf("获取项目失败: %w", err)
     }
     
-    // 处理组选项
-    var groups []string
+    // 过滤项目列表，根据groups参数
     if opts.Groups != "" {
-        groups = strings.Split(opts.Groups, ",")
+        groups := strings.Split(opts.Groups, ",")
+        projects = filterProjectsByGroups(projects, groups)
     }
-    
+
     // 创建同步引擎
-    engine := sync.NewEngine(projects, &sync.Options{
+    engine := repo_sync.NewEngine(projects, &repo_sync.Options{
         Jobs:           opts.Jobs,
         JobsNetwork:    opts.JobsNetwork,
         JobsCheckout:   opts.JobsCheckout,
@@ -169,7 +160,7 @@ func runSync(opts *SyncOptions, args []string) error {
         FetchSubmodules: opts.FetchSubmodules,
         OptimizedFetch: opts.OptimizedFetch,
         RetryFetches:   opts.RetryFetches,
-        Groups:         groups,
+        Groups:         nil, // 已在前面处理过groups
         FailFast:       opts.FailFast,
         NoManifestUpdate: opts.NoManifestUpdate,
         UseSuperproject: opts.UseSuperproject && !opts.NoUseSuperproject,
@@ -187,6 +178,15 @@ func runSync(opts *SyncOptions, args []string) error {
     if !opts.Quiet {
         fmt.Println("同步成功完成")
     }
-    _ = projects // Use projects variable
     return nil
+}
+    // filterProjectsByGroups 根据组过滤项目列表
+func filterProjectsByGroups(projects []*project.Project, groups []string) []*project.Project {
+    var filtered []*project.Project
+    for _, p := range projects {
+        if p.IsInAnyGroup(groups) {
+            filtered = append(filtered, p)
+        }
+    }
+    return filtered
 }

@@ -106,9 +106,11 @@ func (p *Project) GetCustomAttr(name string) (string, bool) {
 }
 
 // GetBranch 获取当前分支
-func (p *Project) GetBranch() string {
-	// 简单实现，返回修订版本作为分支
-	return p.Revision
+func (p *Project) GetBranch() (string, error) {
+	if p == nil {
+		return "", fmt.Errorf("project is nil")
+	}
+	return p.Revision, nil
 }
 
 // Include 表示包含的清单文件
@@ -358,6 +360,14 @@ func (p *Parser) ParseFromFile(filename string) (*Manifest, error) {
 	}
 	
 	return p.Parse(data)
+}
+
+// ParseFromBytes 从文件解析清单
+func (p *Parser) ParseFromBytes(data []byte) (*Manifest, error) {
+    if len(data) == 0 {
+        return nil, fmt.Errorf("manifest data is empty")
+    }
+    return p.Parse(data)
 }
 
 // Parse 解析清单数据
@@ -949,4 +959,41 @@ func (m *Manifest) ToXML() (string, error) {
 	xml += "</manifest>\n"
 	
 	return xml, nil
+}
+
+func (m *Manifest) ParseFromBytes(data []byte) error {
+    if len(data) == 0 {
+        return fmt.Errorf("manifest data is empty")
+    }
+
+    // 创建临时解析器
+    parser := NewParser()
+    
+    // 使用解析器解析数据
+    parsedManifest, err := parser.Parse(data)
+    if err != nil {
+        return fmt.Errorf("failed to parse manifest data: %w", err)
+    }
+
+    // 更新当前manifest对象
+    *m = *parsedManifest
+    
+    // 设置清单文件路径相关字段
+    if m.RepoDir == "" {
+        m.RepoDir = ".repo"
+    }
+    if m.Topdir == "" {
+        if cwd, err := os.Getwd(); err == nil {
+            m.Topdir = cwd
+        }
+    }
+    
+    return nil
+}
+
+func (m *Manifest) GetCurrentBranch() string {
+    if m == nil || m.Default.Revision == "" {
+        return ""
+    }
+    return m.Default.Revision
 }

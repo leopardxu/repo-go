@@ -35,6 +35,7 @@ type Config struct {
 	CurrentBranch       bool   `json:"current_branch"`
 	Tags                bool   `json:"tags"`
 	ConfigName          string `json:"config_name"`
+	RepoRoot string `yaml:"repo_root"`
 }
 
 // Load 加载配置

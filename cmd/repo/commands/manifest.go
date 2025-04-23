@@ -127,61 +127,84 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 	// 创建项目管理器
 	projectManager := project.NewManager(&snapshotManifest, cfg)
 	
-	// 遍历所有项目，获取当前HEAD提交哈希并更新修订版本
+	// 并发处理项目更新
+	type projectUpdate struct {
+		index int
+		proj  *project.Project
+		err   error
+	}
+
+	maxWorkers := 8
+	sem := make(chan struct{}, maxWorkers)
+	results := make(chan projectUpdate, len(snapshotManifest.Projects))
+
 	for i, p := range snapshotManifest.Projects {
-		// 获取项目对象
-		proj := projectManager.GetProject(p.Name)
-		if proj == nil {
-			fmt.Printf("Warning: project %s not found in workspace, skipping\n", p.Name)
-			continue
-		}
-		
-		// 获取当前HEAD提交哈希
-		output, err := proj.GitRepo.Runner.RunInDir(proj.Path, "rev-parse", "HEAD")
-		if err != nil {
-			fmt.Printf("Warning: failed to get HEAD revision for project %s: %v\n", p.Name, err)
-			continue
-		}
-		
-		// 获取提交哈希（去除末尾的换行符）
-		commitHash := strings.TrimSpace(string(output))
-		
-		// 根据选项更新修订版本
-		if opts.RevisionAsHEAD {
-			// 使用HEAD作为修订版本
-			snapshotManifest.Projects[i].Revision = "HEAD"
-		} else {
-			// 使用实际的提交哈希
-			snapshotManifest.Projects[i].Revision = commitHash
-		}
-		
-		// 处理SuppressUpstreamRevision选项
-		if opts.SuppressUpstreamRevision {
-			// 移除上游修订版本信息
-			upstreamRevision, exists := snapshotManifest.Projects[i].GetCustomAttr("upstream-revision")
-			if exists {
-				delete(snapshotManifest.Projects[i].CustomAttrs, "upstream-revision")
-				fmt.Printf("Removed upstream-revision %s from project %s\n", upstreamRevision, p.Name)
+		sem <- struct{}{}
+		go func(idx int, projName string) {
+			defer func() { <-sem }()
+			update := projectUpdate{index: idx}
+			
+			// 获取项目对象
+			update.proj = projectManager.GetProject(projName)
+			if update.proj == nil {
+				fmt.Printf("Warning: project %s not found in workspace, skipping\n", projName)
+				results <- update
+				return
 			}
-		}
-		
-		// 处理SuppressDestBranch选项
-		if opts.SuppressDestBranch {
-			// 移除目标分支信息
-			destBranch, exists := snapshotManifest.Projects[i].GetCustomAttr("dest-branch")
-			if exists {
-				delete(snapshotManifest.Projects[i].CustomAttrs, "dest-branch")
-				fmt.Printf("Removed dest-branch %s from project %s\n", destBranch, p.Name)
+			
+			// 获取当前HEAD提交哈希
+			output, err := update.proj.GitRepo.Runner.RunInDir(update.proj.Path, "rev-parse", "HEAD")
+			if err != nil {
+				fmt.Printf("Warning: failed to get HEAD revision for project %s: %v\n", projName, err)
+				update.err = err
+				results <- update
+				return
 			}
-		}
-		
-		// 处理NoCloneBundle选项
-		if opts.NoCloneBundle {
-			// 添加no-clone-bundle属性
-			snapshotManifest.Projects[i].CustomAttrs["no-clone-bundle"] = "true"
-		}
-		
-		fmt.Printf("Updated project %s revision to %s\n", p.Name, snapshotManifest.Projects[i].Revision)
+			
+			// 获取提交哈希（去除末尾的换行符）
+			commitHash := strings.TrimSpace(string(output))
+			
+			// 根据选项更新修订版本
+			if opts.RevisionAsHEAD {
+				snapshotManifest.Projects[update.index].Revision = "HEAD"
+			} else {
+				snapshotManifest.Projects[update.index].Revision = commitHash
+			}
+			
+			// 处理SuppressUpstreamRevision选项
+			if opts.SuppressUpstreamRevision {
+				// 移除上游修订版本信息
+				upstreamRevision, exists := snapshotManifest.Projects[update.index].GetCustomAttr("upstream-revision")
+				if exists {
+					delete(snapshotManifest.Projects[update.index].CustomAttrs, "upstream-revision")
+					fmt.Printf("Removed upstream-revision %s from project %s\n", upstreamRevision, projName)
+				}
+			}
+			
+			// 处理SuppressDestBranch选项
+			if opts.SuppressDestBranch {
+				// 移除目标分支信息
+				destBranch, exists := snapshotManifest.Projects[update.index].GetCustomAttr("dest-branch")
+				if exists {
+					delete(snapshotManifest.Projects[update.index].CustomAttrs, "dest-branch")
+					fmt.Printf("Removed dest-branch %s from project %s\n", destBranch, projName)
+				}
+			}
+			
+			// 处理NoCloneBundle选项
+			if opts.NoCloneBundle {
+				// 添加no-clone-bundle属性
+				snapshotManifest.Projects[update.index].CustomAttrs["no-clone-bundle"] = "true"
+			}
+			
+			fmt.Printf("Updated project %s revision to %s\n", projName, snapshotManifest.Projects[update.index].Revision)
+			results <- update
+		}(i, p.Name)
+	}
+
+	// 等待所有goroutine完成
+	for i := 0; i < len(snapshotManifest.Projects); i++ {
+		<-results
 	}
 	
 	// 处理Platform选项

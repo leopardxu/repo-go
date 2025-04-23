@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -145,38 +146,63 @@ func runPrune(opts *PruneOptions, args []string) error {
 		return nil
 	}
 
-	// 删除项目
+	// 并发删除项目
+	errChan := make(chan error, len(prunedProjects))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, opts.Jobs)
+
 	for _, name := range prunedProjects {
-		projectPath := filepath.Join(workDir, name)
-		
-		// 如果启用了详细模式，显示更多信息
-		if opts.Verbose {
-			fmt.Printf("Pruning project %s...\n", name)
-		}
-		
-		// 如果不是强制模式，检查项目是否有本地修改
-		if !opts.Force {
-			// 创建一个临时的Git仓库对象来检查状态
-			repo := git.NewRepository(projectPath, git.NewCommandRunner())
+		wg.Add(1)
+		go func(name string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			projectPath := filepath.Join(workDir, name)
 			
-			// 检查是否有本地修改
-			clean, err := repo.IsClean()
-			if err != nil {
-				return fmt.Errorf("failed to check if project %s is clean: %w", name, err)
+			// 如果启用了详细模式，显示更多信息
+			if opts.Verbose {
+				fmt.Printf("Pruning project %s...\n", name)
 			}
 			
-			if !clean {
-				fmt.Printf("Project %s has local changes, skipping (use --force to override)\n", name)
-				continue
+			// 如果不是强制模式，检查项目是否有本地修改
+			if !opts.Force {
+				repo := git.NewRepository(projectPath, git.NewCommandRunner())
+				clean, err := repo.IsClean()
+				if err != nil {
+					errChan <- fmt.Errorf("failed to check if project %s is clean: %w", name, err)
+					return
+				}
+				
+				if !clean {
+					fmt.Printf("Project %s has local changes, skipping (use --force to override)\n", name)
+					return
+				}
 			}
+			
+			// 删除项目目录
+			if err := os.RemoveAll(projectPath); err != nil {
+				errChan <- fmt.Errorf("failed to remove project %s: %w", name, err)
+				return
+			}
+			
+			fmt.Printf("Pruned project %s\n", name)
+		}(name)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// 收集所有错误
+	var errs []error
+	for err := range errChan {
+		if err != nil {
+			errs = append(errs, err)
 		}
-		
-		// 删除项目目录
-		if err := os.RemoveAll(projectPath); err != nil {
-			return fmt.Errorf("failed to remove project %s: %w", name, err)
-		}
-		
-		fmt.Printf("Pruned project %s\n", name)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("encountered %d errors during pruning: %v", len(errs), errs)
 	}
 
 	fmt.Println("Pruning completed successfully")

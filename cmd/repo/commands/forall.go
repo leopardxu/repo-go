@@ -116,33 +116,62 @@ func runForall(opts *ForallOptions, projectNames []string) error {
 		fmt.Printf("Executing command '%s' in %d projects...\n", opts.Command, len(projects))
 	}
 
-	// (Implementation for parallel/sequential execution would go here)
-	// Simplified sequential execution for now:
-	var errors []string
+	type forallResult struct {
+		Name string
+		Err  error
+	}
+
+	maxConcurrency := opts.Jobs
+	if maxConcurrency <= 0 {
+		maxConcurrency = 8
+	}
+
+	sem := make(chan struct{}, maxConcurrency)
+	results := make(chan forallResult, len(projects))
+
 	for _, p := range projects {
 		if p.Worktree == "" { // Skip projects without a worktree
 			continue
 		}
-		if opts.Verbose {
-			fmt.Printf("[%s] Executing: %s\n", p.Name, opts.Command)
-		}
-		cmd := exec.Command("sh", "-c", opts.Command) // Use "cmd", "/C" on Windows?
-		cmd.Dir = p.Worktree
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err := cmd.Run()
-		if err != nil {
-			errMsg := fmt.Sprintf("Error in %s: %v", p.Name, err)
-			fmt.Println(errMsg)
-			errors = append(errors, errMsg)
-			if !opts.IgnoreErrors {
-				return fmt.Errorf("command failed in project %s", p.Name)
+
+		sem <- struct{}{}
+		go func(proj *project.Project) {
+			defer func() { <-sem }()
+			if opts.Verbose {
+				fmt.Printf("[%s] Executing: %s\n", proj.Name, opts.Command)
 			}
+			cmd := exec.Command("sh", "-c", opts.Command)
+			cmd.Dir = proj.Worktree
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			err := cmd.Run()
+			results <- forallResult{Name: proj.Name, Err: err}
+		}(p)
+	}
+
+	var hasErr bool
+	for i := 0; i < len(projects); i++ {
+		res := <-results
+		if res.Err != nil {
+			errMsg := fmt.Sprintf("Error in %s: %v", res.Name, res.Err)
+			if !opts.Quiet {
+				fmt.Println(errMsg)
+			}
+			hasErr = true
+			if !opts.IgnoreErrors {
+				return fmt.Errorf("command failed in project %s", res.Name)
+			}
+		} else if !opts.Quiet && opts.Verbose {
+			fmt.Printf("[%s] Command executed successfully\n", res.Name)
 		}
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("forall command failed in %d projects", len(errors))
+	if hasErr {
+		return fmt.Errorf("forall command failed in some projects")
+	}
+
+	if !opts.Quiet {
+		fmt.Println("Command execution complete.")
 	}
 
 	return nil

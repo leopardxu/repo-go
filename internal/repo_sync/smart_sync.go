@@ -1,4 +1,4 @@
-package sync
+package repo_sync
 
 import (
 	"errors"
@@ -49,7 +49,12 @@ func (e *Engine) handleSmartSync() error {
 	
 	// 构建请求
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: e.options.HTTPTimeout,
+		Transport: &http.Transport{
+			MaxIdleConns:        10,
+			IdleConnTimeout:     30 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
 	}
 	
 	var requestURL string
@@ -76,10 +81,21 @@ func (e *Engine) handleSmartSync() error {
 			manifestServer, url.QueryEscape(e.options.SmartTag))
 	}
 	
-	// 发送请求
-	resp, err := client.Get(requestURL)
+	// 发送请求，带重试机制
+	var resp *http.Response
+	var err error
+	maxRetries := 3
+	for i := 0; i < maxRetries; i++ {
+		resp, err = client.Get(requestURL)
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			time.Sleep(time.Second * time.Duration(i+1))
+		}
+	}
 	if err != nil {
-		return fmt.Errorf("连接到清单服务器时出错: %w", err)
+		return fmt.Errorf("连接到清单服务器时出错(尝试%d次): %w", maxRetries, err)
 	}
 	defer resp.Body.Close()
 	
@@ -93,15 +109,19 @@ func (e *Engine) handleSmartSync() error {
 		return fmt.Errorf("从服务器读取清单时出错: %w", err)
 	}
 	
-	// 写入临时文件
-	if err := os.WriteFile(smartSyncManifestPath, manifestStr, 0644); err != nil {
-		return fmt.Errorf("将清单写入 %s 时出错: %w", smartSyncManifestPath, err)
-	}
+	// 使用内存缓存处理清单
+	e.manifestCache = manifestStr
 	
 	// 重新加载清单
-	manifestName := filepath.Base(smartSyncManifestPath)
-	if err := e.reloadManifest(manifestName, true); err != nil {
+	if err := e.reloadManifestFromCache(); err != nil {
 		return err
+	}
+	
+	// 可选：写入临时文件用于调试
+	if e.options.Debug {
+		if err := os.WriteFile(smartSyncManifestPath, manifestStr, 0644); err != nil {
+			return fmt.Errorf("将清单写入 %s 时出错: %w", smartSyncManifestPath, err)
+		}
 	}
 	
 	return nil
@@ -110,7 +130,10 @@ func (e *Engine) handleSmartSync() error {
 // getBranch 获取当前分支名称
 func (e *Engine) getBranch() string {
 	p := e.manifest.ManifestProject
-	branch := p.GetBranch()
+	branch, err := p.GetBranch()
+	if err != nil {
+		return ""
+	}
 	if strings.HasPrefix(branch, "refs/heads/") {
 		branch = branch[len("refs/heads/"):]
 	}

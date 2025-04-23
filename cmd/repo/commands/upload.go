@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"sync"
+	"errors"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -182,53 +184,98 @@ func runUpload(opts *UploadOptions, args []string) error {
 		uploadArgs = append(uploadArgs, "--no-cert-checks")
 	}
 
-	// 对每个项目执行上传
+	// 创建goroutine池和工作通道
+	errChan := make(chan error, len(projects))
+	sem := make(chan struct{}, opts.Jobs)
+	var wg sync.WaitGroup
+
+	// 并发上传每个项目
 	for _, p := range projects {
-		// 如果指定了--current-branch，检查当前分支
-		if opts.CurrentBranch {
-			currentBranch, err := p.GitRepo.CurrentBranch()
-			if err != nil {
-				return fmt.Errorf("failed to get current branch of project %s: %w", p.Name, err)
+		p := p
+		wg.Add(1)
+		go func() {
+			sem <- struct{}{}
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+
+			// 如果指定了--current-branch，检查当前分支
+			if opts.CurrentBranch {
+				currentBranch, err := p.GitRepo.CurrentBranch()
+				if err != nil {
+					errChan <- fmt.Errorf("failed to get current branch of project %s: %w", p.Name, err)
+					return
+				}
+				
+				// 如果当前分支是清单中指定的分支，跳过
+				if currentBranch == p.Revision {
+					if !opts.Quiet {
+						fmt.Printf("Skipping project %s (current branch is manifest branch)\n", p.Name)
+					}
+					return
+				}
 			}
 			
-			// 如果当前分支是清单中指定的分支，跳过
-			if currentBranch == p.Revision {
-				fmt.Printf("Skipping project %s (current branch is manifest branch)\n", p.Name)
-				continue
+			// 检查是否有更改
+			hasChanges, err := p.GitRepo.HasChangesToPush("origin")
+			if err != nil {
+				errChan <- fmt.Errorf("failed to check if project %s has changes: %w", p.Name, err)
+				return
 			}
-		}
-		
-		// 检查是否有更改
-		hasChanges, err := p.GitRepo.HasChangesToPush("origin")
-		if err != nil {
-			return fmt.Errorf("failed to check if project %s has changes: %w", p.Name, err)
-		}
-		
-		if !hasChanges && !opts.Force {
-			fmt.Printf("Skipping project %s (no changes to upload)\n", p.Name)
-			continue
-		}
-		
-		fmt.Printf("Uploading changes from project %s\n", p.Name)
-		
-		// 如果是模拟运行，不实际上传
-		if opts.DryRun {
-			fmt.Printf("Would upload changes from project %s with command: git %s\n", p.Name, uploadArgs)
-			continue
-		}
-		
-		// 执行上传命令
-		output, err := p.GitRepo.RunCommand(uploadArgs...)
-		if err != nil {
-			return fmt.Errorf("failed to upload changes from project %s: %w\n%s", p.Name, err, output)
-		}
-		
-		fmt.Printf("Successfully uploaded changes from project %s\n", p.Name)
-		if output != "" {
-			fmt.Println(output)
-		}
+			
+			if !hasChanges && !opts.Force {
+				if !opts.Quiet {
+					fmt.Printf("Skipping project %s (no changes to upload)\n", p.Name)
+				}
+				return
+			}
+			
+			if !opts.Quiet {
+				fmt.Printf("Uploading changes from project %s\n", p.Name)
+			}
+			
+			// 如果是模拟运行，不实际上传
+			if opts.DryRun {
+				fmt.Printf("Would upload changes from project %s with command: git %s\n", p.Name, uploadArgs)
+				return
+			}
+			
+			// 执行上传命令
+			output, err := p.GitRepo.RunCommand(uploadArgs...)
+			if err != nil {
+				errChan <- fmt.Errorf("failed to upload changes from project %s: %w\n%s", p.Name, err, output)
+				return
+			}
+			
+			if !opts.Quiet {
+				fmt.Printf("Successfully uploaded changes from project %s\n", p.Name)
+				if output != "" {
+					fmt.Println(output)
+				}
+			}
+		}()
 	}
 
-	fmt.Println("Upload completed successfully")
+	// 等待所有goroutine完成
+	wg.Wait()
+	close(errChan)
+
+	// 收集错误
+	var errs []error
+	for err := range errChan {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		if !opts.Quiet {
+			fmt.Printf("Upload completed with %d errors\n", len(errs))
+		}
+		return fmt.Errorf("encountered %d errors while uploading: %v", len(errs), errors.Join(errs...))
+	}
+
+	if !opts.Quiet {
+		fmt.Println("Upload completed successfully")
+	}
 	return nil
 }

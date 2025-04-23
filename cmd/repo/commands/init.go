@@ -48,6 +48,7 @@ type InitOptions struct {
 	CommonManifestOptions
 	Verbose            bool
 	Quiet              bool
+	Debug              bool
 	ManifestURL        string
 	ManifestBranch     string
 	ManifestName       string
@@ -101,6 +102,7 @@ func InitCmd() *cobra.Command {
 	// 日志选项
 	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show all output")
 	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
+	cmd.Flags().BoolVar(&opts.Debug, "debug", false, "show debug output")
 
 	// 清单选项
 	cmd.Flags().StringVarP(&opts.ManifestURL, "manifest-url", "u", "", "manifest repository location")
@@ -277,23 +279,36 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 	// 添加URL和目标目录
 	args = append(args, cfg.ManifestURL, manifestsDir)
 	
-	// 执行克隆命令
-	var lastErr error
-	for i := 0; i < 3; i++ {
-		_, err := gitRunner.Run(args...)
-		if err == nil {
-			break
+	// 使用goroutine池执行克隆命令
+	errChan := make(chan error, 1)
+	go func() {
+		var lastErr error
+		for i := 0; i < 3; i++ {
+			_, err := gitRunner.Run(args...)
+			if err == nil {
+				errChan <- nil
+				return
+			}
+			lastErr = err
+			if strings.Contains(err.Error(), "Permission denied (publickey)") {
+				errChan <- fmt.Errorf("SSH authentication failed: please ensure your SSH key is properly configured and added to the git server\nOriginal error: %w", err)
+				return
+			}
+			if i < 2 {
+				time.Sleep(time.Second * 2)
+			}
 		}
-		lastErr = err
-		if strings.Contains(err.Error(), "Permission denied (publickey)") {
-			return fmt.Errorf("SSH authentication failed: please ensure your SSH key is properly configured and added to the git server\nOriginal error: %w", err)
+		errChan <- fmt.Errorf("克隆清单仓库失败: %s", lastErr)
+	}()
+	
+	// 等待克隆完成或超时
+	select {
+	case err := <-errChan:
+		if err != nil {
+			return err
 		}
-		if i < 2 {
-			time.Sleep(time.Second * 2)
-		}
-	}
-	if lastErr != nil {
-		return fmt.Errorf("克隆清单仓库失败: %s", lastErr)
+	case <-time.After(5 * time.Minute):
+		return fmt.Errorf("克隆清单仓库超时")
 	}
 	
 	// 如果需要子模块
@@ -325,13 +340,8 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 	return nil
 }
 
-// runInit 执行init命令
-func runInit(opts *InitOptions) error {
-	if opts.Verbose {
-		fmt.Println("Initializing repo in current directory")
-	}
-
-	// 验证选项冲突
+// validateOptions 验证选项冲突
+func validateOptions(opts *InitOptions) error {
 	if opts.CurrentBranch && opts.NoCurrentBranch {
 		return fmt.Errorf("cannot specify both --current-branch and --no-current-branch")
 	}
@@ -352,6 +362,19 @@ func runInit(opts *InitOptions) error {
 	}
 	if opts.OuterManifest && opts.NoOuterManifest {
 		return fmt.Errorf("cannot specify both --outer-manifest and --no-outer-manifest")
+	}
+	return nil
+}
+
+// runInit 执行init命令
+func runInit(opts *InitOptions) error {
+	if opts.Verbose {
+		fmt.Println("Initializing repo in current directory")
+	}
+
+	// 验证选项冲突
+	if err := validateOptions(opts); err != nil {
+		return err
 	}
 
 	// 创建配置
@@ -611,6 +634,10 @@ func initRepoStructure(repoDir string) error {
 	if err := hook.CreateRepoGitconfig(repoDir); err != nil {
 		return fmt.Errorf("failed to create repo.gitconfig: %w", err)
 	}
+	
+	// 记录钩子目录路径，用于后续同步到各个项目
+	hooksDir := filepath.Join(repoDir, ".repo", "hooks")
+	fmt.Printf("已初始化钩子脚本目录: %s\n", hooksDir)
 	
 	return nil
 }

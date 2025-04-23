@@ -11,9 +11,11 @@ import (
 
 // CherryPickOptions holds the options for the cherry-pick command
 type CherryPickOptions struct {
-	// Add specific options for cherry-pick if needed
-	Quiet  bool
-	Config *config.Config // <-- Add Config field
+	All            bool
+	Jobs           int
+	Quiet          bool
+	Verbose        bool
+	Config         *config.Config
 	CommonManifestOptions
 }
 
@@ -24,74 +26,86 @@ func CherryPickCmd() *cobra.Command {
 		Use:   "cherry-pick <commit> [<project>...]",
 		Short: "Cherry-pick a commit onto the current branch",
 		Long:  `Applies the changes introduced by the named commit(s) onto the current branch.`,
-		Args:  cobra.MinimumNArgs(1), // Requires at least the commit hash
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load() // Load config
+			cfg, err := config.Load()
 			if err != nil {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
-			opts.Config = cfg // Assign loaded config
-			// Pass commit (args[0]) and optional project names (args[1:])
-			return runCherryPick(opts, args[0], args[1:])
+			opts.Config = cfg
+			return runCherryPick(opts, args)
 		},
 	}
-
-	// Add flags
+	cmd.Flags().BoolVar(&opts.All, "all", false, "cherry-pick in all projects")
+	cmd.Flags().IntVarP(&opts.Jobs, "jobs", "j", 8, "number of projects to cherry-pick in parallel")
 	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
-	AddManifestFlags(cmd, &opts.CommonManifestOptions) // Pass opts.CommonManifestOptions
-
+	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show all output")
+	AddManifestFlags(cmd, &opts.CommonManifestOptions)
 	return cmd
 }
 
 // runCherryPick executes the cherry-pick command logic
-func runCherryPick(opts *CherryPickOptions, commit string, projectNames []string) error {
-	// Load manifest
+func runCherryPick(opts *CherryPickOptions, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("missing commit hash")
+	}
+	commit := args[0]
+	projectNames := args[1:]
+	cfg := opts.Config
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(opts.Config.ManifestName)
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName)
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-
-	// Create project manager
-	manager := project.NewManager(manifest, opts.Config)
-
-	// Declare projects variable once
+	manager := project.NewManager(manifestObj, cfg)
 	var projects []*project.Project
-
-	// Get projects to operate on
-	if len(projectNames) == 0 {
-		projects, err = manager.GetProjects(nil) // <-- Use nil, assign with =
+	if opts.All || len(projectNames) == 0 {
+		projects, err = manager.GetProjects(nil)
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		projects, err = manager.GetProjectsByNames(projectNames) // <-- Assign with =
+		projects, err = manager.GetProjectsByNames(projectNames)
 		if err != nil {
 			return fmt.Errorf("failed to get projects by name: %w", err)
 		}
 	}
 
-	// Perform cherry-pick operation
-	if !opts.Quiet {
-		fmt.Printf("Cherry-picking commit %s onto %d projects...\n", commit, len(projects))
-	}
-
+type cherryPickResult struct {
+	ProjectName string
+	Err        error
+}
+	results := make(chan cherryPickResult, len(projects))
+	sem := make(chan struct{}, opts.Jobs)
 	for _, p := range projects {
-		if !opts.Quiet {
-			fmt.Printf("Cherry-picking in %s...\n", p.Name)
-		}
-		// Example: Run git cherry-pick command
-		_, err := p.GitRepo.RunCommand("cherry-pick", commit)
-		if err != nil {
-			// Handle error appropriately (e.g., collect errors, print, fail fast)
-			fmt.Printf("Error cherry-picking in %s: %v\n", p.Name, err)
-			// Decide whether to continue or return error
+		p := p
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+			_, err := p.GitRepo.RunCommand("cherry-pick", commit)
+			results <- cherryPickResult{ProjectName: p.Name, Err: err}
+		}()
+	}
+	success, failed := 0, 0
+	for i := 0; i < len(projects); i++ {
+		res := <-results
+		if res.Err != nil {
+			failed++
+			if !opts.Quiet {
+				fmt.Printf("[FAILED] %s: %v\n", res.ProjectName, res.Err)
+			}
+		} else {
+			success++
+			if opts.Verbose && !opts.Quiet {
+				fmt.Printf("[OK] %s\n", res.ProjectName)
+			}
 		}
 	}
-
 	if !opts.Quiet {
-		fmt.Println("Cherry-pick complete (potentially with errors).")
+		fmt.Printf("Cherry-pick commit '%s': %d success, %d failed\n", commit, success, failed)
 	}
-
-	return nil // Adjust error handling as needed
+	if failed > 0 {
+		return fmt.Errorf("cherry-pick failed for %d projects", failed)
+	}
+	return nil
 }

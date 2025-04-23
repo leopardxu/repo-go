@@ -7,7 +7,7 @@ import (
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
-	"github.com/cix-code/gogo/internal/sync"
+	"github.com/cix-code/gogo/internal/repo_sync"
 	"github.com/spf13/cobra"
 )
 
@@ -112,19 +112,19 @@ func SmartSyncCmd() *cobra.Command {
 
 // runSmartSync 执行smartsync命令
 func runSmartSync(opts *SmartSyncOptions, args []string) error {
-	fmt.Println("Smart syncing projects")
+	if !opts.Quiet {
+		fmt.Println("Smart syncing projects")
+	}
 
 	// Config is now loaded in RunE and passed via opts
 	cfg := opts.Config
 	if cfg == nil {
-		// Fallback or error if config wasn't loaded correctly
 		return fmt.Errorf("config not loaded")
 	}
 
 	// 加载清单
 	parser := manifest.NewParser()
-	// Use ManifestName from Config or CommonManifestOptions if applicable
-	manifest, err := parser.ParseFromFile(cfg.ManifestName) // Assuming ManifestName is in cfg
+	manifest, err := parser.ParseFromFile(cfg.ManifestName)
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
@@ -135,21 +135,19 @@ func runSmartSync(opts *SmartSyncOptions, args []string) error {
 	// 获取要处理的项目
 	var projects []*project.Project
 	if len(args) == 0 {
-		// 如果没有指定项目，则处理所有项目
-		projects, err = manager.GetProjects(nil) // Fix: Use nil instead of ""
+		projects, err = manager.GetProjects(nil)
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		// 否则，只处理指定的项目
 		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	}
 
-	// Create sync engine options from SmartSyncOptions
-	syncOpts := &sync.Options{
+	// 创建同步选项
+	syncOpts := &repo_sync.Options{
 		Jobs:             opts.Jobs,
 		JobsNetwork:      opts.JobsNetwork,
 		JobsCheckout:     opts.JobsCheckout,
@@ -160,19 +158,24 @@ func runSmartSync(opts *SmartSyncOptions, args []string) error {
 		LocalOnly:        opts.LocalOnly,
 		NetworkOnly:      opts.NetworkOnly,
 		Quiet:            opts.Quiet,
-		// Map other relevant fields from SmartSyncOptions to sync.Options
-		// e.g., CurrentBranch, NoTags, Prune etc. if they exist in sync.Options
+		CurrentBranch:    opts.CurrentBranch,
+		NoTags:           opts.NoTags,
+		Prune:            opts.Prune,
+		OptimizedFetch:    opts.OptimizedFetch,
+		UseSuperproject:  opts.UseSuperproject,
 	}
 
 	// 创建同步引擎
-	engine := sync.NewEngine(projects, syncOpts, manifest, cfg)
+	engine := repo_sync.NewEngine(projects, syncOpts, manifest, cfg)
 
-	// Call Run() instead of Sync()
+	// 使用单独的goroutine池处理网络和本地操作
 	if err := engine.Run(); err != nil {
-	    return fmt.Errorf("sync failed: %w", err)
+		if !opts.Quiet {
+			fmt.Printf("\nSync completed with %d errors\n", len(engine.Errors()))
+		}
+		return fmt.Errorf("sync failed: %w", err)
 	}
 
-	// 显示同步结果
 	if !opts.Quiet {
 		fmt.Println("\nSync completed successfully")
 	}

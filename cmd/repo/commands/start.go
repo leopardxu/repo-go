@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"sync"
+	"errors"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -103,19 +105,51 @@ func runStart(opts *StartOptions, args []string) error {
 		}
 	}
 
-	// 在每个项目中创建分支
+	// 创建goroutine池和工作通道
+	errChan := make(chan error, len(projects))
+	sem := make(chan struct{}, opts.Jobs)
+	var wg sync.WaitGroup
+
+	// 并发在每个项目中创建分支
 	for _, p := range projects {
-		fmt.Printf("Creating branch '%s' in project '%s'\n", branchName, p.Name)
-		
-		// 创建分支
-		revision := opts.Rev
-		if revision == "" {
-			revision = p.Revision
+		p := p
+		wg.Add(1)
+		go func() {
+			sem <- struct{}{}
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+
+			fmt.Printf("Creating branch '%s' in project '%s'\n", branchName, p.Name)
+			
+			// 创建分支
+			revision := opts.Rev
+			if revision == "" {
+				revision = p.Revision
+			}
+			
+			if err := p.GitRepo.CreateBranch(branchName, revision); err != nil {
+				errChan <- fmt.Errorf("failed to create branch in project %s: %w", p.Name, err)
+				return
+			}
+		}()
+	}
+
+	// 等待所有goroutine完成
+	wg.Wait()
+	close(errChan)
+
+	// 收集错误
+	var errs []error
+	for err := range errChan {
+		if !opts.Quiet {
+			errs = append(errs, err)
 		}
-		
-		if err := p.GitRepo.CreateBranch(branchName, revision); err != nil {
-			return fmt.Errorf("failed to create branch in project %s: %w", p.Name, err)
-		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("encountered %d errors while creating branches: %v", len(errs), errors.Join(errs...))
 	}
 
 	fmt.Printf("Branch '%s' created successfully\n", branchName)

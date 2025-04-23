@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"sync"
+	"errors"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -134,22 +136,57 @@ func runStage(opts *StageOptions, args []string) error {
 		stageArgs = append(stageArgs, files...)
 	}
 
-	// 对每个项目执行stage
-	for _, p := range projects {
-		fmt.Printf("\nProject %s:\n", p.Name)
-		
-		// 执行stage命令
-		output, err := p.GitRepo.RunCommand(stageArgs...)
-		if err != nil {
-			fmt.Printf("Error in project %s: %v\n", p.Name, err)
-			continue
-		}
+	// 使用goroutine池并发执行stage
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(projects))
+	resultChan := make(chan string, len(projects))
+	pool := make(chan struct{}, 10) // 限制并发数为10
 
-		if output != "" {
-			fmt.Println(output)
-		} else {
-			fmt.Println("Files staged successfully")
+	for _, p := range projects {
+		wg.Add(1)
+		pool <- struct{}{}
+		
+		go func(project *project.Project) {
+			defer func() {
+				<-pool
+				wg.Done()
+			}()
+			
+			output, err := project.GitRepo.RunCommand(stageArgs...)
+			if err != nil {
+				errChan <- fmt.Errorf("project %s: %w", project.Name, err)
+				return
+			}
+			
+			if output != "" {
+				resultChan <- fmt.Sprintf("Project %s:\n%s", project.Name, output)
+			} else {
+				resultChan <- fmt.Sprintf("Project %s: Files staged successfully", project.Name)
+			}
+		}(p)
+	}
+
+	// 等待所有goroutine完成
+	wg.Wait()
+	close(errChan)
+	close(resultChan)
+
+	// 处理错误
+	var errs []error
+	for err := range errChan {
+		errs = append(errs, err)
+	}
+
+	// 输出结果
+	if !opts.Quiet {
+		for result := range resultChan {
+			fmt.Println(result)
 		}
+	}
+
+	// 如果有错误，返回汇总错误
+	if len(errs) > 0 {
+		return fmt.Errorf("%d projects failed: %v", len(errs), errors.Join(errs...))
 	}
 
 	return nil

@@ -1,4 +1,4 @@
-package sync
+package repo_sync
 
 import (
 	"encoding/json"
@@ -7,104 +7,119 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
-	"sync" // 添加 sync 包导入
+	"sync"
 	"time"
 
-	"github.com/cix-code/gogo/internal/git"
 	"github.com/cix-code/gogo/internal/progress"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/cix-code/gogo/internal/project" // Keep this import
 )
 
+// Removed the sync.Project struct definition
+
 // fetchMain 执行网络获取
-func (e *Engine) fetchMain(hyperSyncProjects []*project.Project) ([]*project.Project, error) {
-	// 获取仓库项目
-	repoProject := e.manifest.RepoProject
-	// 修复 git.NewRunner() 调用
-	projectRepoProject := convertManifestProject(repoProject, git.NewRunner())
-	
-	// 确定要获取的项目
+func (e *Engine) fetchMain(projects []*project.Project) error { // projects parameter is likely the hyperSyncProjects list or nil
+
+	// Get the full list of projects managed by the engine
+	allManagedProjects, err := e.getProjects()
+	if err != nil {
+		// Handle error getting projects if necessary, though getProjects caches it
+		return fmt.Errorf("failed to get managed projects in fetchMain: %w", err)
+	}
+
+	// Determine the actual list of projects to fetch
 	toFetch := []*project.Project{}
 	noFetch := make(map[string]bool)
-	
-	// 检查仓库项目是否需要更新
-	now := time.Now()
-	if now.Sub(projectRepoProject.LastFetch) >= 24*time.Hour {
-		toFetch = append(toFetch, projectRepoProject)
-	}
-	
-	// 如果使用HyperSync，只获取已更改的项目
-	if hyperSyncProjects != nil {
-		toFetch = append(toFetch, hyperSyncProjects...)
-		for _, project := range hyperSyncProjects {
-			noFetch[project.Gitdir] = true
+
+	// Decide which projects to fetch based on HyperSync or fetching all
+	if e.options.HyperSync && len(projects) > 0 { // 'projects' here are the hyperSyncProjects
+		toFetch = append(toFetch, projects...)
+		for _, p := range projects {
+			noFetch[p.Gitdir] = true // Mark hyper-synced projects to avoid redundant fetches later
 		}
+		// Optionally, add repo project if needed and not already in hyperSyncProjects
+		// repoProj := e.findRepoProject(allManagedProjects) // Need a helper to find it
+		// if repoProj != nil && !noFetch[repoProj.Gitdir] {
+		//     // Check fetch time condition if needed
+		//     toFetch = append(toFetch, repoProj)
+		// }
+
 	} else {
-		toFetch = append(toFetch, e.projects...)
+		// Fetch all managed projects if not HyperSync
+		toFetch = append(toFetch, allManagedProjects...)
 	}
-	
+
+	// Remove the specific repoProject handling based on convertManifestProject
+	// The repo project should be part of allManagedProjects if it exists
+
 	// 按照获取时间排序
 	sort.Slice(toFetch, func(i, j int) bool {
+		// Ensure getFetchTime works correctly with project.Project
 		return e.getFetchTime(toFetch[i]) > e.getFetchTime(toFetch[j])
 	})
-	
+
 	// 执行获取
-	success, fetched := e.fetch(toFetch)
+	success, fetched := e.fetch(toFetch) // fetch already works with []*project.Project
 	if !success {
 		select {
 		case e.errEvent <- struct{}{}:
 		default:
 		}
 	}
-	
-	// 更新仓库项目
-	e.postRepoFetch(projectRepoProject)
-	
+
+	// Update repo project fetch time if applicable
+	repoProj := e.findRepoProject(allManagedProjects) // Need a helper to find it
+	if repoProj != nil {
+		// Ensure postRepoFetch works correctly with project.Project
+		e.postRepoFetch(repoProj)
+	}
+
 	// 如果只执行网络同步，则返回
 	if e.options.NetworkOnly {
 		if !success {
-			return nil, fmt.Errorf("由于获取错误退出同步")
+			return fmt.Errorf("由于获取错误退出同步")
 		}
-		return e.projects, nil
+		return nil
 	}
-	
+
 	// 迭代获取缺失的项目
 	previouslyMissingSet := make(map[string]bool)
 	for {
 		// 重新加载清单
 		if err := e.reloadManifest("", true); err != nil {
-			return nil, err
+			return err
 		}
-		
-		// 获取所有项目
-		allProjects, err := e.getProjects()
+
+		// 获取所有项目 (reloads manifest and projects)
+		currentAllProjects, err := e.getProjects() // Use a different variable name
 		if err != nil {
-			return nil, err
+			return err
 		}
-		
+
 		// 查找缺失的项目
 		missing := []*project.Project{}
-		for _, project := range allProjects {
-			if _, ok := fetched[project.Gitdir]; !ok && !noFetch[project.Gitdir] {
-				missing = append(missing, project)
+		for _, p := range currentAllProjects { // Iterate over the reloaded list
+			if _, ok := fetched[p.Gitdir]; !ok && !noFetch[p.Gitdir] {
+				missing = append(missing, p)
 			}
 		}
-		
+
 		if len(missing) == 0 {
-			return allProjects, nil
+			return nil // Successfully fetched all required projects
 		}
-		
+
 		// 检查是否有新的缺失项目
 		missingSet := make(map[string]bool)
 		for _, p := range missing {
 			missingSet[p.Name] = true
 		}
-		
-		// 如果缺失的项目集合没有变化，则退出循环
+
+		// 如果缺失的项目集合没有变化，则退出循环 (avoid infinite loop)
 		if reflect.DeepEqual(previouslyMissingSet, missingSet) {
-			break
+			fmt.Println("Warning: Could not fetch all projects, missing set did not change.")
+			break // Or return an error
 		}
 		previouslyMissingSet = missingSet
-		
+
 		// 获取缺失的项目
 		success, newFetched := e.fetch(missing)
 		if !success {
@@ -112,16 +127,70 @@ func (e *Engine) fetchMain(hyperSyncProjects []*project.Project) ([]*project.Pro
 			case e.errEvent <- struct{}{}:
 			default:
 			}
+			// Decide if we should continue or fail fast here
+			if e.options.FailFast {
+				return fmt.Errorf("failed to fetch missing projects and FailFast is enabled")
+			}
 		}
-		
+
 		// 更新已获取的项目集合
 		for k, v := range newFetched {
 			fetched[k] = v
 		}
 	}
-	
-	return e.projects, nil
+
+	// If the loop broke due to no change in missingSet, return an error
+	if len(previouslyMissingSet) > 0 {
+	    return fmt.Errorf("failed to fetch all required projects")
+	}
+
+
+	return nil
 }
+
+// Helper function to find the repo project (implementation needed)
+func (e *Engine) findRepoProject(projects []*project.Project) *project.Project {
+	// Logic to identify the repository project within the list
+	// This might involve checking the path or name against manifest info
+	// Placeholder implementation:
+	if e.manifest != nil && e.manifest.RepoProject != nil {
+		repoManifestPath := e.manifest.RepoProject.Path
+		for _, p := range projects {
+			if p.Path == repoManifestPath {
+				return p
+			}
+		}
+	}
+	return nil // Or handle error if repo project expected but not found
+}
+
+// Remove the duplicate definition below:
+/*
+// Ensure postRepoFetch uses project.Project
+func (e *Engine) postRepoFetch(repoProject *project.Project) {
+    // 更新仓库项目的最后获取时间
+    repoProject.LastFetch = time.Now()
+    
+    // 保存最后获取时间
+    // Ensure manifest.Subdir is accessible or calculated correctly
+    // filePath := filepath.Join(e.manifest.Subdir, ".repo_fetchtimes.json")
+    // Need to determine the correct path for storing fetch times
+    // Perhaps relative to the top-level worktree or .repo directory
+    // Example: filePath := filepath.Join(e.config.WorkDir, ".repo", ".repo_fetchtimes.json")
+    // This needs careful consideration based on project structure.
+    // For now, let's comment out the file writing part if unsure.
+
+    // data, err := json.Marshal(map[string]time.Time{
+    //     "repo": repoProject.LastFetch,
+    // })
+    //
+    // if err == nil {
+    //     // os.WriteFile(filePath, data, 0644) // Commented out until path is confirmed
+    // } else {
+    //     // Log error marshalling JSON?
+    // }
+}
+*/
 
 // fetch 执行获取操作
 func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
