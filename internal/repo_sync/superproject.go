@@ -119,7 +119,8 @@ func (sp *Superproject) UpdateProjectsRevisionId(projects []*project.Project) (s
 	if err != nil {
 		return "", fmt.Errorf("获取超级项目提交ID失败: %w", err)
 	}
-	superprojectCommitId = strings.TrimSpace(superprojectCommitId)
+	superprojectCommitIdStr := strings.TrimSpace(string(superprojectCommitId))
+	superprojectCommitId = []byte(superprojectCommitIdStr)
 	
 	// 创建超级项目清单
 	manifestPath := filepath.Join(sp.manifest.Subdir, "superproject-manifest.xml")
@@ -135,24 +136,23 @@ func (sp *Superproject) UpdateProjectsRevisionId(projects []*project.Project) (s
 	for _, project := range projects {
 		// 获取项目在超级项目中的提交ID
 		projectPath := project.Path
-		projectCommitId, err := sp.gitRepo.RunCommand("ls-tree", "HEAD", projectPath)
+		projectCommitIdBytes, err := sp.gitRepo.RunCommand("ls-tree", "HEAD", projectPath)
 		if err != nil {
 			continue
 		}
-		
-		// 解析提交ID
-		parts := strings.Fields(projectCommitId)
+		// 解析git ls-tree输出
+		parts := strings.Fields(string(projectCommitIdBytes))
 		if len(parts) < 4 {
 			continue
 		}
-		projectCommitId = parts[2]
+		projectCommitId := parts[2]
 		
 		// 添加项目到清单
 		manifestContent += fmt.Sprintf(`  <project name="%s" path="%s" revision="%s" />
 `, project.Name, projectPath, projectCommitId)
 		
 		// 更新项目的修订ID
-		project.RevisionId = projectCommitId
+		project.RevisionId = string(projectCommitId)
 	}
 	
 	// 关闭清单

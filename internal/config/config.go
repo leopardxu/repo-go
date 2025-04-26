@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config 表示repo配置
@@ -35,7 +36,10 @@ type Config struct {
 	CurrentBranch       bool   `json:"current_branch"`
 	Tags                bool   `json:"tags"`
 	ConfigName          string `json:"config_name"`
-	RepoRoot string `yaml:"repo_root"`
+	RepoRoot            string `yaml:"repo_root"`
+	DefaultRemoteURL    string `json:"default_remote_url"`
+	Verbose            bool   `json:"verbose"`
+	Quiet              bool   `json:"quiet"`
 }
 
 // Load 加载配置
@@ -107,4 +111,26 @@ func GetRepoRoot() (string, error) {
 	}
 	
 	return "", fmt.Errorf("not in a repo client")
+}
+func (c *Config) GetRemoteURL() string {
+	if c == nil || c.ManifestURL == "" {
+		return ""
+	}
+	
+	// 提取协议和域名部分
+	manifestURL := c.ManifestURL
+	if strings.HasPrefix(manifestURL, "ssh://") || strings.HasPrefix(manifestURL, "http://") || strings.HasPrefix(manifestURL, "https://") {
+		// 移除路径部分
+		// 查找协议后的第一个斜杠
+		doubleSlash := strings.Index(manifestURL, "//")
+		if doubleSlash > 0 {
+			firstSlash := strings.Index(manifestURL[doubleSlash+2:], "/")
+			if firstSlash > 0 {
+				return manifestURL[:doubleSlash+2+firstSlash]
+			}
+			return manifestURL
+		}
+		return manifestURL
+	}
+	return ""
 }

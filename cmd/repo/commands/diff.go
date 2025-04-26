@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cix-code/gogo/internal/config" // Ensure config is imported
 	"github.com/cix-code/gogo/internal/manifest"
@@ -24,7 +25,7 @@ func loadConfig() (*config.Config, error) {
 // 解析清单
 func loadManifest(cfg *config.Config) (*manifest.Manifest, error) {
 	parser := manifest.NewParser()
-	return parser.ParseFromFile(cfg.ManifestName)
+	return parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
 }
 
 // 获取项目列表
@@ -72,7 +73,8 @@ func runDiff(opts *DiffOptions, projectNames []string) error {
 		sem <- struct{}{}
 		go func(proj *project.Project) {
 			defer func() { <-sem }()
-			out, err := proj.GitRepo.RunCommand("diff")
+			outBytes, err := proj.GitRepo.RunCommand("diff")
+			out := string(outBytes)
 			results <- diffResult{Name: proj.Name, Output: out, Err: err}
 		}(p)
 	}

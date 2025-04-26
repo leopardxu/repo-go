@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cix-code/gogo/internal/config" // Ensure config is imported
 	"github.com/cix-code/gogo/internal/manifest"
@@ -53,7 +54,7 @@ func runCherryPick(opts *CherryPickOptions, args []string) error {
 	projectNames := args[1:]
 	cfg := opts.Config
 	parser := manifest.NewParser()
-	manifestObj, err := parser.ParseFromFile(cfg.ManifestName)
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}

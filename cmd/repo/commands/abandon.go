@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -82,7 +83,7 @@ func runAbandon(opts *AbandonOptions, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	parser := manifest.NewParser()
-	manifestObj, err := parser.ParseFromFile(cfg.ManifestName)
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}

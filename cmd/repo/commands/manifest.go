@@ -66,7 +66,7 @@ func runManifest(opts *ManifestOptions, args []string) error {
 
 	// 加载清单
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
+	manifest, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}

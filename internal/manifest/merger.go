@@ -120,7 +120,7 @@ func (m *Merger) mergeManifest(dst, src *Manifest) error {
 }
 
 // ProcessIncludes 处理清单中的include标签
-func (m *Merger) ProcessIncludes(manifest *Manifest) (*Manifest, error) {
+func (m *Merger) ProcessIncludes(manifest *Manifest,groups []string) (*Manifest, error) {
 	if len(manifest.Includes) == 0 {
 		return manifest, nil
 	}
@@ -138,13 +138,13 @@ func (m *Merger) ProcessIncludes(manifest *Manifest) (*Manifest, error) {
 		}
 
 		// 解析包含的清单文件
-		includeManifest, err := m.Parser.ParseFromFile(includePath)
+		includeManifest, err := m.Parser.ParseFromFile(includePath,groups)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse included manifest: %w", err)
 		}
 
 		// 递归处理包含的清单中的include标签
-		processedInclude, err := m.ProcessIncludes(includeManifest)
+		processedInclude, err := m.ProcessIncludes(includeManifest,groups)
 		if err != nil {
 			return nil, err
 		}

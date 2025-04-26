@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"errors"
+	"strings"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -95,7 +96,7 @@ func runUpload(opts *UploadOptions, args []string) error {
 
 	// 加载清单
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
+	manifest, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
@@ -242,14 +243,15 @@ func runUpload(opts *UploadOptions, args []string) error {
 			}
 			
 			// 执行上传命令
-			output, err := p.GitRepo.RunCommand(uploadArgs...)
+			outputBytes, err := p.GitRepo.RunCommand(uploadArgs...)
 			if err != nil {
-				errChan <- fmt.Errorf("failed to upload changes from project %s: %w\n%s", p.Name, err, output)
+				errChan <- fmt.Errorf("failed to upload changes from project %s: %w\n%s", p.Name, err, string(outputBytes))
 				return
 			}
 			
 			if !opts.Quiet {
 				fmt.Printf("Successfully uploaded changes from project %s\n", p.Name)
+				output := strings.TrimSpace(string(outputBytes))
 				if output != "" {
 					fmt.Println(output)
 				}

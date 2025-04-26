@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"errors"
+	"strings"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -64,7 +65,7 @@ func runStage(opts *StageOptions, args []string) error {
 
 	// 加载清单
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
+	manifest, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
@@ -152,12 +153,13 @@ func runStage(opts *StageOptions, args []string) error {
 				wg.Done()
 			}()
 			
-			output, err := project.GitRepo.RunCommand(stageArgs...)
+			outputBytes, err := project.GitRepo.RunCommand(stageArgs...)
 			if err != nil {
 				errChan <- fmt.Errorf("project %s: %w", project.Name, err)
 				return
 			}
 			
+			output := strings.TrimSpace(string(outputBytes))
 			if output != "" {
 				resultChan <- fmt.Sprintf("Project %s:\n%s", project.Name, output)
 			} else {

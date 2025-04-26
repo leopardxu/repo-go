@@ -57,7 +57,7 @@ func runBranch(opts *BranchOptions, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	parser := manifest.NewParser()
-	manifestObj, err := parser.ParseFromFile(cfg.ManifestName)
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
@@ -89,18 +89,19 @@ func runBranch(opts *BranchOptions, args []string) error {
 		sem <- struct{}{}
 		go func() {
 			defer func() { <-sem }()
-			currentBranch, err := p.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
+			currentBranchBytes, err := p.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
 			if err != nil {
 				results <- branchResult{ProjectName: p.Name, Err: err}
 				return
 			}
-			branchesOutput, err := p.GitRepo.RunCommand("branch", "--list")
+			branchesOutputBytes, err := p.GitRepo.RunCommand("branch", "--list")
 			if err != nil {
 				results <- branchResult{ProjectName: p.Name, Err: err}
 				return
 			}
-			branches := strings.Split(strings.TrimSpace(branchesOutput), "\n")
-			results <- branchResult{ProjectName: p.Name, CurrentBranch: strings.TrimSpace(currentBranch), Branches: branches}
+			currentBranch := strings.TrimSpace(string(currentBranchBytes))
+			branches := strings.Split(strings.TrimSpace(string(branchesOutputBytes)), "\n")
+			results <- branchResult{ProjectName: p.Name, CurrentBranch: currentBranch, Branches: branches}
 		}()
 	}
 	branchInfo := make(map[string][]string)

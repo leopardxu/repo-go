@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cix-code/gogo/internal/config" // Ensure config is imported
 	"github.com/cix-code/gogo/internal/manifest"
@@ -46,7 +47,7 @@ func loadDownloadConfig() (*config.Config, error) {
 // loadDownloadManifest loads the manifest file
 func loadDownloadManifest(cfg *config.Config) (*manifest.Manifest, error) {
 	parser := manifest.NewParser()
-	return parser.ParseFromFile(cfg.ManifestName)
+	return parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
 }
 
 // 获取项目列表

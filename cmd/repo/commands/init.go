@@ -129,7 +129,7 @@ func InitCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.Reference, "reference", "", "location of mirror directory")
 	cmd.Flags().BoolVar(&opts.NoSmartCache, "no-smart-cache", false, "disable CIX smart cache feature")
 	cmd.Flags().BoolVar(&opts.Dissociate, "dissociate", false, "dissociate from reference mirrors after clone")
-	cmd.Flags().IntVar(&opts.Depth, "depth", 0, "create a shallow clone with given depth")
+	cmd.Flags().IntVar(&opts.Depth, "depth", 1, "create a shallow clone with given depth")
 	cmd.Flags().BoolVar(&opts.PartialClone, "partial-clone", false, "perform partial clone")
 	cmd.Flags().BoolVar(&opts.NoPartialClone, "no-partial-clone", false, "disable use of partial clone")
 	cmd.Flags().StringVar(&opts.PartialCloneExclude, "partial-clone-exclude", "", "exclude projects from partial clone")
@@ -180,7 +180,7 @@ func saveRepoConfig(cfg *RepoConfig) error {
 // loadGitConfig 加载Git配置
 func loadGitConfig() error {
 	// 检查Git是否安装
-	gitRunner := git.NewCommandRunner()
+	gitRunner := git.NewRunner()
 	if _, err := gitRunner.Run("--version"); err != nil {
 		return fmt.Errorf("git not found: %w", err)
 	}
@@ -209,7 +209,7 @@ func loadGitConfig() error {
 
 // promptForUserInfo 提示用户输入信息
 func promptForUserInfo() error {
-	gitRunner := git.NewCommandRunner()
+	gitRunner := git.NewRunner()
 	
 	// 检查用户名
 	output, _ := gitRunner.Run("config", "--get", "user.name")
@@ -297,8 +297,14 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 			if i < 2 {
 				time.Sleep(time.Second * 2)
 			}
+		if strings.Contains(lastErr.Error(), "fatal: repository '") {
+				errChan <- fmt.Errorf("清单仓库URL无效或无法访问: %s\n请检查URL是否正确且网络可访问", lastErr)
+			} else if strings.Contains(lastErr.Error(), "Could not read from remote repository") {
+				errChan <- fmt.Errorf("无法从远程仓库读取: %s\n请检查权限和网络连接", lastErr)
+			} else {
+				errChan <- fmt.Errorf("克隆清单仓库失败: %s\n尝试次数: %d/3", lastErr, i+1)
+			}
 		}
-		errChan <- fmt.Errorf("克隆清单仓库失败: %s", lastErr)
 	}()
 	
 	// 等待克隆完成或超时
@@ -308,7 +314,7 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 			return err
 		}
 	case <-time.After(5 * time.Minute):
-		return fmt.Errorf("克隆清单仓库超时")
+		return fmt.Errorf("克隆清单仓库超时\n请检查网络连接或尝试增加超时时间")
 	}
 	
 	// 如果需要子模块
@@ -413,19 +419,20 @@ func runInit(opts *InitOptions) error {
 		}
 	} else {
 		// 只检查Git是否安装，不强制要求配置用户信息
-		gitRunner := git.NewCommandRunner()
+		gitRunner := git.NewRunner()
 		if _, err := gitRunner.Run("--version"); err != nil {
 			return fmt.Errorf("git not found: %w", err)
 		}
 	}
 	
-	gitRunner := git.NewCommandRunner()
+	gitRunner := git.NewRunner()
 	if opts.Verbose {
 		gitRunner.SetVerbose(true)
 	}
 	if opts.Quiet {
 		gitRunner.SetQuiet(true)
 	}
+	gitRunner.SetQuiet(true)
 
 	// 设置Git LFS
 	if opts.GitLFS {
@@ -452,16 +459,56 @@ func runInit(opts *InitOptions) error {
 
 	// 解析清单文件
 	parser := manifest.NewParser()
+	parser.SetSilentMode(!opts.Verbose) // 根据verbose选项控制警告日志输出
 	manifestPath := filepath.Join(".repo", "manifests", cfg.ManifestName)
-	manifestObj, err := parser.ParseFromFile(manifestPath)
+	manifestObj, err := parser.ParseFromFile(manifestPath, strings.Split(cfg.Groups, ","))
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
+	}
+	groups := strings.Split(cfg.Groups, ",")
+	// 按group过滤项目
+	if cfg.Groups != "" {
+		if opts.Verbose {
+			fmt.Printf("根据以下组过滤项目: %v\n", groups)
+		}
+		
+		filteredProjects := make([]manifest.Project, 0)
+		for _, p := range manifestObj.Projects {
+			if p.Groups == "" || containsAnyGroup(p.Groups, groups) {
+				filteredProjects = append(filteredProjects, p)
+				if opts.Verbose {
+					fmt.Printf("包含项目: %s (组: %s)\n", p.Name, p.Groups)
+				}
+			} else if opts.Verbose {
+				fmt.Printf("排除项目: %s (组: %s)\n", p.Name, p.Groups)
+			}
+		}
+		
+		if opts.Verbose {
+			fmt.Printf("过滤后的项目数量: %d (原始数量: %d)\n", len(filteredProjects), len(manifestObj.Projects))
+		}
+		
+		manifestObj.Projects = filteredProjects
+		
+		// 更新清单对象后重新保存
+		mergedPath := filepath.Join(".repo", "manifest.xml")
+		mergedData, err := manifestObj.ToXML()
+		if err != nil {
+			return fmt.Errorf("转换过滤后的清单为XML失败: %w", err)
+		}
+		if err := os.WriteFile(mergedPath, []byte(mergedData), 0644); err != nil {
+			return fmt.Errorf("写入过滤后的清单文件失败: %w", err)
+		}
+		
+		if opts.Verbose {
+			fmt.Printf("已将过滤后的清单保存到: %s\n", mergedPath)
+		}
 	}
 
 	// 处理include标签
 	if len(manifestObj.Includes) > 0 && !opts.ThisManifestOnly {
 		if opts.Verbose {
-			fmt.Printf("Processing %d include(s)\n", len(manifestObj.Includes))
+			fmt.Printf("正在处理 %d 个包含的清单文件\n", len(manifestObj.Includes))
 		}
 		
 		// 创建清单合并器
@@ -473,39 +520,60 @@ func runInit(opts *InitOptions) error {
 		for _, include := range manifestObj.Includes {
 			includePath := filepath.Join(".repo", "manifests", include.Name)
 			if opts.Verbose {
-				fmt.Printf("Loading included manifest: %s\n", include.Name)
+				fmt.Printf("正在加载包含的清单: %s\n", include.Name)
 			}
 			
-			includeManifest, err := parser.ParseFromFile(includePath)
+			// 检查包含的清单文件是否存在
+			if _, err := os.Stat(includePath); os.IsNotExist(err) {
+				return fmt.Errorf("包含的清单文件不存在: %s", includePath)
+			}
+			
+			includeManifest, err := parser.ParseFromFile(includePath, groups)
 			if err != nil {
-				return fmt.Errorf("failed to parse included manifest %s: %w", include.Name, err)
+				return fmt.Errorf("解析包含的清单文件 %s 失败: %w", include.Name, err)
+			}
+			
+			if includeManifest == nil {
+				return fmt.Errorf("包含的清单文件 %s 解析结果为空", include.Name)
+			}
+			
+			if opts.Verbose {
+				fmt.Printf("包含的清单 %s 包含 %d 个项目\n", include.Name, len(includeManifest.Projects))
 			}
 			
 			includedManifests = append(includedManifests, includeManifest)
 		}
 		
 		// 合并清单
+		if opts.Verbose {
+			fmt.Printf("正在合并 %d 个清单文件\n", len(includedManifests))
+		}
+		
 		mergedManifest, err := merger.Merge(includedManifests)
 		if err != nil {
-			return fmt.Errorf("failed to merge manifests: %w", err)
+			return fmt.Errorf("合并清单失败: %w", err)
 		}
 		
 		// 更新清单对象
 		manifestObj = mergedManifest
 		
+		if opts.Verbose {
+			fmt.Printf("合并后的清单包含 %d 个项目\n", len(manifestObj.Projects))
+		}
+		
 		// 保存合并后的清单
 		mergedPath := filepath.Join(".repo", "manifest.xml")
 		mergedData, err := manifestObj.ToXML()
 		if err != nil {
-			return fmt.Errorf("failed to convert merged manifest to XML: %w", err)
+			return fmt.Errorf("转换合并后的清单为XML失败: %w", err)
 		}
 		
 		if err := os.WriteFile(mergedPath, []byte(mergedData), 0644); err != nil {
-			return fmt.Errorf("failed to write merged manifest: %w", err)
+			return fmt.Errorf("写入合并后的清单文件失败: %w", err)
 		}
 		
 		if opts.Verbose {
-			fmt.Println("Manifest includes processed and merged")
+			fmt.Printf("已将合并后的清单保存到: %s\n", mergedPath)
 		}
 	}
 
@@ -525,7 +593,7 @@ func runInit(opts *InitOptions) error {
 		outerManifestPath := filepath.Join("..", ".repo", "manifest.xml")
 		if _, err := os.Stat(outerManifestPath); err == nil {
 			// 加载外部清单
-			outerManifest, err := parser.ParseFromFile(outerManifestPath)
+			outerManifest, err := parser.ParseFromFile(outerManifestPath,groups)
 			if err != nil {
 				return fmt.Errorf("failed to parse outer manifest: %w", err)
 			}
@@ -578,7 +646,7 @@ func runInit(opts *InitOptions) error {
 					fmt.Printf("Loading included manifest: %s\n", include.Name)
 				}
 				
-				includeManifest, err := parser.ParseFromFile(includePath)
+				includeManifest, err := parser.ParseFromFile(includePath,groups)
 				if err != nil {
 					return fmt.Errorf("failed to parse included manifest %s: %w", include.Name, err)
 				}
@@ -636,8 +704,47 @@ func initRepoStructure(repoDir string) error {
 	}
 	
 	// 记录钩子目录路径，用于后续同步到各个项目
-	hooksDir := filepath.Join(repoDir, ".repo", "hooks")
-	fmt.Printf("已初始化钩子脚本目录: %s\n", hooksDir)
+	// hooksDir := filepath.Join(repoDir, ".repo", "hooks")
+	// fmt.Printf("已初始化钩子脚本目录: %s\n", hooksDir)
 	
 	return nil
+}
+// containsAnyGroup 检查项目组是否包含任一指定组
+func containsAnyGroup(projectGroups string, checkGroups []string) bool {
+	// 如果没有指定过滤组，则包含所有项目
+	if len(checkGroups) == 0 {
+		return true
+	}
+	
+	// 如果项目没有指定组，则默认包含
+	if projectGroups == "" {
+		return true
+	}
+	
+	// 如果传入的是"all"，则包含所有项目
+	for _, cg := range checkGroups {
+		if cg == "all" {
+			return true
+		}
+	}
+	
+	projectGroupList := strings.Split(projectGroups, ",")
+	for _, pg := range projectGroupList {
+		pg = strings.TrimSpace(pg) // 去除可能的空格
+		if pg == "" {
+			continue // 跳过空组
+		}
+		
+		for _, cg := range checkGroups {
+			cg = strings.TrimSpace(cg) // 去除可能的空格
+			if cg == "" {
+				continue // 跳过空组
+			}
+			
+			if pg == cg {
+				return true
+			}
+		}
+	}
+	return false
 }

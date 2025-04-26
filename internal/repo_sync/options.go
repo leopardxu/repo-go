@@ -5,6 +5,7 @@ import "time"
 type Options struct {
     HTTPTimeout time.Duration
     Debug       bool
+    Verbose     bool
     Jobs           int
     JobsNetwork    int
     JobsCheckout   int
@@ -34,4 +35,5 @@ type Options struct {
     ThisManifestOnly bool
     ManifestServerUsername string
     ManifestServerPassword string
+    Depth           int
 }

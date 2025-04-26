@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -124,7 +125,7 @@ func runSmartSync(opts *SmartSyncOptions, args []string) error {
 
 	// 加载清单
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName)
+	manifest, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}

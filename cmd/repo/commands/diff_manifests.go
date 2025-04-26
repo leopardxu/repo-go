@@ -99,13 +99,13 @@ func runDiffManifests(opts *DiffManifestsOptions, args []string) error {
 	parser := manifest.NewParser()
 
 	// 解析第一个清单文件
-	manifest1, err := parser.ParseFromFile(manifest1Path)
+	manifest1, err := parser.ParseFromFile(manifest1Path, nil)
 	if err != nil {
 		return fmt.Errorf("failed to parse first manifest: %w", err)
 	}
 
 	// 解析第二个清单文件
-	manifest2, err := parser.ParseFromFile(manifest2Path)
+	manifest2, err := parser.ParseFromFile(manifest2Path,nil)
 	if err != nil {
 		return fmt.Errorf("failed to parse second manifest: %w", err)
 	}

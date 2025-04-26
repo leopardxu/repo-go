@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/manifest"
@@ -65,7 +66,7 @@ func runInfo(opts *InfoOptions, args []string) error {
 
     // Load manifest
     parser := manifest.NewParser()
-    manifest, err := parser.ParseFromFile(cfg.ManifestName) // Reuse err
+    manifest, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,",")) // Reuse err
     if err != nil {
         return fmt.Errorf("failed to parse manifest: %w", err)
     }
@@ -106,17 +107,30 @@ for _, p := range projects {
 		
 		var output string
 		var err error
+		var outputBytes []byte
 		
 		// 根据选项显示不同信息
 		switch {
 		case opts.Diff:
-			output, err = proj.GitRepo.RunCommand("log", "--oneline", "HEAD..@{upstream}")
+			outputBytes, err = proj.GitRepo.RunCommand("log", "--oneline", "HEAD..@{upstream}")
+			if err == nil {
+				output = strings.TrimSpace(string(outputBytes))
+			}
 		case opts.Overview:
-			output, err = proj.GitRepo.RunCommand("log", "--oneline", "-10")
+			outputBytes, err = proj.GitRepo.RunCommand("log", "--oneline", "-10")
+			if err == nil {
+				output = strings.TrimSpace(string(outputBytes))
+			}
 		case opts.CurrentBranch:
-			output, err = proj.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
+			outputBytes, err = proj.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
+			if err == nil {
+				output = strings.TrimSpace(string(outputBytes))
+			}
 		default:
-			output, err = proj.GitRepo.RunCommand("status", "--short")
+			outputBytes, err = proj.GitRepo.RunCommand("status", "--short")
+			if err == nil {
+				output = strings.TrimSpace(string(outputBytes))
+			}
 		}
 		
 		results <- infoResult{Project: proj, Output: output, Err: err}
@@ -148,12 +162,13 @@ func showDiff(p *project.Project) {
 	fmt.Println("Commit differences:")
 	
 	// 获取本地和远程分支之间的差异
-	output, err := p.GitRepo.RunCommand("log", "--oneline", "HEAD..@{upstream}")
+	outputBytes, err := p.GitRepo.RunCommand("log", "--oneline", "HEAD..@{upstream}")
 	if err != nil {
 		fmt.Printf("Error getting commit diff: %v\n", err)
 		return
 	}
 	
+	output := strings.TrimSpace(string(outputBytes))
 	if output != "" {
 		fmt.Println(output)
 	} else {
@@ -165,12 +180,13 @@ func showDiff(p *project.Project) {
 func showLocalBranches(p *project.Project) {
 	fmt.Println("Local branches:")
 	
-	output, err := p.GitRepo.RunCommand("branch")
+	outputBytes, err := p.GitRepo.RunCommand("branch")
 	if err != nil {
 		fmt.Printf("Error getting local branches: %v\n", err)
 		return
 	}
 	
+	output := strings.TrimSpace(string(outputBytes))
 	if output != "" {
 		fmt.Println(output)
 	} else {
@@ -182,12 +198,12 @@ func showLocalBranches(p *project.Project) {
 func showRemoteBranches(p *project.Project) {
 	fmt.Println("Remote branches:")
 	
-	output, err := p.GitRepo.RunCommand("branch", "-r")
+	outputBytes, err := p.GitRepo.RunCommand("branch", "-r")
 	if err != nil {
 		fmt.Printf("Error getting remote branches: %v\n", err)
 		return
 	}
-	
+	output := strings.TrimSpace(string(outputBytes))
 	if output != "" {
 		fmt.Println(output)
 	} else {
@@ -200,12 +216,12 @@ func showCurrentBranchInfo(p *project.Project) {
 	fmt.Println("Current branch info:")
 	
 	// 获取当前分支的最近提交
-	output, err := p.GitRepo.RunCommand("log", "-1", "--oneline")
+	outputBytes, err := p.GitRepo.RunCommand("log", "-1", "--oneline")
 	if err != nil {
 		fmt.Printf("Error getting current branch info: %v\n", err)
 		return
 	}
-	
+	output := strings.TrimSpace(string(outputBytes))
 	if output != "" {
 		fmt.Println(output)
 	} else {
@@ -217,12 +233,13 @@ func showCurrentBranchInfo(p *project.Project) {
 func showAllBranches(p *project.Project) {
 	fmt.Println("All branches:")
 	
-	output, err := p.GitRepo.RunCommand("branch", "-a")
+	outputBytes, err := p.GitRepo.RunCommand("branch", "-a")
 	if err != nil {
 		fmt.Printf("Error getting all branches: %v\n", err)
 		return
 	}
 	
+	output := strings.TrimSpace(string(outputBytes))
 	if output != "" {
 		fmt.Println(output)
 	} else {
@@ -234,12 +251,13 @@ func showAllBranches(p *project.Project) {
 func showCommitOverview(p *project.Project) {
 	fmt.Println("Commit overview:")
 	
-	output, err := p.GitRepo.RunCommand("log", "--oneline", "-10")
+	outputBytes, err := p.GitRepo.RunCommand("log", "--oneline", "-10")
 	if err != nil {
 		fmt.Printf("Error getting commit overview: %v\n", err)
 		return
 	}
 	
+	output := strings.TrimSpace(string(outputBytes))
 	if output != "" {
 		fmt.Println(output)
 	} else {
@@ -250,21 +268,23 @@ func showCommitOverview(p *project.Project) {
 // showBasicInfo 显示基本信息
 func showBasicInfo(p *project.Project) {
 	// 获取最近的提交
-	output, err := p.GitRepo.RunCommand("log", "-1", "--oneline")
+	outputBytes, err := p.GitRepo.RunCommand("log", "-1", "--oneline")
 	if err != nil {
 		fmt.Printf("Error getting latest commit: %v\n", err)
 		return
 	}
 	
+	output := strings.TrimSpace(string(outputBytes))
 	fmt.Printf("Latest commit: %s\n", output)
 	
 	// 获取未提交的更改
-	output, err = p.GitRepo.RunCommand("status", "--short")
+	outputBytes, err = p.GitRepo.RunCommand("status", "--short")
 	if err != nil {
 		fmt.Printf("Error getting status: %v\n", err)
 		return
 	}
 	
+	output = strings.TrimSpace(string(outputBytes))
 	if output != "" {
 		fmt.Println("Uncommitted changes:")
 		fmt.Println(output)

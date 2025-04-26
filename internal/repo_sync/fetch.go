@@ -85,7 +85,7 @@ func (e *Engine) fetchMain(projects []*project.Project) error { // projects para
 	previouslyMissingSet := make(map[string]bool)
 	for {
 		// 重新加载清单
-		if err := e.reloadManifest("", true); err != nil {
+		if err := e.reloadManifest("", true,e.options.Groups); err != nil {
 			return err
 		}
 

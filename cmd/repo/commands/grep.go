@@ -60,7 +60,7 @@ func GrepCmd() *cobra.Command {
 func runGrep(opts *GrepOptions, projectNames []string) error {
 	// Load manifest
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(opts.Config.ManifestName)
+	manifest, err := parser.ParseFromFile(opts.Config.ManifestName,strings.Split(opts.Config.Groups,","))
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}

@@ -1,6 +1,7 @@
 package repo_sync
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
 	"github.com/cix-code/gogo/internal/ssh"
+	"golang.org/x/sync/errgroup"
 )
 
 // Options 包含同步引擎的选项
@@ -27,6 +29,7 @@ type Engine struct {
 	manifest *manifest.Manifest
 	config   *config.Config
 	sshProxy *ssh.Proxy
+	ctx      context.Context
 	
 	// 同步状态
 	fetchTimes     map[string]float64
@@ -36,6 +39,14 @@ type Engine struct {
 	
 	// 仓库根目录
 	repoRoot string
+	
+	// 日志控制
+	silentMode bool
+}
+
+// SetSilentMode 设置引擎的静默模式
+func (e *Engine) SetSilentMode(silent bool) {
+	e.silentMode = silent
 }
 
 // NewEngine 创建一个新的同步引擎
@@ -44,6 +55,10 @@ func NewEngine(projects []*project.Project, options *Options, manifest *manifest
 	if options.HTTPTimeout == 0 {
 		options.HTTPTimeout = 30 * time.Second
 	}
+	
+	// 默认非静默模式
+	silentMode := false
+	
 	// 设置默认值
 	if options.JobsNetwork <= 0 {
 		options.JobsNetwork = options.Jobs
@@ -65,6 +80,9 @@ func NewEngine(projects []*project.Project, options *Options, manifest *manifest
 		repoRoot, _ = os.Getwd()
 	}
 	
+	// 创建上下文
+	ctx := context.Background()
+	
 	return &Engine{
 		projects:   projects,
 		options:    options,
@@ -73,6 +91,8 @@ func NewEngine(projects []*project.Project, options *Options, manifest *manifest
 		fetchTimes: make(map[string]float64),
 		errEvent:   make(chan struct{}, 1),
 		repoRoot:   repoRoot,
+		silentMode: silentMode,
+		ctx:        ctx,
 	}
 }
 
@@ -124,7 +144,7 @@ func (e *Engine) Run() error {
 	}
 	
 	// 执行网络同步
-	if err := e.fetchMain(e.projects); err != nil {
+	if err := e.fetchMainParallel(e.projects); err != nil {
 		return err
 	}
 	
@@ -137,7 +157,7 @@ func (e *Engine) Run() error {
 	}
 	
 	// 执行本地检出
-	if err := e.checkout(e.projects, hyperSyncProjects); err != nil {
+	if err := e.checkoutParallel(e.projects, hyperSyncProjects); err != nil {
 		return err
 	}
 	
@@ -147,6 +167,71 @@ func (e *Engine) Run() error {
 	}
 	
 	return nil
+}
+
+// fetchProject 执行单个项目的网络同步
+func (e *Engine) fetchProject(p *project.Project) error {
+	// 实现项目网络同步逻辑
+	return nil
+}
+
+// fetchMainParallel 并行执行网络同步
+func (e *Engine) fetchMainParallel(projects []*project.Project) error {
+	g, ctx := errgroup.WithContext(context.Background())
+	g.SetLimit(e.options.JobsNetwork)
+
+	var wg sync.WaitGroup
+	for _, p := range projects {
+		p := p
+		wg.Add(1)
+		g.Go(func() error {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				return e.fetchProject(p)
+			}
+		})
+	}
+
+	wg.Wait()
+	return g.Wait()
+}
+
+// checkoutProject 执行单个项目的本地检出
+func (e *Engine) checkoutProject(p *project.Project, hyperSyncProjects []*project.Project) error {
+    // 检查项目工作目录是否存在
+    if _, err := os.Stat(p.Worktree); os.IsNotExist(err) {
+        return fmt.Errorf("project directory %q does not exist", p.Worktree)
+    }
+    
+    // 实现项目本地检出逻辑
+	return nil
+}
+
+// checkoutParallel 并行执行本地检出
+func (e *Engine) checkoutParallel(projects []*project.Project, hyperSyncProjects []*project.Project) error {
+	g, ctx := errgroup.WithContext(context.Background())
+	g.SetLimit(e.options.JobsCheckout)
+
+	var wg sync.WaitGroup
+	for _, p := range projects {
+		p := p
+		wg.Add(1)
+		g.Go(func() error {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				return e.checkoutProject(p, hyperSyncProjects)
+			}
+		})
+	}
+
+	wg.Wait()
+	return g.Wait()
 }
 
 // Errors 返回同步过程中收集的错误
@@ -267,14 +352,14 @@ func (e *Engine) updateCopyLinkfileList() error {
 
 
 // reloadManifest 重新加载清单
-func (e *Engine) reloadManifest(manifestName string, localOnly bool) error {
+func (e *Engine) reloadManifest(manifestName string, localOnly bool,groups []string) error {
     if manifestName == "" {
         manifestName = e.config.ManifestName
     }
     
     // 解析清单
     parser := manifest.NewParser()
-    newManifest, err := parser.ParseFromFile(manifestName)
+    newManifest, err := parser.ParseFromFile(manifestName,groups)
     if err != nil {
         return fmt.Errorf("failed to parse manifest: %w", err)
     }
@@ -319,7 +404,7 @@ func (e *Engine) reloadManifestFromCache() error {
 
     // 解析缓存的manifest数据
     parser := manifest.NewParser()
-    newManifest, err := parser.ParseFromBytes(e.manifestCache)
+    newManifest, err := parser.ParseFromBytes(e.manifestCache,e.options.Groups)
     if err != nil {
         return fmt.Errorf("failed to parse manifest from cache: %w", err)
     }

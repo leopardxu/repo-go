@@ -30,6 +30,7 @@ type Project struct {
 	// 添加新的字段
 	LastFetch time.Time // 最后一次获取的时间
 	Remote     string    // 远程仓库名称
+	References string    // 引用配置(remote:refs格式)
 	NeedGC     bool      // 是否需要垃圾回收
 }
 
@@ -110,6 +111,12 @@ func (p *Project) Sync(opts SyncOptions) error {
 			Depth:  opts.Depth,
 			Branch: p.Revision,
 		}); err != nil {
+			// 增加详细错误日志输出
+			fmt.Fprintf(os.Stderr, "克隆项目失败: %v\n", err)
+			if gitErr, ok := err.(*git.CommandError); ok {
+				fmt.Fprintf(os.Stderr, "git stdout: %s\n", gitErr.Stdout)
+				fmt.Fprintf(os.Stderr, "git stderr: %s\n", gitErr.Stderr)
+			}
 			return fmt.Errorf("failed to clone project: %w", err)
 		}
 		return nil

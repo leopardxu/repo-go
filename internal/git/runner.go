@@ -1,71 +1,138 @@
 package git
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"os/exec"
 	"time"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/cix-code/gogo/internal/config"
 )
 
 // SetVerbose 设置是否显示详细输出
-func (r *CommandRunner) SetVerbose(verbose bool) {
+func (r *defaultRunner) SetVerbose(verbose bool) {
+	// This method should belong to CommandRunner, not defaultRunner directly
+	// Assuming CommandRunner has Verbose field
+	// r.Verbose = verbose
+	// For now, let's assume defaultRunner holds the state
 	r.Verbose = verbose
 }
 
 // SetQuiet 设置是否静默运行
-func (r *CommandRunner) SetQuiet(quiet bool) {
+func (r *defaultRunner) SetQuiet(quiet bool) {
+	// Similar assumption as SetVerbose
 	r.Quiet = quiet
 }
 
 // defaultRunner 是默认的Git命令运行器实现
 type defaultRunner struct {
-	// 可以添加必要的字段
 	Verbose bool
 	Quiet   bool
 }
 
 // Run 执行Git命令
 func (r *defaultRunner) Run(args ...string) ([]byte, error) {
-	// 实现Git命令执行逻辑
-	// 这里可以使用os/exec包来执行命令
-	// 例如：
-	// cmd := exec.Command("git", args...)
-	// output, err := cmd.CombinedOutput()
-	// return output, err
-
-	// 临时返回空实现
-	return []byte{}, nil
+	return r.runGitCommand("", 0, args...)
 }
 
 // RunInDir 在指定目录执行Git命令
 func (r *defaultRunner) RunInDir(dir string, args ...string) ([]byte, error) {
-	// 实现Git命令执行逻辑
-	// 这里可以使用os/exec包来执行命令
-	// 例如：
-	// cmd := exec.Command("git", args...)
-	// cmd.Dir = dir
-	// output, err := cmd.CombinedOutput()
-	// return output, err
-
-	// 临时返回空实现
-	return []byte{}, nil
+	return r.runGitCommand(dir, 0, args...)
 }
 
 // RunWithTimeout 在指定目录执行Git命令并设置超时
-// Removed the 'dir' parameter to match the Runner interface
 func (r *defaultRunner) RunWithTimeout(timeout time.Duration, args ...string) ([]byte, error) {
-	// 实现带超时的Git命令执行逻辑
-	// 这里可以使用os/exec包和context包来实现超时控制
-	// 例如：
-	// ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	// defer cancel()
-	// cmd := exec.CommandContext(ctx, "git", args...)
-	// // cmd.Dir = dir // If you need the directory, you might need to adjust the interface or how this is called
-	// output, err := cmd.CombinedOutput()
-	// return output, err
+	// Assuming timeout applies globally for now, not per-directory
+	return r.runGitCommand("", timeout, args...)
+}
 
-	// 临时返回空实现
-	return []byte{}, nil
+// runGitCommand 是执行 git 命令的内部辅助函数
+func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ...string) ([]byte, error) {
+	cmdArgs := append([]string{}, args...)
+
+	if r.Verbose {
+		log.Infof("Executing: git %v in dir '%s'", cmdArgs, dir)
+	}
+
+	var cmd *exec.Cmd
+	ctx := context.Background()
+	var cancel context.CancelFunc
+
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	cmd = exec.CommandContext(ctx, "git", cmdArgs...)
+
+	if dir != "" {
+		cmd.Dir = dir
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+
+	stdoutBytes := stdout.Bytes()
+	stderrBytes := stderr.Bytes()
+
+	if r.Verbose && len(stdoutBytes) > 0 {
+		log.Debugf("Stdout: %s", string(stdoutBytes))
+	}
+	if len(stderrBytes) > 0 {
+		// Always log stderr unless quiet
+		if !r.Quiet {
+			log.Warnf("Stderr: %s", string(stderrBytes))
+		}
+	}
+
+	if err != nil {
+		// Combine error message with stderr for better context
+		errMsg := fmt.Sprintf("git %v failed in dir '%s': %v. Stderr: %s", cmdArgs, dir, err, string(stderrBytes))
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Include exit code in the error message if available
+			return stdoutBytes, fmt.Errorf("%s (Exit Code: %d)", errMsg, exitErr.ExitCode())
+		}
+		return stdoutBytes, fmt.Errorf(errMsg)
+	}
+
+	return stdoutBytes, nil
 }
 
 // NewRunner 创建一个新的 Git 命令运行器
 func NewRunner() Runner {
 	return &defaultRunner{}
+}
+
+// NewCommandRunnerWithConfig 根据配置创建Git命令运行器
+func NewCommandRunnerWithConfig(cfg *config.Config) (Runner, error) {
+	runner := &defaultRunner{}
+	if cfg != nil {
+		runner.Verbose = cfg.Verbose
+		runner.Quiet = cfg.Quiet
+	}
+	return runner, nil
+}
+
+// Runner defines the interface for running git commands
+type Runner interface {
+	Run(args ...string) ([]byte, error)
+	RunInDir(dir string, args ...string) ([]byte, error)
+	RunWithTimeout(timeout time.Duration, args ...string) ([]byte, error)
+	SetVerbose(verbose bool)
+	SetQuiet(quiet bool)
+}
+
+// CommandRunner 定义了运行Git命令的接口
+// Moved from git.go for better organization
+type CommandRunner interface {
+	Run(args ...string) ([]byte, error)
+	RunInDir(dir string, args ...string) ([]byte, error)
+	RunWithTimeout(timeout time.Duration, args ...string) ([]byte, error)
+	SetVerbose(verbose bool)
+	SetQuiet(quiet bool)
 }

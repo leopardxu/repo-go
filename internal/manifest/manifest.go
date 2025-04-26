@@ -32,13 +32,14 @@ type Manifest struct {
 	WorkDir       string // 工作目录
 	ManifestServer string // 清单服务器
 	Server        string // 服务器
-	
-	// 添加新的缺失字段
 	ManifestProject *Project // 清单项目
 	RepoProject *Project // 仓库项目
 	IsArchive bool // 是否为归档
 	CloneFilter string // 克隆过滤器
 	PartialCloneExclude string // 部分克隆排除
+	
+	// 静默模式控制
+	SilentMode bool // 是否启用静默模式，不输出非关键日志
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -92,6 +93,7 @@ type Project struct {
 	CloneDepth int        `xml:"clone-depth,attr,omitempty"`
 	Copyfiles  []Copyfile `xml:"copyfile"`
 	Linkfiles  []Linkfile `xml:"linkfile"`
+	References string     `xml:"references,attr,omitempty"`
 	CustomAttrs map[string]string `xml:"-"` // 存储自定义属性
 	
 	// 添加与 engine.go 兼容的字段
@@ -197,6 +199,16 @@ func (m *Manifest) ToJSON() (string, error) {
 	return string(data), nil
 }
 
+// GetRemoteURL 根据远程名称获取对应的URL
+func (m *Manifest) GetRemoteURL(remoteName string) (string, error) {
+	for _, remote := range m.Remotes {
+		if remote.Name == remoteName {
+			return remote.Fetch, nil
+		}
+	}
+	return "", fmt.Errorf("remote %s not found", remoteName)
+}
+
 // GetOuterManifest 获取最外层的清单
 func (m *Manifest) GetOuterManifest() *Manifest {
 	if m.Includes == nil || len(m.Includes) == 0 {
@@ -220,6 +232,7 @@ func (m *Manifest) GetThisManifest() *Manifest {
 
 // Parser 负责解析清单文件
 type Parser struct {
+	silentMode bool
 	// 配置项
 }
 
@@ -231,7 +244,7 @@ func NewParser() *Parser {
 
 
 // ParseFromFile 从文件解析清单
-func (p *Parser) ParseFromFile(filename string) (*Manifest, error) {
+func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, error) {
 	// 处理清单文件路径
 	// 构建可能的路径列表
 	paths := []string{}
@@ -293,8 +306,6 @@ func (p *Parser) ParseFromFile(filename string) (*Manifest, error) {
 		paths = append(paths, filepath.Join(topDir, ".repo", "manifests", base))
 	}
 	
-	// 这部分已移至最前面，优先检查
-	
 	// 去除重复的路径
 	uniquePaths := make([]string, 0, len(paths))
 	pathMap := make(map[string]bool)
@@ -308,10 +319,12 @@ func (p *Parser) ParseFromFile(filename string) (*Manifest, error) {
 	}
 	paths = uniquePaths
 	
-	// 打印所有尝试的路径，便于调试
-	fmt.Printf("Trying to find manifest file in the following paths:\n")
-	for _, path := range paths {
-		fmt.Printf("  - %s\n", path)
+	// 只在非静默模式下打印调试信息
+	if !p.silentMode {
+		fmt.Printf("正在查找清单文件，尝试以下路径:\n")
+		for _, path := range paths {
+			fmt.Printf("  - %s\n", path)
+		}
 	}
 
 	// 尝试读取文件
@@ -333,49 +346,57 @@ func (p *Parser) ParseFromFile(filename string) (*Manifest, error) {
 		// 检查.repo目录是否存在
 		repoPath := filepath.Join(cwd, ".repo")
 		if _, dirErr := os.Stat(repoPath); os.IsNotExist(dirErr) {
-			return nil, fmt.Errorf("the .repo directory does not exist, please run 'repo init' first: %w", dirErr)
+			return nil, fmt.Errorf(".repo目录不存在，请先运行 'repo init' 命令: %w", dirErr)
 		}
 		
 		// 检查.repo/manifest.xml是否存在
 		manifestPath := filepath.Join(repoPath, "manifest.xml")
 		if _, manifestErr := os.Stat(manifestPath); os.IsNotExist(manifestErr) {
-			return nil, fmt.Errorf("manifest.xml not found in .repo directory, please run 'repo init' first: %w", manifestErr)
+			return nil, fmt.Errorf(".repo目录中未找到manifest.xml文件，请先运行 'repo init' 命令: %w", manifestErr)
 		}
 		
-		return nil, fmt.Errorf("failed to read manifest file from any of the possible locations (tried %v): %w", paths, readErr)
+		return nil, fmt.Errorf("无法从任何可能的位置读取清单文件 (已尝试 %v): %w", paths, readErr)
 	}
 
-	// 记录成功的路径，便于调试
-	fmt.Printf("Successfully loaded manifest from: %s\n", successPath)
-	
-	// 打印文件内容的前100个字符，便于调试
-	if len(data) > 0 {
-		previewLen := 100
-		if len(data) < previewLen {
-			previewLen = len(data)
+	// 只在非静默模式下打印调试信息
+	if !p.silentMode {
+		fmt.Printf("成功从以下位置加载清单: %s\n", successPath)
+		
+		// 打印文件内容的前100个字符，便于调试
+		if len(data) > 0 {
+			previewLen := 100
+			if len(data) < previewLen {
+				previewLen = len(data)
+			}
+			fmt.Printf("清单内容预览: %s...\n", data[:previewLen])
+		} else {
+			fmt.Printf("警告: 清单文件为空!\n")
 		}
-		fmt.Printf("Manifest content preview: %s...\n", data[:previewLen])
-	} else {
-		fmt.Printf("Warning: Manifest file is empty!\n")
 	}
 	
-	return p.Parse(data)
+	// 确保groups参数正确处理
+	var groupsToUse []string
+	if groups != nil {
+		groupsToUse = groups
+	}
+	
+	return p.Parse(data, groupsToUse)
 }
 
-// ParseFromBytes 从文件解析清单
-func (p *Parser) ParseFromBytes(data []byte) (*Manifest, error) {
+// ParseFromBytes 从字节数据解析清单
+func (p *Parser) ParseFromBytes(data []byte, groups []string) (*Manifest, error) {
     if len(data) == 0 {
         return nil, fmt.Errorf("manifest data is empty")
     }
-    return p.Parse(data)
+    return p.Parse(data, groups)
 }
 
 // Parse 解析清单数据
-func (p *Parser) Parse(data []byte) (*Manifest, error) {
+func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 	// 首先使用标准解析
 	var manifest Manifest
 	if err := xml.Unmarshal(data, &manifest); err != nil {
-		return nil, fmt.Errorf("failed to parse manifest XML: %w", err)
+		return nil, fmt.Errorf("解析清单XML失败: %w", err)
 	}
 
 	// 初始化所有结构体的CustomAttrs字段
@@ -407,17 +428,17 @@ func (p *Parser) Parse(data []byte) (*Manifest, error) {
 		// 如果项目没有指定路径，则使用项目名称作为默认路径
 		if manifest.Projects[i].Path == "" {
 			manifest.Projects[i].Path = manifest.Projects[i].Name
-			fmt.Printf("Project %s does not specify path, using name as default path\n", manifest.Projects[i].Name)
+			// fmt.Printf("Project %s does not specify path, using name as default path\n", manifest.Projects[i].Name)
 		}
 		// 如果项目没有指定远程仓库，则使用默认远程仓库
 		if manifest.Projects[i].Remote == "" {
 			manifest.Projects[i].Remote = manifest.Default.Remote
-			fmt.Printf("Project %s does not specify remote, using default remote %s\n", manifest.Projects[i].Name, manifest.Default.Remote)
+			// fmt.Printf("Project %s does not specify remote, using default remote %s\n", manifest.Projects[i].Name, manifest.Default.Remote)
 		}
 		// 如果项目没有指定修订版本，则使用默认修订版本
 		if manifest.Projects[i].Revision == "" {
 			manifest.Projects[i].Revision = manifest.Default.Revision
-			fmt.Printf("Project %s does not specify revision, using default revision %s\n", manifest.Projects[i].Name, manifest.Default.Revision)
+			// fmt.Printf("Project %s does not specify revision, using default revision %s\n", manifest.Projects[i].Name, manifest.Default.Revision)
 		}
 		// 验证远程仓库是否存在
 		remoteExists := false
@@ -431,7 +452,7 @@ func (p *Parser) Parse(data []byte) (*Manifest, error) {
 		}
 		if !remoteExists {
 			// 如果找不到远程仓库，记录警告但不中断处理
-			fmt.Printf("Warning: project %s references non-existent remote %s, this may cause sync failures\n", manifest.Projects[i].Name, manifest.Projects[i].Remote)
+			// fmt.Printf("Warning: project %s references non-existent remote %s, this may cause sync failures\n", manifest.Projects[i].Name, manifest.Projects[i].Remote)
 		} else {
 			// 记录远程仓库的Fetch属性，用于后续构建完整URL
 			manifest.Projects[i].CustomAttrs["__remote_fetch"] = remoteObj.Fetch
@@ -466,15 +487,40 @@ func (p *Parser) Parse(data []byte) (*Manifest, error) {
 	}
 
 	// 处理包含的清单文件
-	if err := p.processIncludes(&manifest); err != nil {
+	if err := p.processIncludes(&manifest,groups); err != nil {
 		return nil, fmt.Errorf("failed to process included manifests: %w", err)
+	}
+
+	// 根据groups过滤项目
+	if len(groups) > 0 && !containsAll(groups) {
+		if !p.silentMode {
+			fmt.Printf("根据以下组过滤项目: %v\n", groups)
+		}
+		
+		filteredProjects := make([]Project, 0)
+		for _, proj := range manifest.Projects {
+			if shouldIncludeProject(proj, groups) {
+				filteredProjects = append(filteredProjects, proj)
+				if !p.silentMode {
+					fmt.Printf("包含项目: %s (组: %s)\n", proj.Name, proj.Groups)
+				}
+			} else if !p.silentMode {
+				fmt.Printf("排除项目: %s (组: %s)\n", proj.Name, proj.Groups)
+			}
+		}
+		
+		if !p.silentMode {
+			fmt.Printf("过滤后的项目数量: %d (原始数量: %d)\n", len(filteredProjects), len(manifest.Projects))
+		}
+		
+		manifest.Projects = filteredProjects
 	}
 
 	return &manifest, nil
 }
 
 // processIncludes 处理包含的清单文件
-func (p *Parser) processIncludes(manifest *Manifest) error {
+func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 	if len(manifest.Includes) == 0 {
 		return nil
 	}
@@ -538,7 +584,7 @@ func (p *Parser) processIncludes(manifest *Manifest) error {
 		}
 		
 		// 解析包含的清单文件
-		includedManifest, err := p.Parse(data)
+		includedManifest, err := p.Parse(data,groups)
 		if err != nil {
 			return fmt.Errorf("failed to parse included manifest %s: %w", includeName, err)
 		}
@@ -961,7 +1007,7 @@ func (m *Manifest) ToXML() (string, error) {
 	return xml, nil
 }
 
-func (m *Manifest) ParseFromBytes(data []byte) error {
+func (m *Manifest) ParseFromBytes(data []byte,groups []string) error {
     if len(data) == 0 {
         return fmt.Errorf("manifest data is empty")
     }
@@ -970,7 +1016,7 @@ func (m *Manifest) ParseFromBytes(data []byte) error {
     parser := NewParser()
     
     // 使用解析器解析数据
-    parsedManifest, err := parser.Parse(data)
+    parsedManifest, err := parser.Parse(data,groups)
     if err != nil {
         return fmt.Errorf("failed to parse manifest data: %w", err)
     }
@@ -996,4 +1042,60 @@ func (m *Manifest) GetCurrentBranch() string {
         return ""
     }
     return m.Default.Revision
+}
+
+
+func (p *Parser) SetSilentMode(silent bool) {
+    p.silentMode = silent
+}
+
+func shouldIncludeProject(proj Project, groups []string) bool {
+    // 如果没有指定过滤组，则包含所有项目
+    if len(groups) == 0 {
+        return true
+    }
+    
+    // 如果项目没有指定groups，则默认包含
+    if proj.Groups == "" {
+        return true
+    }
+    
+    // 如果传入的是"all"，则包含所有项目
+    for _, g := range groups {
+        if g == "all" {
+            return true
+        }
+    }
+    
+    // 检查项目groups是否包含任一传入的group
+    projGroups := strings.Split(proj.Groups, ",")
+    for _, pg := range projGroups {
+        pg = strings.TrimSpace(pg) // 去除可能的空格
+        if pg == "" {
+            continue // 跳过空组
+        }
+        
+        for _, g := range groups {
+            g = strings.TrimSpace(g) // 去除可能的空格
+            if g == "" {
+                continue // 跳过空组
+            }
+            
+            if pg == g {
+                return true
+            }
+        }
+    }
+    
+    return false
+}
+
+// containsAll checks if groups contains "all"
+func containsAll(groups []string) bool {
+    for _, g := range groups {
+        if g == "all" {
+            return true
+        }
+    }
+    return false
 }
