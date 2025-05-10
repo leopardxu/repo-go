@@ -359,6 +359,7 @@ func (c *Config) ExtractBaseURLFromManifestURL(manifestURL string) string {
 	}
 	
 	// 无法解析的情况下返回原始URL
+	log.Warn("ManifestURL中提取基础URL: %s", manifestURL)
 	return manifestURL
 }
 

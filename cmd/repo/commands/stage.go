@@ -20,9 +20,6 @@ type StageOptions struct {
 	Interactive     bool
 	Verbose         bool
 	Quiet           bool
-	OuterManifest   bool
-	NoOuterManifest bool
-	ThisManifestOnly bool
 	Patch           bool
 	Edit            bool
 	Force           bool
@@ -91,13 +88,11 @@ func StageCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&opts.Interactive, "interactive", "i", false, "interactive staging")
 	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show all output including debug logs")
 	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
-	cmd.Flags().BoolVar(&opts.OuterManifest, "outer-manifest", false, "operate starting at the outermost manifest")
-	cmd.Flags().BoolVar(&opts.NoOuterManifest, "no-outer-manifest", false, "do not operate on outer manifests")
-	cmd.Flags().BoolVar(&opts.ThisManifestOnly, "this-manifest-only", false, "only operate on this (sub)manifest")
 	cmd.Flags().BoolVarP(&opts.Patch, "patch", "p", false, "select hunks interactively")
 	cmd.Flags().BoolVarP(&opts.Edit, "edit", "e", false, "edit current diff and apply")
 	cmd.Flags().BoolVarP(&opts.Force, "force", "f", false, "allow adding otherwise ignored files")
 	cmd.Flags().IntVarP(&opts.Jobs, "jobs", "j", opts.Jobs, "number of jobs to run in parallel (default: based on number of CPU cores)")
+	// 添加清单相关的标志
 	AddManifestFlags(cmd, &opts.CommonManifestOptions)
 
 	return cmd

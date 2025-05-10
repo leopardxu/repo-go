@@ -257,6 +257,7 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
         ManifestServerUsername: opts.ManifestServerUsername,
         ManifestServerPassword: opts.ManifestServerPassword,
         GitLFS:         opts.GitLFS, // 添加Git LFS支持选项
+        Config:         opts.Config, // 添加Config字段，传递配置信息
     }, manifestObj, log)
     
     // 设置要同步的项目

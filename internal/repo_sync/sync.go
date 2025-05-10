@@ -280,8 +280,18 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 			}
 		}
 		
+		// 使用 Engine 的 cloneProject 方法来确保调用 resolveRemoteURL
+		cloneErr := e.cloneProject(p)
+		if cloneErr == nil {
+			// 克隆成功，跳过后续重试逻辑
+			if !e.options.Quiet {
+				fmt.Printf("成功克隆项目: %s\n", p.Name)
+			}
+			goto SKIP_CLONE
+		}
+		
+		// 如果 cloneProject 失败，回退到原有的重试逻辑
 		// 增强的克隆重试逻辑
-		var cloneErr error
 		maxRetries := e.options.RetryFetches
 		if maxRetries <= 0 {
 			maxRetries = 3 // 默认重试3次
@@ -298,10 +308,8 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 			default:
 			}
 			
-			cloneErr = p.GitRepo.Clone(p.RemoteURL, git.CloneOptions{
-				Branch: p.Revision,
-				Depth:  e.options.Depth,
-			})
+			// 使用 Engine 的 cloneProject 方法来确保调用 resolveRemoteURL
+			cloneErr = e.cloneProject(p)
 			
 			if cloneErr == nil {
 				break
