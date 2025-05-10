@@ -31,14 +31,24 @@ type SyncError struct {
 	Phase       string
 	Err         error
 	Output      string
+	Timestamp   time.Time // 添加时间戳
+	RetryCount  int       // 添加重试计数
 }
 
 // Error 实现 error 接口
 func (e *SyncError) Error() string {
-	if e.Output != "" {
-		return fmt.Sprintf("%s 在 %s 阶段失败: %v\n%s", e.ProjectName, e.Phase, e.Err, e.Output)
+	timeStr := e.Timestamp.Format("2006-01-02 15:04:05")
+	retryInfo := ""
+	if e.RetryCount > 0 {
+		retryInfo = fmt.Sprintf(" (重试次数: %d)", e.RetryCount)
 	}
-	return fmt.Sprintf("%s 在 %s 阶段失败: %v", e.ProjectName, e.Phase, e.Err)
+	
+	if e.Output != "" {
+		return fmt.Sprintf("[%s] %s 在 %s 阶段失败%s: %v\n%s", 
+			timeStr, e.ProjectName, e.Phase, retryInfo, e.Err, e.Output)
+	}
+	return fmt.Sprintf("[%s] %s 在 %s 阶段失败%s: %v", 
+		timeStr, e.ProjectName, e.Phase, retryInfo, e.Err)
 }
 
 // NewMultiError 创建包含多个错误的错误对象
@@ -112,11 +122,18 @@ func NewEngine(options *Options, manifest *manifest.Manifest, log logger.Logger)
 
 // Sync 执行同步
 func (e *Engine) Sync() error {
+	// 创建带取消功能的上下文
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // 确保函数退出时取消上下文
+
 	totalProjects := len(e.projects)
 	if totalProjects == 0 {
 		e.logger.Info("没有项目需要同步")
 		return nil
 	}
+
+	// 记录开始时间，用于计算预估完成时间
+	startTime := time.Now()
 
 	if !e.options.Quiet {
 		e.logger.Info("同步 %d 个项目，并发数: %d", totalProjects, e.options.Jobs)
@@ -126,20 +143,51 @@ func (e *Engine) Sync() error {
 	}
 
 	var count int32
+	var successCount int32
+	var failCount int32
 
 	// 提交同步任务
 	for _, p := range e.projects {
 		project := p // 创建副本避免闭包问题
 		e.workerPool.Submit(func() {
+			// 检查上下文是否已取消
+			select {
+			case <-ctx.Done():
+				return // 如果上下文已取消，则不执行任务
+			default:
+				// 继续执行
+			}
+
 			err := e.syncProject(project)
 
 			current := atomic.AddInt32(&count, 1)
+			if err != nil {
+				atomic.AddInt32(&failCount, 1)
+			} else {
+				atomic.AddInt32(&successCount, 1)
+			}
+
 			if !e.options.Quiet && e.progressReport != nil {
 				status := "完成"
 				if err != nil {
 					status = "失败"
 				}
-				e.progressReport.Update(int(current), fmt.Sprintf("%s: %s", project.Name, status))
+
+				// 计算预估完成时间
+				var etaStr string
+				if current > 0 && current < int32(totalProjects) {
+					elapsed := time.Since(startTime)
+					estimatedTotal := elapsed * time.Duration(totalProjects) / time.Duration(current)
+					estimatedRemaining := estimatedTotal - elapsed
+					if estimatedRemaining > 0 {
+						etaStr = fmt.Sprintf("，预计剩余时间: %s", formatDuration(estimatedRemaining))
+					}
+				}
+
+				progressMsg := fmt.Sprintf("%s: %s (进度: %d/%d, 成功: %d, 失败: %d%s)", 
+					project.Name, status, current, totalProjects, 
+					successCount, failCount, etaStr)
+				e.progressReport.Update(int(current), progressMsg)
 			}
 
 			if err != nil {
@@ -155,20 +203,40 @@ func (e *Engine) Sync() error {
 
 	// 等待所有任务完成
 	e.workerPool.Wait()
-	e.workerPool.Stop()
 
 	if !e.options.Quiet && e.progressReport != nil {
 		e.progressReport.Finish()
 	}
 
+	// 计算总耗时
+	totalDuration := time.Since(startTime)
+
 	// 汇总错误
 	if len(e.errors) > 0 {
-		e.logger.Error("同步完成，有 %d 个项目失败", len(e.errors))
+		e.logger.Error("同步完成，有 %d 个项目失败，总耗时: %s", 
+			len(e.errors), formatDuration(totalDuration))
 		return NewMultiError(e.errors)
 	}
 
-	e.logger.Info("所有项目同步完成")
+	e.logger.Info("所有项目同步完成，总耗时: %s", formatDuration(totalDuration))
 	return nil
+}
+
+// formatDuration 格式化持续时间为人类可读格式
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	h := d / time.Hour
+	d -= h * time.Hour
+	m := d / time.Minute
+	d -= m * time.Minute
+	s := d / time.Second
+
+	if h > 0 {
+		return fmt.Sprintf("%d小时%d分钟%d秒", h, m, s)
+	} else if m > 0 {
+		return fmt.Sprintf("%d分钟%d秒", m, s)
+	}
+	return fmt.Sprintf("%d秒", s)
 }
 
 // syncProject 同步单个项目
@@ -211,17 +279,12 @@ func (e *Engine) syncProject(p *project.Project) error {
 	return nil
 }
 
-// fetchProject 执行单个项目的网络同步
-func (e *Engine) fetchProject(p *project.Project) error {
-	// 输出详细日志，显示实际使用的远程 URL
-	if e.options.Verbose {
-		e.logger.Debug("正在获取项目 %s，原始远程 URL: %s", p.Name, p.RemoteURL)
-	}
-
+// resolveRemoteURL 解析项目的远程URL
+func (e *Engine) resolveRemoteURL(p *project.Project) string {
 	// 确保使用项目的 RemoteURL 属性
 	remoteURL := p.RemoteURL
 
-	// 如果是相对路径，转换为完整的 SSH URL
+	// 如果是相对路径，转换为完整的 URL
 	if strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
 		// 从配置中获取基础URL
 		if e.config != nil && e.config.ManifestURL != "" {
@@ -244,6 +307,18 @@ func (e *Engine) fetchProject(p *project.Project) error {
 		}
 	}
 
+	return remoteURL
+}
+
+// fetchProject 执行单个项目的网络同步
+func (e *Engine) fetchProject(p *project.Project) error {
+	// 输出详细日志，显示实际使用的远程 URL
+	if e.options.Verbose {
+		e.logger.Debug("正在获取项目 %s，原始远程 URL: %s", p.Name, p.RemoteURL)
+	}
+
+	// 解析远程URL
+	remoteURL := e.resolveRemoteURL(p)
 	// 更新项目的 RemoteURL 为解析后的 URL
 	p.RemoteURL = remoteURL
 
@@ -254,6 +329,7 @@ func (e *Engine) fetchProject(p *project.Project) error {
 			ProjectName: p.Name,
 			Phase:       "ensure_remote",
 			Err:         err,
+			Timestamp:   time.Now(),
 		}
 	}
 
@@ -269,15 +345,43 @@ func (e *Engine) fetchProject(p *project.Project) error {
 	// 使用远程名称
 	args = append(args, p.RemoteName)
 
-	cmd := exec.Command("git", args...)
+	// 添加重试机制
+	const maxRetries = 3
+	var lastErr error
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return &SyncError{
-			ProjectName: p.Name,
-			Phase:       "fetch",
-			Err:         err,
-			Output:      stderr.String(),
+	
+	for retryCount := 0; retryCount <= maxRetries; retryCount++ {
+		// 如果不是第一次尝试，则等待一段时间后重试
+		if retryCount > 0 {
+			retryDelay := time.Duration(retryCount) * 2 * time.Second
+			e.logger.Info("正在重试获取项目 %s (第 %d 次尝试)，将在 %v 后重试", 
+				p.Name, retryCount, retryDelay)
+			time.Sleep(retryDelay)
+			
+			// 清空上一次的错误输出
+			stderr.Reset()
+		}
+		
+		// 执行 git fetch
+		cmd := exec.Command("git", args...)
+		cmd.Stderr = &stderr
+		lastErr = cmd.Run()
+		
+		if lastErr == nil {
+			// 成功获取，跳出重试循环
+			break
+		}
+		
+		// 如果已经达到最大重试次数，则返回错误
+		if retryCount == maxRetries {
+			return &SyncError{
+				ProjectName: p.Name,
+				Phase:       "fetch",
+				Err:         lastErr,
+				Output:      stderr.String(),
+				Timestamp:   time.Now(),
+				RetryCount:  retryCount,
+			}
 		}
 	}
 
@@ -297,32 +401,8 @@ func (e *Engine) fetchProject(p *project.Project) error {
 
 // cloneProject 克隆单个项目
 func (e *Engine) cloneProject(p *project.Project) error {
-	// 确保使用项目的 RemoteURL 属性
-	remoteURL := p.RemoteURL
-
-	// 如果是相对路径，转换为完整的 SSH URL
-	if strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
-		// 从配置中获取基础URL
-		if e.config != nil && e.config.ManifestURL != "" {
-			baseURL := e.config.ExtractBaseURLFromManifestURL(e.config.ManifestURL)
-			if baseURL != "" {
-				// 移除相对路径前缀
-				relPath := strings.TrimPrefix(remoteURL, "../")
-				relPath = strings.TrimPrefix(relPath, "./")
-
-				// 确保baseURL不以/结尾
-				baseURL = strings.TrimSuffix(baseURL, "/")
-
-				// 构建完整URL
-				remoteURL = baseURL + "/" + relPath
-
-				if e.options.Verbose {
-					e.logger.Debug("将相对路径 %s 转换为远程 URL: %s", p.RemoteURL, remoteURL)
-				}
-			}
-		}
-	}
-
+	// 解析远程URL
+	remoteURL := e.resolveRemoteURL(p)
 	// 更新项目的 RemoteURL 为解析后的 URL
 	p.RemoteURL = remoteURL
 
@@ -332,6 +412,7 @@ func (e *Engine) cloneProject(p *project.Project) error {
 			ProjectName: p.Name,
 			Phase:       "mkdir",
 			Err:         err,
+			Timestamp:   time.Now(),
 		}
 	}
 
@@ -353,16 +434,49 @@ func (e *Engine) cloneProject(p *project.Project) error {
 	// 添加远程URL和目标目录
 	args = append(args, remoteURL, p.Worktree)
 
-	// 执行 clone 命令
-	cmd := exec.Command("git", args...)
+	// 添加重试机制
+	const maxRetries = 3
+	var lastErr error
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return &SyncError{
-			ProjectName: p.Name,
-			Phase:       "clone",
-			Err:         err,
-			Output:      stderr.String(),
+	
+	for retryCount := 0; retryCount <= maxRetries; retryCount++ {
+		// 如果不是第一次尝试，则等待一段时间后重试
+		if retryCount > 0 {
+			retryDelay := time.Duration(retryCount) * 3 * time.Second
+			e.logger.Info("正在重试克隆项目 %s (第 %d 次尝试)，将在 %v 后重试", 
+				p.Name, retryCount, retryDelay)
+			time.Sleep(retryDelay)
+			
+			// 清空上一次的错误输出
+			stderr.Reset()
+			
+			// 检查目标目录是否已存在但不完整，如果存在则删除
+			if _, err := os.Stat(p.Worktree); err == nil {
+				e.logger.Info("删除不完整的克隆目录: %s", p.Worktree)
+				os.RemoveAll(p.Worktree)
+			}
+		}
+		
+		// 执行 clone 命令
+		cmd := exec.Command("git", args...)
+		cmd.Stderr = &stderr
+		lastErr = cmd.Run()
+		
+		if lastErr == nil {
+			// 成功克隆，跳出重试循环
+			break
+		}
+		
+		// 如果已经达到最大重试次数，则返回错误
+		if retryCount == maxRetries {
+			return &SyncError{
+				ProjectName: p.Name,
+				Phase:       "clone",
+				Err:         lastErr,
+				Output:      stderr.String(),
+				Timestamp:   time.Now(),
+				RetryCount:  retryCount,
+			}
 		}
 	}
 
@@ -398,15 +512,54 @@ func (e *Engine) checkoutProject(p *project.Project) error {
 	}
 	args = append(args, p.Revision)
 
-	cmd := exec.Command("git", args...)
+	// 添加重试机制
+	const maxRetries = 2 // 检出操作通常不需要太多重试
+	var lastErr error
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return &SyncError{
-			ProjectName: p.Name,
-			Phase:       "checkout",
-			Err:         err,
-			Output:      stderr.String(),
+	
+	for retryCount := 0; retryCount <= maxRetries; retryCount++ {
+		// 如果不是第一次尝试，则等待一段时间后重试
+		if retryCount > 0 {
+			retryDelay := time.Duration(retryCount) * time.Second
+			e.logger.Info("正在重试检出项目 %s 的 %s 分支 (第 %d 次尝试)，将在 %v 后重试", 
+				p.Name, p.Revision, retryCount, retryDelay)
+			time.Sleep(retryDelay)
+			
+			// 清空上一次的错误输出
+			stderr.Reset()
+			
+			// 如果检出失败，可能是因为有未提交的更改，尝试强制检出
+			if retryCount == maxRetries {
+				e.logger.Info("尝试强制检出项目 %s", p.Name)
+				// 添加 --force 参数
+				forceArgs := make([]string, len(args))
+				copy(forceArgs, args)
+				// 在 checkout 后插入 --force
+				forceArgs = append(forceArgs[:3], append([]string{"--force"}, forceArgs[3:]...)...)
+				args = forceArgs
+			}
+		}
+		
+		// 执行 checkout 命令
+		cmd := exec.Command("git", args...)
+		cmd.Stderr = &stderr
+		lastErr = cmd.Run()
+		
+		if lastErr == nil {
+			// 成功检出，跳出重试循环
+			break
+		}
+		
+		// 如果已经达到最大重试次数，则返回错误
+		if retryCount == maxRetries {
+			return &SyncError{
+				ProjectName: p.Name,
+				Phase:       "checkout",
+				Err:         lastErr,
+				Output:      stderr.String(),
+				Timestamp:   time.Now(),
+				RetryCount:  retryCount,
+			}
 		}
 	}
 
@@ -596,6 +749,34 @@ func (e *Engine) checkoutParallel(projects []*project.Project, hyperSyncProjects
 // Errors 返回同步过程中收集的错误
 func (e *Engine) Errors() []string {
 	return e.errResults
+}
+
+// Cleanup 清理资源并释放内存
+func (e *Engine) Cleanup() {
+	// 停止工作池
+	if e.workerPool != nil {
+		e.workerPool.Stop()
+	}
+
+	// 关闭错误通道
+	if e.errEvent != nil {
+		close(e.errEvent)
+	}
+
+	// 清空错误列表
+	e.errorsMu.Lock()
+	e.errors = nil
+	e.errResults = nil
+	e.errorsMu.Unlock()
+
+	// 清空项目列表
+	e.projects = nil
+
+	// 清空缓存
+	e.manifestCache = nil
+
+	// 记录清理完成
+	e.logger.Debug("同步引擎资源已清理完毕")
 }
 
 // updateProjectList 更新项目列表
