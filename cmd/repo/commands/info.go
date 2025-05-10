@@ -3,8 +3,10 @@ package commands
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/cix-code/gogo/internal/config"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
 	"github.com/spf13/cobra"
@@ -24,6 +26,13 @@ type InfoOptions struct {
 	ThisManifestOnly bool
     Config *config.Config // <-- Add this field
     CommonManifestOptions
+}
+
+// infoStats 用于统计info命令的执行结果
+type infoStats struct {
+	mu      sync.Mutex
+	success int
+	failed  int
 }
 
 // InfoCmd 返回info命令
@@ -57,104 +66,155 @@ func InfoCmd() *cobra.Command {
 // runInfo 执行info命令
 // runInfo executes the info command logic
 func runInfo(opts *InfoOptions, args []string) error {
-    // Load config
-    cfg, err := config.Load() // Declare err here
-    if err != nil {
-        return fmt.Errorf("failed to load config: %w", err)
+    // 初始化日志记录器
+    log := logger.NewDefaultLogger()
+    if opts.Verbose {
+        log.SetLevel(logger.LogLevelDebug)
+    } else if opts.Quiet {
+        log.SetLevel(logger.LogLevelError)
+    } else {
+        log.SetLevel(logger.LogLevelInfo)
     }
-    opts.Config = cfg // Assign loaded config
 
-    // Load manifest
+    log.Info("Starting info command")
+
+    // 加载配置
+    cfg, err := config.Load() // 声明err
+    if err != nil {
+        log.Error("Failed to load config: %v", err)
+        return err
+    }
+    opts.Config = cfg // 分配加载的配置
+
+    // 加载manifest
+    log.Debug("Loading manifest from %s", cfg.ManifestName)
     parser := manifest.NewParser()
-    manifest, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,",")) // Reuse err
+    manifest, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ",")) // 重用err
     if err != nil {
-        return fmt.Errorf("failed to parse manifest: %w", err)
+        log.Error("Failed to parse manifest: %v", err)
+        return err
     }
 
-    // Create project manager
-    manager := project.NewManager(manifest, cfg)
+    // 创建项目管理器
+    manager := project.NewManagerFromManifest(manifest, cfg)
 
-    // Declare projects variable once
-    var projects []*project.Project // Declare projects
+    // 声明projects变量
+    var projects []*project.Project
 
-    // Get projects to operate on
+    // 获取要操作的项目
     if len(args) == 0 {
-        projects, err = manager.GetProjects(nil) // Use =, use nil
+        log.Debug("Getting all projects")
+        projects, err = manager.GetProjectsInGroups(nil) // 使用=，使用nil
         if err != nil {
-            return fmt.Errorf("failed to get projects: %w", err)
+            log.Error("Failed to get projects: %v", err)
+            return err
         }
     } else {
-        projects, err = manager.GetProjectsByNames(args) // Use =
+        log.Debug("Getting projects by names: %v", args)
+        projects, err = manager.GetProjectsByNames(args) // 使用=
         if err != nil {
-            return fmt.Errorf("failed to get projects by name: %w", err)
+            log.Error("Failed to get projects by name: %v", err)
+            return err
         }
     }
 
+    log.Info("Found %d projects to process", len(projects))
+
     // 并发获取项目信息
-type infoResult struct {
-	Project *project.Project
-	Output  string
-	Err     error
-}
+    type infoResult struct {
+        Project *project.Project
+        Output  string
+        Err     error
+    }
 
-results := make(chan infoResult, len(projects))
-sem := make(chan struct{}, 8) // 控制并发数
+    results := make(chan infoResult, len(projects))
+    sem := make(chan struct{}, 8) // 控制并发数
+    var wg sync.WaitGroup
+    stats := &infoStats{}
 
-for _, p := range projects {
-	sem <- struct{}{}
-	go func(proj *project.Project) {
-		defer func() { <-sem }()
-		
-		var output string
-		var err error
-		var outputBytes []byte
-		
-		// 根据选项显示不同信息
-		switch {
-		case opts.Diff:
-			outputBytes, err = proj.GitRepo.RunCommand("log", "--oneline", "HEAD..@{upstream}")
-			if err == nil {
-				output = strings.TrimSpace(string(outputBytes))
-			}
-		case opts.Overview:
-			outputBytes, err = proj.GitRepo.RunCommand("log", "--oneline", "-10")
-			if err == nil {
-				output = strings.TrimSpace(string(outputBytes))
-			}
-		case opts.CurrentBranch:
-			outputBytes, err = proj.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
-			if err == nil {
-				output = strings.TrimSpace(string(outputBytes))
-			}
-		default:
-			outputBytes, err = proj.GitRepo.RunCommand("status", "--short")
-			if err == nil {
-				output = strings.TrimSpace(string(outputBytes))
-			}
-		}
-		
-		results <- infoResult{Project: proj, Output: output, Err: err}
-	}(p)
-}
+    for _, p := range projects {
+        wg.Add(1)
+        sem <- struct{}{}
+        go func(proj *project.Project) {
+            defer func() { 
+                <-sem 
+                wg.Done()
+            }()
+            
+            var output string
+            var err error
+            var outputBytes []byte
+            
+            log.Debug("Processing project %s", proj.Name)
+            
+            // 根据选项显示不同信息
+            switch {
+            case opts.Diff:
+                log.Debug("Getting diff for project %s", proj.Name)
+                outputBytes, err = proj.GitRepo.RunCommand("log", "--oneline", "HEAD..@{upstream}")
+                if err == nil {
+                    output = strings.TrimSpace(string(outputBytes))
+                }
+            case opts.Overview:
+                log.Debug("Getting overview for project %s", proj.Name)
+                outputBytes, err = proj.GitRepo.RunCommand("log", "--oneline", "-10")
+                if err == nil {
+                    output = strings.TrimSpace(string(outputBytes))
+                }
+            case opts.CurrentBranch:
+                log.Debug("Getting current branch for project %s", proj.Name)
+                outputBytes, err = proj.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
+                if err == nil {
+                    output = strings.TrimSpace(string(outputBytes))
+                }
+            default:
+                log.Debug("Getting status for project %s", proj.Name)
+                outputBytes, err = proj.GitRepo.RunCommand("status", "--short")
+                if err == nil {
+                    output = strings.TrimSpace(string(outputBytes))
+                }
+            }
+            
+            results <- infoResult{Project: proj, Output: output, Err: err}
+        }(p)
+    }
 
-// 收集并显示结果
-for i := 0; i < len(projects); i++ {
-	res := <-results
-	if res.Err != nil {
-		if !opts.Quiet {
-			fmt.Printf("Error getting info for %s: %v\n", res.Project.Name, res.Err)
-		}
-		continue
-	}
-	
-	if res.Output != "" {
-		fmt.Printf("--- %s ---\n%s\n", res.Project.Name, res.Output)
-	} else if !opts.Quiet {
-		fmt.Printf("--- %s ---\n(No changes)\n", res.Project.Name)
-	}
-}
+    // 等待所有goroutine完成后关闭结果通道
+    go func() {
+        wg.Wait()
+        close(results)
+    }()
 
-return nil
+    // 收集并显示结果
+    for res := range results {
+        if res.Err != nil {
+            stats.mu.Lock()
+            stats.failed++
+            stats.mu.Unlock()
+            
+            log.Error("Error getting info for %s: %v", res.Project.Name, res.Err)
+            continue
+        }
+        
+        stats.mu.Lock()
+        stats.success++
+        stats.mu.Unlock()
+        
+        if res.Output != "" {
+            log.Info("--- %s ---\n%s", res.Project.Name, res.Output)
+        } else if !opts.Quiet {
+            log.Info("--- %s ---\n(No changes)", res.Project.Name)
+        }
+    }
+
+    // 显示统计信息
+    log.Info("Info command completed: %d successful, %d failed", stats.success, stats.failed)
+    
+    if stats.failed > 0 {
+        return fmt.Errorf("%d projects failed", stats.failed)
+    }
+    
+    return nil
 }
 
 // showDiff 显示完整信息和提交差异

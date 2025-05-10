@@ -3,8 +3,10 @@ package commands
 import (
 	"fmt"
 	"strings"
+	"sync"
 
-	"github.com/cix-code/gogo/internal/config" // Ensure config is imported
+	"github.com/cix-code/gogo/internal/config"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
 	"github.com/spf13/cobra"
@@ -12,8 +14,9 @@ import (
 
 // DiffOptions holds the options for the diff command
 type DiffOptions struct {
-	Quiet  bool
-	Config *config.Config
+	Quiet   bool
+	Verbose bool
+	Config  *config.Config
 	CommonManifestOptions
 }
 
@@ -25,71 +28,109 @@ func loadConfig() (*config.Config, error) {
 // 解析清单
 func loadManifest(cfg *config.Config) (*manifest.Manifest, error) {
 	parser := manifest.NewParser()
-	return parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
+	return parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
 }
 
 // 获取项目列表
 func getProjects(manager *project.Manager, projectNames []string) ([]*project.Project, error) {
 	if len(projectNames) == 0 {
-		return manager.GetProjects(nil)
+		return manager.GetProjectsInGroups(nil)
 	}
 	return manager.GetProjectsByNames(projectNames)
 }
 
 // 并发执行diff操作
 type diffResult struct {
-	Name string
+	Name   string
 	Output string
-	Err   error
+	Err    error
 }
 
 func runDiff(opts *DiffOptions, projectNames []string) error {
+	// 初始化日志记录器
+	log := logger.NewDefaultLogger()
+	if opts.Verbose {
+		log.SetLevel(logger.LogLevelDebug)
+	} else if opts.Quiet {
+		log.SetLevel(logger.LogLevelError)
+	} else {
+		log.SetLevel(logger.LogLevelInfo)
+	}
+
+	log.Debug("加载配置")
 	cfg, err := loadConfig()
 	if err != nil {
+		log.Error("加载配置失败: %v", err)
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 	opts.Config = cfg
 
+	log.Debug("解析清单文件")
 	mf, err := loadManifest(cfg)
 	if err != nil {
+		log.Error("解析清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	manager := project.NewManager(mf, cfg)
+	log.Debug("获取项目管理器")
+	manager := project.NewManagerFromManifest(mf, cfg)
+	log.Debug("获取项目列表")
 	projects, err := getProjects(manager, projectNames)
 	if err != nil {
+		log.Error("获取项目列表失败: %v", err)
 		return fmt.Errorf("failed to get projects: %w", err)
 	}
 
-	if !opts.Quiet {
-		fmt.Printf("Diff %d project(s)\n", len(projects))
-	}
+	log.Info("开始对 %d 个项目执行 diff 操作", len(projects))
 
 	maxConcurrency := 8
 	sem := make(chan struct{}, maxConcurrency)
 	results := make(chan diffResult, len(projects))
+	var wg sync.WaitGroup
 
+	// 并发执行diff操作
 	for _, p := range projects {
+		wg.Add(1)
 		sem <- struct{}{}
 		go func(proj *project.Project) {
+			defer wg.Done()
 			defer func() { <-sem }()
+			log.Debug("对项目 %s 执行 diff 操作", proj.Name)
 			outBytes, err := proj.GitRepo.RunCommand("diff")
 			out := string(outBytes)
 			results <- diffResult{Name: proj.Name, Output: out, Err: err}
 		}(p)
 	}
 
-	for i := 0; i < len(projects); i++ {
-		res := <-results
+	// 等待所有diff操作完成并关闭结果通道
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// 处理结果
+	successCount := 0
+	errorCount := 0
+
+	for res := range results {
 		if res.Err != nil {
-			fmt.Printf("Error in %s: %v\n", res.Name, res.Err)
+			errorCount++
+			log.Error("项目 %s 执行 diff 失败: %v", res.Name, res.Err)
 			continue
 		}
+
+		successCount++
 		if res.Output != "" {
-			fmt.Printf("--- %s ---\n%s\n", res.Name, res.Output)
+			log.Info("--- %s ---\n%s", res.Name, res.Output)
 		} else if !opts.Quiet {
-			fmt.Printf("--- %s ---\n(No changes)\n", res.Name)
+			log.Info("--- %s ---\n(无变更)", res.Name)
 		}
+	}
+
+	log.Info("diff 操作完成: %d 成功, %d 失败", successCount, errorCount)
+
+	if errorCount > 0 {
+		return fmt.Errorf("diff failed for %d projects", errorCount)
 	}
 
 	return nil
@@ -108,6 +149,7 @@ func DiffCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
+	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show all output")
 	AddManifestFlags(cmd, &opts.CommonManifestOptions)
 	return cmd
 }

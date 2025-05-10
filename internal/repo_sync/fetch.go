@@ -53,15 +53,15 @@ func (e *Engine) fetchMain(projects []*project.Project) error { // projects para
 
 	// 按照获取时间排序
 	sort.Slice(toFetch, func(i, j int) bool {
-		// Ensure getFetchTime works correctly with project.Project
-		return e.getFetchTime(toFetch[i]) > e.getFetchTime(toFetch[j])
+		// 修改比较逻辑，使用 After 或 Before 方法比较时间
+		return e.getFetchTime(toFetch[i]).After(e.getFetchTime(toFetch[j]))
 	})
 
 	// 执行获取
 	success, fetched := e.fetch(toFetch) // fetch already works with []*project.Project
 	if !success {
 		select {
-		case e.errEvent <- struct{}{}:
+		case e.errEvent <- fmt.Errorf("fetch failed"):
 		default:
 		}
 	}
@@ -122,14 +122,11 @@ func (e *Engine) fetchMain(projects []*project.Project) error { // projects para
 
 		// 获取缺失的项目
 		success, newFetched := e.fetch(missing)
+		// 修改 errEvent 发送的类型，从 struct{}{} 改为错误类型
 		if !success {
 			select {
-			case e.errEvent <- struct{}{}:
+			case e.errEvent <- fmt.Errorf("fetch failed"):
 			default:
-			}
-			// Decide if we should continue or fail fast here
-			if e.options.FailFast {
-				return fmt.Errorf("failed to fetch missing projects and FailFast is enabled")
 			}
 		}
 
@@ -198,7 +195,10 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 	fetched := make(map[string]bool)
 	
 	// 创建进度条
-	pm := progress.New("获取中", len(projects), !e.options.Quiet)
+	var pm progress.Reporter
+	if !e.options.Quiet {
+		pm = progress.New(len(projects))
+	}
 	
 	// 按对象目录分组项目
 	objdirProjectMap := make(map[string][]*project.Project)
@@ -225,7 +225,10 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 				fetched[result.Project.Gitdir] = true
 			}
 			
-			pm.Update(result.Project.Name)
+			// 修改 Update 调用，添加当前索引参数
+			if !e.options.Quiet && pm != nil {
+				pm.Update(len(fetched), result.Project.Name)
+			}
 		}
 		
 		if !localRet && e.options.FailFast {
@@ -286,7 +289,10 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 		}
 	}
 	
-	pm.End()
+	// 修改 End 调用为 Finish
+	if !e.options.Quiet && pm != nil {
+		pm.Finish()
+	}
 	
 	// 执行垃圾回收
 	if !e.manifest.IsArchive {
@@ -379,14 +385,14 @@ func (e *Engine) gcProjects(projects []*project.Project) {
 }
 
 // getFetchTime 获取项目的获取时间
-func (e *Engine) getFetchTime(project *project.Project) float64 {
+func (e *Engine) getFetchTime(project *project.Project) time.Time {
     e.fetchTimesLock.Lock()
     defer e.fetchTimesLock.Unlock()
     
     if time, ok := e.fetchTimes[project.Name]; ok {
         return time
     }
-    return 0
+    return time.Time{} // 返回零值时间
 }
 
 // setFetchTime 设置项目的获取时间
@@ -394,7 +400,7 @@ func (e *Engine) setFetchTime(project *project.Project, duration time.Duration) 
     e.fetchTimesLock.Lock()
     defer e.fetchTimesLock.Unlock()
     
-    e.fetchTimes[project.Name] = duration.Seconds()
+    e.fetchTimes[project.Name] = time.Now() // 存储当前时间而不是秒数
 }
 
 // postRepoFetch 处理仓库项目获取后的操作

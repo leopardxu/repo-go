@@ -15,8 +15,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Sync 执行仓库同步
-func (e *Engine) Sync() error {
+// SyncAll 执行仓库同步
+func (e *Engine) SyncAll() error {
 	// 加载清单但不打印日志
 	if err := e.loadManifestSilently(); err != nil {
 		return err
@@ -181,8 +181,8 @@ func (e *Engine) loadManifestSilently() error {
 	return nil
 }
 
-// syncProject 同步单个项目
-func (e *Engine) syncProject(p *project.Project) error {
+// syncProjectImpl 同步单个项目的实现
+func (e *Engine) syncProjectImpl(p *project.Project) error {
 	// 检查并设置remote信息
 	if p.References != "" {
 		// 解析references配置

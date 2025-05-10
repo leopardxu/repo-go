@@ -2,14 +2,153 @@ package repo_sync
 
 import (
 	"fmt"
-	"io" // 新增导入
-	"os" // 新增导入
-	"path/filepath" // 新增导入
+	"io" 
+	"os" 
+	"path/filepath" 
 	"sync"
 
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/progress"
-	"github.com/cix-code/gogo/internal/project" // Ensure this line exists and is correct
+	"github.com/cix-code/gogo/internal/project" 
 )
+
+// 添加分支名称字段和统计信息
+type checkoutStats struct {
+	Success int
+	Failed  int
+	mu      sync.Mutex
+}
+
+// SetBranchName 设置要检出的分支名称
+func (e *Engine) SetBranchName(branchName string) {
+	e.branchName = branchName
+}
+
+// GetCheckoutStats 获取检出操作的统计信息
+func (e *Engine) GetCheckoutStats() (int, int) {
+	return e.checkoutStats.Success, e.checkoutStats.Failed
+}
+
+// CheckoutBranch 检出指定分支
+func (e *Engine) CheckoutBranch(projects []*project.Project) error {
+	if e.log == nil {
+		e.log = logger.NewDefaultLogger()
+		if e.options.Verbose {
+			e.log.SetLevel(logger.LogLevelDebug)
+		} else if e.options.Quiet {
+			e.log.SetLevel(logger.LogLevelError)
+		}
+	}
+
+	if e.branchName == "" {
+		return fmt.Errorf("branch name is not specified")
+	}
+
+	e.log.Info("开始检出分支 '%s' 到 %d 个项目", e.branchName, len(projects))
+
+	// 初始化统计信息
+	e.checkoutStats = &checkoutStats{}
+
+	// 只检出有工作树的项目
+	var worktreeProjects []*project.Project
+	for _, project := range projects {
+		if project.Worktree != "" {
+			worktreeProjects = append(worktreeProjects, project)
+		}
+	}
+
+	// 创建进度条
+	pm := progress.NewConsoleReporter()
+	if !e.options.Quiet {
+		pm.Start(len(worktreeProjects))
+	}
+
+	// 执行检出
+	if len(worktreeProjects) == 0 {
+		e.log.Info("没有可检出的项目")
+		return nil
+	}
+
+	if e.options.JobsCheckout == 1 {
+		// 单线程检出
+		e.log.Debug("使用单线程模式检出项目")
+		for _, project := range worktreeProjects {
+			result := e.checkoutOneBranch(project)
+			e.processCheckoutResult(result, pm)
+		}
+	} else {
+		// 多线程检出
+		e.log.Debug("使用多线程模式检出项目，并发数: %d", e.options.JobsCheckout)
+		
+		// 创建工作池
+		var wg sync.WaitGroup
+		resultsChan := make(chan CheckoutResult, len(worktreeProjects))
+		
+		// 限制并发数
+		semaphore := make(chan struct{}, e.options.JobsCheckout)
+		
+		for _, p := range worktreeProjects {
+			wg.Add(1)
+			go func(proj *project.Project) {
+				defer wg.Done()
+				
+				// 获取信号量
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+				
+				// 执行检出
+				result := e.checkoutOneBranch(proj)
+				resultsChan <- result
+			}(p)
+		}
+		
+		// 等待所有检出完成
+		go func() {
+			wg.Wait()
+			close(resultsChan)
+		}()
+		
+		// 处理结果
+		for result := range resultsChan {
+			e.processCheckoutResult(result, pm)
+		}
+	}
+	
+	if !e.options.Quiet {
+		pm.Finish()
+	}
+	
+	e.log.Info("检出分支 '%s' 完成: %d 成功, %d 失败", e.branchName, e.checkoutStats.Success, e.checkoutStats.Failed)
+	
+	if e.checkoutStats.Failed > 0 {
+		return fmt.Errorf("检出失败: %d 个项目出错", e.checkoutStats.Failed)
+	}
+	
+	return nil
+}
+
+// processCheckoutResult 处理检出结果
+func (e *Engine) processCheckoutResult(result CheckoutResult, pm *progress.ConsoleReporter) {
+	e.checkoutStats.mu.Lock()
+	defer e.checkoutStats.mu.Unlock()
+	
+	if result.Success {
+		e.checkoutStats.Success++
+		if e.options.Verbose && !e.options.Quiet {
+			e.log.Debug("项目 %s 检出成功", result.Project.Name)
+		}
+	} else {
+		e.checkoutStats.Failed++
+		e.errResults = append(e.errResults, result.Project.Path)
+		if !e.options.Quiet {
+			e.log.Error("项目 %s 检出失败", result.Project.Name)
+		}
+	}
+	
+	if !e.options.Quiet {
+		pm.Update(1, result.Project.Name)
+	}
+}
 
 // checkout 执行本地检出
 func (e *Engine) checkout(allProjects []*project.Project, hyperSyncProjects []*project.Project) error {
@@ -28,7 +167,10 @@ func (e *Engine) checkout(allProjects []*project.Project, hyperSyncProjects []*p
 	}
 	
 	// 创建进度条
-	pm := progress.New("检出中", len(worktreeProjects), !e.options.Quiet)
+	pm := progress.NewConsoleReporter()
+	if !e.options.Quiet {
+		pm.Start(len(worktreeProjects))
+	}
 	
 	// 处理结果
 	processResults := func(results []CheckoutResult) bool {
@@ -42,7 +184,9 @@ func (e *Engine) checkout(allProjects []*project.Project, hyperSyncProjects []*p
 					return false
 				}
 			}
-			pm.Update(result.Project.Name)
+			if !e.options.Quiet {
+				pm.Update(1, result.Project.Name)
+			}
 		}
 		return ret
 	}
@@ -106,7 +250,9 @@ func (e *Engine) checkout(allProjects []*project.Project, hyperSyncProjects []*p
 		}
 	}
 	
-	pm.End()
+	if !e.options.Quiet {
+		pm.Finish()
+	}
 	
 	return nil
 }
@@ -114,13 +260,53 @@ func (e *Engine) checkout(allProjects []*project.Project, hyperSyncProjects []*p
 // CheckoutResult 表示检出操作的结果
 type CheckoutResult struct {
 	Success bool
-	Project *project.Project // This line requires the import above
+	Project *project.Project
+}
+
+// checkoutOneBranch 检出单个项目的指定分支
+func (e *Engine) checkoutOneBranch(project *project.Project) CheckoutResult {
+	if !e.options.Quiet {
+		e.log.Info("检出项目 %s 的分支 %s", project.Name, e.branchName)
+	}
+	
+	// 如果是分离模式，检出项目的修订版本
+	if e.options.Detach {
+		e.log.Debug("项目 %s 使用分离模式检出修订版本 %s", project.Name, project.Revision)
+		_, err := project.GitRepo.RunCommand("checkout", project.Revision)
+		if err != nil {
+			e.log.Error("项目 %s 检出修订版本失败: %v", project.Name, err)
+			return CheckoutResult{Success: false, Project: project}
+		}
+	} else {
+		// 否则，创建并检出指定分支
+		e.log.Debug("项目 %s 创建并检出分支 %s", project.Name, e.branchName)
+		_, err := project.GitRepo.RunCommand("checkout", "-B", e.branchName)
+		if err != nil {
+			e.log.Error("项目 %s 创建并检出分支失败: %v", project.Name, err)
+			return CheckoutResult{Success: false, Project: project}
+		}
+	}
+	
+	// 如果检出成功，复制钩子脚本到项目
+	repoHooksDir := filepath.Join(e.repoRoot, ".repo", "hooks")
+	projectGitDir := filepath.Join(project.Worktree, ".git")
+	
+	if err := copyHooksToProject(repoHooksDir, projectGitDir); err != nil {
+		e.log.Warn("无法复制钩子脚本到项目 %s: %v", project.Name, err)
+		// 不因为钩子复制失败而导致整个检出失败
+	}
+	
+	return CheckoutResult{Success: true, Project: project}
 }
 
 // checkoutOne 检出单个项目
 func (e *Engine) checkoutOne(project *project.Project) CheckoutResult {
 	if !e.options.Quiet {
-		fmt.Printf("检出项目 %s\n", project.Name)
+		if e.log != nil {
+			e.log.Info("检出项目 %s", project.Name)
+		} else {
+			fmt.Printf("检出项目 %s\n", project.Name)
+		}
 	}
 	
 	// 执行本地同步
@@ -140,10 +326,18 @@ func (e *Engine) checkoutOne(project *project.Project) CheckoutResult {
 		
 		// 复制钩子脚本
 		if err := copyHooksToProject(repoHooksDir, projectGitDir); err != nil && !e.options.Quiet {
-			fmt.Printf("警告: 无法复制钩子脚本到项目 %s: %v\n", project.Name, err)
+			if e.log != nil {
+				e.log.Warn("无法复制钩子脚本到项目 %s: %v", project.Name, err)
+			} else {
+				fmt.Printf("警告: 无法复制钩子脚本到项目 %s: %v\n", project.Name, err)
+			}
 		}
 	} else if !e.options.Quiet {
-		fmt.Printf("error: Cannot checkout %s\n", project.Name)
+		if e.log != nil {
+			e.log.Error("无法检出项目 %s", project.Name)
+		} else {
+			fmt.Printf("error: Cannot checkout %s\n", project.Name)
+		}
 	}
 	
 	return CheckoutResult{

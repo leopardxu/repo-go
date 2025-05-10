@@ -10,6 +10,7 @@ import (
 
 	"github.com/cix-code/gogo/internal/git"
 	"github.com/cix-code/gogo/internal/hook"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -297,13 +298,13 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 			if i < 2 {
 				time.Sleep(time.Second * 2)
 			}
+		}
 		if strings.Contains(lastErr.Error(), "fatal: repository '") {
-				errChan <- fmt.Errorf("清单仓库URL无效或无法访问: %s\n请检查URL是否正确且网络可访问", lastErr)
-			} else if strings.Contains(lastErr.Error(), "Could not read from remote repository") {
-				errChan <- fmt.Errorf("无法从远程仓库读取: %s\n请检查权限和网络连接", lastErr)
-			} else {
-				errChan <- fmt.Errorf("克隆清单仓库失败: %s\n尝试次数: %d/3", lastErr, i+1)
-			}
+			errChan <- fmt.Errorf("清单仓库URL无效或无法访问: %s\n请检查URL是否正确且网络可访问", lastErr)
+		} else if strings.Contains(lastErr.Error(), "Could not read from remote repository") {
+			errChan <- fmt.Errorf("无法从远程仓库读取: %s\n请检查权限和网络连接", lastErr)
+		} else {
+			errChan <- fmt.Errorf("克隆清单仓库失败: %s\n尝试次数: %d/3", lastErr, 3)
 		}
 	}()
 	
@@ -374,12 +375,31 @@ func validateOptions(opts *InitOptions) error {
 
 // runInit 执行init命令
 func runInit(opts *InitOptions) error {
-	if opts.Verbose {
-		fmt.Println("Initializing repo in current directory")
+	// 创建日志记录器
+	log := logger.NewDefaultLogger()
+	if opts.Debug {
+		log.SetLevel(logger.LogLevelDebug)
+	} else if opts.Verbose {
+		log.SetLevel(logger.LogLevelInfo)
+	} else if opts.Quiet {
+		log.SetLevel(logger.LogLevelError)
+	} else {
+		log.SetLevel(logger.LogLevelInfo)
 	}
+
+	// 如果设置了日志文件，配置日志输出
+	logFile := os.Getenv("GOGO_LOG_FILE")
+	if logFile != "" {
+		if err := log.SetDebugFile(logFile); err != nil {
+			fmt.Printf("警告: 无法设置日志文件 %s: %v\n", logFile, err)
+		}
+	}
+
+	log.Info("初始化 repo 客户端...")
 
 	// 验证选项冲突
 	if err := validateOptions(opts); err != nil {
+		log.Error("选项验证失败: %v", err)
 		return err
 	}
 
@@ -414,102 +434,115 @@ func runInit(opts *InitOptions) error {
 
 	// 处理配置名称提示
 	if opts.ConfigName {
+		log.Debug("提示用户输入 Git 用户信息")
 		if err := promptForUserInfo(); err != nil {
+			log.Error("提示用户信息失败: %v", err)
 			return fmt.Errorf("failed to prompt for user info: %w", err)
 		}
 	} else {
 		// 只检查Git是否安装，不强制要求配置用户信息
+		log.Debug("检查 Git 是否已安装")
 		gitRunner := git.NewRunner()
 		if _, err := gitRunner.Run("--version"); err != nil {
+			log.Error("Git 未安装: %v", err)
 			return fmt.Errorf("git not found: %w", err)
 		}
 	}
 	
+	// 配置 Git 运行器
 	gitRunner := git.NewRunner()
-	if opts.Verbose {
+	if opts.Debug {
 		gitRunner.SetVerbose(true)
+	} else {
+		gitRunner.SetVerbose(opts.Verbose)
+		gitRunner.SetQuiet(opts.Quiet)
 	}
-	if opts.Quiet {
-		gitRunner.SetQuiet(true)
-	}
-	gitRunner.SetQuiet(true)
 
 	// 设置Git LFS
 	if opts.GitLFS {
+		log.Info("安装 Git LFS...")
 		if _, err := gitRunner.Run("lfs", "install"); err != nil {
+			log.Error("安装 Git LFS 失败: %v", err)
 			return fmt.Errorf("failed to install Git LFS: %w", err)
 		}
+		log.Info("Git LFS 安装成功")
 	}
 
 	// 创建.repo目录结构
+	log.Info("创建 repo 目录结构...")
 	currentDir, err := os.Getwd()
 	if err != nil {
+		log.Error("获取当前目录失败: %v", err)
 		return fmt.Errorf("failed to get current directory: %w", err)
 	}
 
 	// 初始化Git配置和hooks
+	log.Debug("初始化 repo 目录结构和 Git hooks")
 	if err := initRepoStructure(currentDir); err != nil {
+		log.Error("初始化 repo 结构失败: %v", err)
 		return fmt.Errorf("failed to initialize repo structure: %w", err)
 	}
+	log.Info("repo 目录结构创建成功")
 
 	// 克隆清单仓库
+	log.Info("克隆清单仓库...")
 	if err := cloneManifestRepo(gitRunner, cfg); err != nil {
+		log.Error("克隆清单仓库失败: %v", err)
 		return fmt.Errorf("failed to clone manifest repository: %w", err)
 	}
+	log.Info("清单仓库克隆成功")
 
 	// 解析清单文件
+	log.Info("解析清单文件...")
 	parser := manifest.NewParser()
-	parser.SetSilentMode(!opts.Verbose) // 根据verbose选项控制警告日志输出
+	parser.SetSilentMode(!opts.Verbose && !opts.Debug) // 根据verbose和debug选项控制警告日志输出
 	manifestPath := filepath.Join(".repo", "manifests", cfg.ManifestName)
+	log.Debug("解析清单文件: %s", manifestPath)
 	manifestObj, err := parser.ParseFromFile(manifestPath, strings.Split(cfg.Groups, ","))
 	if err != nil {
+		log.Error("解析清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
+	log.Info("清单文件解析成功，包含 %d 个项目", len(manifestObj.Projects))
+	
 	groups := strings.Split(cfg.Groups, ",")
 	// 按group过滤项目
 	if cfg.Groups != "" {
-		if opts.Verbose {
-			fmt.Printf("根据以下组过滤项目: %v\n", groups)
-		}
+		log.Info("根据组过滤项目: %v", groups)
 		
 		filteredProjects := make([]manifest.Project, 0)
 		for _, p := range manifestObj.Projects {
 			if p.Groups == "" || containsAnyGroup(p.Groups, groups) {
 				filteredProjects = append(filteredProjects, p)
-				if opts.Verbose {
-					fmt.Printf("包含项目: %s (组: %s)\n", p.Name, p.Groups)
-				}
-			} else if opts.Verbose {
-				fmt.Printf("排除项目: %s (组: %s)\n", p.Name, p.Groups)
+				log.Debug("包含项目: %s (组: %s)", p.Name, p.Groups)
+			} else {
+				log.Debug("排除项目: %s (组: %s)", p.Name, p.Groups)
 			}
 		}
 		
-		if opts.Verbose {
-			fmt.Printf("过滤后的项目数量: %d (原始数量: %d)\n", len(filteredProjects), len(manifestObj.Projects))
-		}
+		log.Info("过滤后的项目数量: %d (原始数量: %d)", len(filteredProjects), len(manifestObj.Projects))
 		
 		manifestObj.Projects = filteredProjects
 		
 		// 更新清单对象后重新保存
 		mergedPath := filepath.Join(".repo", "manifest.xml")
+		log.Debug("保存过滤后的清单到: %s", mergedPath)
 		mergedData, err := manifestObj.ToXML()
 		if err != nil {
+			log.Error("转换过滤后的清单为XML失败: %v", err)
 			return fmt.Errorf("转换过滤后的清单为XML失败: %w", err)
 		}
 		if err := os.WriteFile(mergedPath, []byte(mergedData), 0644); err != nil {
+			log.Error("写入过滤后的清单文件失败: %v", err)
 			return fmt.Errorf("写入过滤后的清单文件失败: %w", err)
 		}
 		
-		if opts.Verbose {
-			fmt.Printf("已将过滤后的清单保存到: %s\n", mergedPath)
-		}
+		log.Info("已将过滤后的清单保存到: %s", mergedPath)
 	}
 
 	// 处理include标签
 	if len(manifestObj.Includes) > 0 && !opts.ThisManifestOnly {
-		if opts.Verbose {
-			fmt.Printf("正在处理 %d 个包含的清单文件\n", len(manifestObj.Includes))
-		}
+		log.Info("处理 %d 个包含的清单文件", len(manifestObj.Includes))
 		
 		// 创建清单合并器
 		merger := manifest.NewMerger(parser, filepath.Join(".repo", "manifests"))
@@ -519,89 +552,90 @@ func runInit(opts *InitOptions) error {
 		
 		for _, include := range manifestObj.Includes {
 			includePath := filepath.Join(".repo", "manifests", include.Name)
-			if opts.Verbose {
-				fmt.Printf("正在加载包含的清单: %s\n", include.Name)
-			}
+			log.Debug("加载包含的清单: %s", include.Name)
 			
 			// 检查包含的清单文件是否存在
 			if _, err := os.Stat(includePath); os.IsNotExist(err) {
+				log.Error("包含的清单文件不存在: %s", includePath)
 				return fmt.Errorf("包含的清单文件不存在: %s", includePath)
 			}
 			
 			includeManifest, err := parser.ParseFromFile(includePath, groups)
 			if err != nil {
+				log.Error("解析包含的清单文件 %s 失败: %v", include.Name, err)
 				return fmt.Errorf("解析包含的清单文件 %s 失败: %w", include.Name, err)
 			}
 			
 			if includeManifest == nil {
+				log.Error("包含的清单文件 %s 解析结果为空", include.Name)
 				return fmt.Errorf("包含的清单文件 %s 解析结果为空", include.Name)
 			}
 			
-			if opts.Verbose {
-				fmt.Printf("包含的清单 %s 包含 %d 个项目\n", include.Name, len(includeManifest.Projects))
-			}
+			log.Debug("包含的清单 %s 包含 %d 个项目", include.Name, len(includeManifest.Projects))
 			
 			includedManifests = append(includedManifests, includeManifest)
 		}
 		
 		// 合并清单
-		if opts.Verbose {
-			fmt.Printf("正在合并 %d 个清单文件\n", len(includedManifests))
-		}
+		log.Info("合并 %d 个清单文件", len(includedManifests))
 		
 		mergedManifest, err := merger.Merge(includedManifests)
 		if err != nil {
+			log.Error("合并清单失败: %v", err)
 			return fmt.Errorf("合并清单失败: %w", err)
 		}
 		
 		// 更新清单对象
 		manifestObj = mergedManifest
 		
-		if opts.Verbose {
-			fmt.Printf("合并后的清单包含 %d 个项目\n", len(manifestObj.Projects))
-		}
+		log.Info("合并后的清单包含 %d 个项目", len(manifestObj.Projects))
 		
 		// 保存合并后的清单
 		mergedPath := filepath.Join(".repo", "manifest.xml")
+		log.Debug("保存合并后的清单到: %s", mergedPath)
 		mergedData, err := manifestObj.ToXML()
 		if err != nil {
+			log.Error("转换合并后的清单为XML失败: %v", err)
 			return fmt.Errorf("转换合并后的清单为XML失败: %w", err)
 		}
 		
 		if err := os.WriteFile(mergedPath, []byte(mergedData), 0644); err != nil {
+			log.Error("写入合并后的清单文件失败: %v", err)
 			return fmt.Errorf("写入合并后的清单文件失败: %w", err)
 		}
 		
-		if opts.Verbose {
-			fmt.Printf("已将合并后的清单保存到: %s\n", mergedPath)
-		}
+		log.Info("已将合并后的清单保存到: %s", mergedPath)
 	}
 
 	// 保存配置
+	log.Info("保存 repo 配置...")
 	if err := saveRepoConfig(cfg); err != nil {
+		log.Error("保存配置失败: %v", err)
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
 	// 处理多清单选项
 	if opts.OuterManifest {
 		// 实现加载外部清单的逻辑
-		if opts.Verbose {
-			fmt.Println("Loading outer manifests")
-		}
+		log.Info("加载外部清单...")
 		
 		// 查找外部清单
 		outerManifestPath := filepath.Join("..", ".repo", "manifest.xml")
 		if _, err := os.Stat(outerManifestPath); err == nil {
 			// 加载外部清单
-			outerManifest, err := parser.ParseFromFile(outerManifestPath,groups)
+			log.Debug("解析外部清单: %s", outerManifestPath)
+			outerManifest, err := parser.ParseFromFile(outerManifestPath, groups)
 			if err != nil {
+				log.Error("解析外部清单失败: %v", err)
 				return fmt.Errorf("failed to parse outer manifest: %w", err)
 			}
 			
 			// 合并外部清单
+			log.Debug("合并外部清单...")
 			merger := manifest.NewMerger(parser, filepath.Join(".repo"))
 			mergedManifest, err := merger.Merge([]*manifest.Manifest{outerManifest, manifestObj})
 			if err != nil {
+				log.Error("合并外部清单失败: %v", err)
 				return fmt.Errorf("failed to merge with outer manifest: %w", err)
 			}
 			
@@ -610,31 +644,33 @@ func runInit(opts *InitOptions) error {
 			
 			// 保存合并后的清单
 			mergedPath := filepath.Join(".repo", "manifest.xml")
+			log.Debug("保存合并后的清单到: %s", mergedPath)
 			mergedData, err := manifestObj.ToXML()
 			if err != nil {
+				log.Error("转换合并后的清单为XML失败: %v", err)
 				return fmt.Errorf("failed to convert merged manifest to XML: %w", err)
 			}
 			
 			if err := os.WriteFile(mergedPath, []byte(mergedData), 0644); err != nil {
+				log.Error("写入合并后的清单文件失败: %v", err)
 				return fmt.Errorf("failed to write merged manifest: %w", err)
 			}
+			log.Info("外部清单合并成功")
+		} else {
+			log.Debug("未找到外部清单: %s", outerManifestPath)
 		}
 	}
 	
 	if opts.ThisManifestOnly {
 		// 实现仅处理当前清单的逻辑
-		if opts.Verbose {
-			fmt.Println("Processing only this manifest")
-		}
+		log.Info("仅处理当前清单")
 		// 移除所有include标签
 		manifestObj.Includes = nil
 	}
 	
 	if opts.AllManifests {
 		// 实现处理所有清单的逻辑
-		if opts.Verbose {
-			fmt.Println("Processing all manifests")
-		}
+		log.Info("处理所有清单")
 		// 确保处理所有include标签
 		if len(manifestObj.Includes) > 0 && !opts.ThisManifestOnly {
 			merger := manifest.NewMerger(parser, filepath.Join(".repo", "manifests"))
@@ -642,12 +678,11 @@ func runInit(opts *InitOptions) error {
 			
 			for _, include := range manifestObj.Includes {
 				includePath := filepath.Join(".repo", "manifests", include.Name)
-				if opts.Verbose {
-					fmt.Printf("Loading included manifest: %s\n", include.Name)
-				}
+				log.Debug("加载包含的清单: %s", include.Name)
 				
-				includeManifest, err := parser.ParseFromFile(includePath,groups)
+				includeManifest, err := parser.ParseFromFile(includePath, groups)
 				if err != nil {
+					log.Error("解析包含的清单文件 %s 失败: %v", include.Name, err)
 					return fmt.Errorf("failed to parse included manifest %s: %w", include.Name, err)
 				}
 				
@@ -655,19 +690,20 @@ func runInit(opts *InitOptions) error {
 			}
 			
 			// 合并清单
+			log.Debug("合并所有清单...")
 			mergedManifest, err := merger.Merge(includedManifests)
 			if err != nil {
+				log.Error("合并清单失败: %v", err)
 				return fmt.Errorf("failed to merge manifests: %w", err)
 			}
 			
 			// 更新清单对象
 			manifestObj = mergedManifest
+			log.Info("所有清单合并成功")
 		}
 	}
 
-	if opts.Verbose {
-		fmt.Println("Repo initialization completed successfully")
-	}
+	log.Info("Repo 初始化完成")
 	return nil
 }
 

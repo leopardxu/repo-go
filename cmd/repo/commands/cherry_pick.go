@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cix-code/gogo/internal/config" // Ensure config is imported
+	"github.com/cix-code/gogo/internal/config"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
+	"github.com/cix-code/gogo/internal/repo_sync"
 	"github.com/spf13/cobra"
 )
 
@@ -47,66 +49,79 @@ func CherryPickCmd() *cobra.Command {
 
 // runCherryPick executes the cherry-pick command logic
 func runCherryPick(opts *CherryPickOptions, args []string) error {
+	// 初始化日志记录器
+	log := logger.NewDefaultLogger()
+	if opts.Verbose {
+		log.SetLevel(logger.LogLevelDebug)
+	} else if opts.Quiet {
+		log.SetLevel(logger.LogLevelError)
+	} else {
+		log.SetLevel(logger.LogLevelInfo)
+	}
+
 	if len(args) < 1 {
 		return fmt.Errorf("missing commit hash")
 	}
 	commit := args[0]
 	projectNames := args[1:]
 	cfg := opts.Config
+
+	log.Info("正在应用 cherry-pick '%s'", commit)
+
 	parser := manifest.NewParser()
-	manifestObj, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
 	if err != nil {
+		log.Error("解析清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-	manager := project.NewManager(manifestObj, cfg)
+
+	manager := project.NewManagerFromManifest(manifestObj, cfg)
 	var projects []*project.Project
 	if opts.All || len(projectNames) == 0 {
-		projects, err = manager.GetProjects(nil)
+		log.Debug("获取所有项目")
+		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
+			log.Error("获取项目列表失败: %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
+		log.Debug("获取指定项目: %v", projectNames)
 		projects, err = manager.GetProjectsByNames(projectNames)
 		if err != nil {
+			log.Error("获取指定项目失败: %v", err)
 			return fmt.Errorf("failed to get projects by name: %w", err)
 		}
 	}
 
-type cherryPickResult struct {
-	ProjectName string
-	Err        error
-}
-	results := make(chan cherryPickResult, len(projects))
-	sem := make(chan struct{}, opts.Jobs)
-	for _, p := range projects {
-		p := p
-		sem <- struct{}{}
-		go func() {
-			defer func() { <-sem }()
-			_, err := p.GitRepo.RunCommand("cherry-pick", commit)
-			results <- cherryPickResult{ProjectName: p.Name, Err: err}
-		}()
+	log.Info("开始在 %d 个项目中应用 cherry-pick", len(projects))
+
+	// 使用 repo_sync 包中的 Engine 进行 cherry-pick 操作
+	syncOpts := &repo_sync.Options{
+		Jobs:    opts.Jobs,
+		Quiet:   opts.Quiet,
+		Verbose: opts.Verbose,
 	}
-	success, failed := 0, 0
-	for i := 0; i < len(projects); i++ {
-		res := <-results
-		if res.Err != nil {
-			failed++
-			if !opts.Quiet {
-				fmt.Printf("[FAILED] %s: %v\n", res.ProjectName, res.Err)
-			}
-		} else {
-			success++
-			if opts.Verbose && !opts.Quiet {
-				fmt.Printf("[OK] %s\n", res.ProjectName)
-			}
-		}
+
+	engine := repo_sync.NewEngine(syncOpts, nil, log)
+	// 设置提交哈希
+	engine.SetCommitHash(commit)
+	// 执行 cherry-pick 操作
+	err = engine.CherryPickCommit(projects)
+	if err != nil {
+		log.Error("Cherry-pick 失败: %v", err)
+		return err
 	}
+
+	// 获取 cherry-pick 结果
+	success, failed := engine.GetCherryPickStats()
+
 	if !opts.Quiet {
-		fmt.Printf("Cherry-pick commit '%s': %d success, %d failed\n", commit, success, failed)
+		log.Info("Cherry-pick 提交 '%s' 完成: %d 成功, %d 失败", commit, success, failed)
 	}
+
 	if failed > 0 {
 		return fmt.Errorf("cherry-pick failed for %d projects", failed)
 	}
+
 	return nil
 }

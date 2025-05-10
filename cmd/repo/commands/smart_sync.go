@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/cix-code/gogo/internal/config"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
 	"github.com/cix-code/gogo/internal/repo_sync"
 	"github.com/spf13/cobra"
 )
@@ -25,6 +26,7 @@ type SmartSyncOptions struct {
 	ForceOverwrite         bool
 	Optimize               bool
 	Quiet                  bool
+	Verbose                bool // 添加详细输出选项
 	RetryFetches           int
 	CurrentBranch          bool
 	NoCurrentBranch        bool
@@ -49,6 +51,26 @@ type SmartSyncOptions struct {
 	CommonManifestOptions                 // <-- Assuming CommonManifestOptions is needed if ManifestName is used indirectly
 }
 
+// smartSyncStats 用于统计同步结果
+type smartSyncStats struct {
+	mu      sync.Mutex
+	total   int
+	success int
+	failed  int
+}
+
+// increment 增加统计计数
+func (s *smartSyncStats) increment(success bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.total++
+	if success {
+		s.success++
+	} else {
+		s.failed++
+	}
+}
+
 // SmartSyncCmd 返回smartsync命令
 func SmartSyncCmd() *cobra.Command {
 	opts := &SmartSyncOptions{}
@@ -58,17 +80,31 @@ func SmartSyncCmd() *cobra.Command {
 		Short: "Update working tree to the latest known good revision",
 		Long:  `The 'repo smartsync' command is a shortcut for sync -s.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// 创建日志记录器
+			log := logger.NewDefaultLogger()
+			
+			// 根据选项设置日志级别
+			if opts.Quiet {
+				log.SetLevel(logger.LogLevelError)
+			} else if opts.Verbose {
+				log.SetLevel(logger.LogLevelDebug)
+			} else {
+				log.SetLevel(logger.LogLevelInfo)
+			}
+
 			// Load config here as it's needed by runSmartSync
 			cfg, err := config.Load()
 			if err != nil {
+				log.Error("加载配置失败: %v", err)
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 			opts.Config = cfg // Assign loaded config
+			
 			// Pass CommonManifestOptions if needed by AddManifestFlags
 			// Ensure ManifestName is populated if used by config.Load or parser.ParseFromFile
 			// If ManifestName comes from flags, it should be part of CommonManifestOptions
 			// and AddManifestFlags should be called below.
-			return runSmartSync(opts, args)
+			return runSmartSync(opts, args, log)
 		},
 	}
 
@@ -104,6 +140,7 @@ func SmartSyncCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.ThisManifestOnly, "this-manifest-only", false, "only operate on this (sub)manifest")
 	cmd.Flags().BoolVar(&opts.NoThisManifestOnly, "all-manifests", false, "operate on this manifest and its submanifests")
 	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
+	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show all output including debug logs")
 	cmd.Flags().BoolVarP(&opts.Optimize, "optimize", "o", true, "optimize sync strategy based on project status")
 	// Add manifest flags if ManifestName is needed and comes from flags
 	// AddManifestFlags(cmd, &opts.CommonManifestOptions)
@@ -112,40 +149,28 @@ func SmartSyncCmd() *cobra.Command {
 }
 
 // runSmartSync 执行smartsync命令
-func runSmartSync(opts *SmartSyncOptions, args []string) error {
-	if !opts.Quiet {
-		fmt.Println("Smart syncing projects")
-	}
+func runSmartSync(opts *SmartSyncOptions, args []string, log logger.Logger) error {
+	// 创建统计对象
+	stats := &smartSyncStats{}
+	
+	log.Info("开始智能同步项目")
 
 	// Config is now loaded in RunE and passed via opts
 	cfg := opts.Config
 	if cfg == nil {
+		log.Error("配置未加载")
 		return fmt.Errorf("config not loaded")
 	}
 
 	// 加载清单
+	log.Debug("正在加载清单文件: %s", cfg.ManifestName)
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
+	manifest, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
 	if err != nil {
+		log.Error("解析清单失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-
-	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg)
-
-	// 获取要处理的项目
-	var projects []*project.Project
-	if len(args) == 0 {
-		projects, err = manager.GetProjects(nil)
-		if err != nil {
-			return fmt.Errorf("failed to get projects: %w", err)
-		}
-	} else {
-		projects, err = manager.GetProjectsByNames(args)
-		if err != nil {
-			return fmt.Errorf("failed to get projects: %w", err)
-		}
-	}
+	log.Debug("成功加载清单，包含 %d 个项目", len(manifest.Projects))
 
 	// 创建同步选项
 	syncOpts := &repo_sync.Options{
@@ -159,37 +184,39 @@ func runSmartSync(opts *SmartSyncOptions, args []string) error {
 		LocalOnly:        opts.LocalOnly,
 		NetworkOnly:      opts.NetworkOnly,
 		Quiet:            opts.Quiet,
+		Verbose:          opts.Verbose,
 		CurrentBranch:    opts.CurrentBranch,
 		NoTags:           opts.NoTags,
 		Prune:            opts.Prune,
-		OptimizedFetch:    opts.OptimizedFetch,
+		OptimizedFetch:   opts.OptimizedFetch,
 		UseSuperproject:  opts.UseSuperproject,
 	}
 
+	log.Debug("创建同步引擎，并发任务数: %d", opts.Jobs)
 	// 创建同步引擎
-	engine := repo_sync.NewEngine(projects, syncOpts, manifest, cfg)
+	engine := repo_sync.NewEngine(syncOpts, manifest, log)
 
 	// 使用单独的goroutine池处理网络和本地操作
+	log.Info("开始执行同步操作")
 	if err := engine.Run(); err != nil {
-		if !opts.Quiet {
-			fmt.Printf("\nSync completed with %d errors\n", len(engine.Errors()))
+		errors := engine.Errors()
+		stats.failed = len(errors)
+		stats.total = len(manifest.Projects)
+		stats.success = stats.total - stats.failed
+		
+		log.Error("同步完成，但有 %d 个错误", stats.failed)
+		for _, err := range errors {
+			log.Error("  - %v", err)
 		}
 		return fmt.Errorf("sync failed: %w", err)
 	}
 
-	if !opts.Quiet {
-		fmt.Println("\nSync completed successfully")
-	}
-
+	// 更新统计信息
+	stats.total = len(manifest.Projects)
+	stats.success = stats.total
+	
+	log.Info("同步成功完成，共处理 %d 个项目", stats.total)
 	return nil
 }
 
-// 删除或修改displaySmartSyncResults函数，因为我们不再使用SmartSync方法
-// 如果需要保留，可以修改为显示简单的成功消息
-func displaySmartSyncResults(results map[string]string) {
-	fmt.Println("\nSync results:")
-	
-	for project, result := range results {
-		fmt.Printf("%s: %s\n", project, result)
-	}
-}
+// 删除displaySmartSyncResults函数，因为我们不再使用它

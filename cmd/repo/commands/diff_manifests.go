@@ -2,28 +2,30 @@ package commands
 
 import (
 	"fmt"
+	"sync"
 
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
 // DiffManifestsOptions 包含diff-manifests命令的选项
 type DiffManifestsOptions struct {
-	Raw         bool
-	NoColor     bool
-	PrettyFormat string
-	Verbose     bool
-	Quiet       bool
-	OuterManifest bool
+	Raw             bool
+	NoColor         bool
+	PrettyFormat    string
+	Verbose         bool
+	Quiet           bool
+	OuterManifest   bool
 	NoOuterManifest bool
 	ThisManifestOnly bool
-	AllManifests bool
-	Name       bool
-	Path       bool
-	Revision   bool
-	Groups     bool
-	All        bool
-	XML        bool
+	AllManifests    bool
+	Name            bool
+	Path            bool
+	Revision        bool
+	Groups          bool
+	All             bool
+	XML             bool
 }
 
 // DiffManifestsCmd 返回diff-manifests命令
@@ -86,45 +88,62 @@ available.`,
 
 // runDiffManifests 执行diff-manifests命令
 func runDiffManifests(opts *DiffManifestsOptions, args []string) error {
+	// 初始化日志记录器
+	log := logger.NewDefaultLogger()
+	if opts.Verbose {
+		log.SetLevel(logger.LogLevelDebug)
+	} else if opts.Quiet {
+		log.SetLevel(logger.LogLevelError)
+	} else {
+		log.SetLevel(logger.LogLevelInfo)
+	}
+
 	if len(args) != 2 {
+		log.Error("需要提供两个清单文件路径")
 		return fmt.Errorf("exactly two manifest files required")
 	}
 
 	manifest1Path := args[0]
 	manifest2Path := args[1]
 
-	fmt.Printf("Comparing manifests %s and %s\n", manifest1Path, manifest2Path)
+	log.Info("正在比较清单文件 %s 和 %s", manifest1Path, manifest2Path)
 
 	// 创建清单解析器
 	parser := manifest.NewParser()
 
 	// 解析第一个清单文件
+	log.Debug("解析第一个清单文件: %s", manifest1Path)
 	manifest1, err := parser.ParseFromFile(manifest1Path, nil)
 	if err != nil {
+		log.Error("解析第一个清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse first manifest: %w", err)
 	}
 
 	// 解析第二个清单文件
-	manifest2, err := parser.ParseFromFile(manifest2Path,nil)
+	log.Debug("解析第二个清单文件: %s", manifest2Path)
+	manifest2, err := parser.ParseFromFile(manifest2Path, nil)
 	if err != nil {
+		log.Error("解析第二个清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse second manifest: %w", err)
 	}
 
 	// 如果选择了XML比较
 	if opts.XML {
-		return diffManifestsXML(manifest1Path, manifest2Path)
+		log.Debug("使用XML比较模式")
+		return diffManifestsXML(manifest1Path, manifest2Path, log)
 	}
 
 	// 比较清单
-	diffs := compareManifests(manifest1, manifest2, opts)
+	log.Debug("开始比较清单项目")
+	diffs := compareManifests(manifest1, manifest2, opts, log)
 
 	// 显示差异
 	if len(diffs) == 0 {
-		fmt.Println("No differences found between the manifests")
+		log.Info("清单文件之间没有发现差异")
 	} else {
-		fmt.Println("Differences found:")
+		log.Info("发现 %d 处差异:", len(diffs))
 		for _, diff := range diffs {
-			fmt.Println(diff)
+			log.Info("%s", diff)
 		}
 	}
 
@@ -132,30 +151,38 @@ func runDiffManifests(opts *DiffManifestsOptions, args []string) error {
 }
 
 // diffManifestsXML 比较两个清单文件的原始XML内容
-func diffManifestsXML(manifest1Path, manifest2Path string) error {
+func diffManifestsXML(manifest1Path, manifest2Path string, log logger.Logger) error {
 	// 这里应该实现XML文件比较逻辑
 	// 可以使用外部命令如diff或者内部实现的XML比较
 	
-	// 示例：使用简单的文件内容比较
-	fmt.Println("XML comparison not implemented yet")
+	log.Warn("XML比较功能尚未实现")
 	
 	return nil
 }
 
-// compareManifests 比较两个清单对象并返回差异列表
-func compareProjectsConcurrently(projects1, projects2 map[string]manifest.Project, opts *DiffManifestsOptions) []string {
+// compareProjectsConcurrently 并发比较两个项目集合并返回差异列表
+func compareProjectsConcurrently(projects1, projects2 map[string]manifest.Project, opts *DiffManifestsOptions, log logger.Logger) []string {
 	type diffResult struct {
 		Diff string
 	}
+
+	var wg sync.WaitGroup
 	results := make(chan diffResult, len(projects1)+len(projects2))
-	sem := make(chan struct{}, 16) // 控制最大并发数
+	maxConcurrency := 16 // 控制最大并发数
+	sem := make(chan struct{}, maxConcurrency)
+	diffs := []string{}
+
+	log.Debug("开始并发比较 %d 个项目和 %d 个项目", len(projects1), len(projects2))
 
 	// 检查项目1中存在但项目2中不存在的项目
 	for name := range projects1 {
+		wg.Add(1)
 		sem <- struct{}{}
 		go func(name string) {
+			defer wg.Done()
 			defer func() { <-sem }()
 			if _, exists := projects2[name]; !exists {
+				log.Debug("项目已移除: %s", name)
 				if opts.Raw {
 					results <- diffResult{Diff: fmt.Sprintf("R %s", name)}
 				} else {
@@ -165,13 +192,16 @@ func compareProjectsConcurrently(projects1, projects2 map[string]manifest.Projec
 		}(name)
 	}
 
-	// 检查项目2中存在但项目1中不存在的项目
+	// 检查项目2中存在但项目1中不存在的项目，或者比较两者的差异
 	for name, p2 := range projects2 {
+		wg.Add(1)
 		sem <- struct{}{}
 		go func(name string, p2 manifest.Project) {
+			defer wg.Done()
 			defer func() { <-sem }()
 			p1, exists := projects1[name]
 			if !exists {
+				log.Debug("项目已添加: %s", name)
 				if opts.Raw {
 					results <- diffResult{Diff: fmt.Sprintf("A %s", name)}
 				} else {
@@ -182,6 +212,7 @@ func compareProjectsConcurrently(projects1, projects2 map[string]manifest.Projec
 
 			// 比较项目属性
 			if (opts.Path || opts.All) && p1.Path != p2.Path {
+				log.Debug("项目 %s 路径已更改: %s -> %s", name, p1.Path, p2.Path)
 				if opts.Raw {
 					results <- diffResult{Diff: fmt.Sprintf("C %s %s %s", name, p1.Path, p2.Path)}
 				} else {
@@ -189,6 +220,7 @@ func compareProjectsConcurrently(projects1, projects2 map[string]manifest.Projec
 				}
 			}
 			if (opts.Revision || opts.All) && p1.Revision != p2.Revision {
+				log.Debug("项目 %s 版本已更改: %s -> %s", name, p1.Revision, p2.Revision)
 				if opts.Raw {
 					results <- diffResult{Diff: fmt.Sprintf("C %s %s %s", name, p1.Revision, p2.Revision)}
 				} else {
@@ -196,6 +228,7 @@ func compareProjectsConcurrently(projects1, projects2 map[string]manifest.Projec
 				}
 			}
 			if (opts.Groups || opts.All) && p1.Groups != p2.Groups {
+				log.Debug("项目 %s 组已更改: %s -> %s", name, p1.Groups, p2.Groups)
 				if opts.Raw {
 					results <- diffResult{Diff: fmt.Sprintf("C %s %s %s", name, p1.Groups, p2.Groups)}
 				} else {
@@ -205,26 +238,26 @@ func compareProjectsConcurrently(projects1, projects2 map[string]manifest.Projec
 		}(name, p2)
 	}
 
+	// 等待所有比较完成
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
 	// 收集结果
-	diffs := []string{}
-	total := len(projects1) + len(projects2)
-	for i := 0; i < total; i++ {
-		select {
-		case res := <-results:
-			if res.Diff != "" {
-				diffs = append(diffs, res.Diff)
-			}
-		default:
-			// 无结果时提前退出
-			if len(diffs) >= total {
-				break
-			}
+	for res := range results {
+		if res.Diff != "" {
+			diffs = append(diffs, res.Diff)
 		}
 	}
+
+	log.Debug("比较完成，发现 %d 处差异", len(diffs))
 	return diffs
 }
 
-func compareManifests(manifest1, manifest2 *manifest.Manifest, opts *DiffManifestsOptions) []string {
+// compareManifests 比较两个清单对象并返回差异列表
+func compareManifests(manifest1, manifest2 *manifest.Manifest, opts *DiffManifestsOptions, log logger.Logger) []string {
+	log.Debug("准备比较清单，转换为项目映射")
 	projects1 := make(map[string]manifest.Project)
 	for _, p := range manifest1.Projects {
 		projects1[p.Name] = p
@@ -235,5 +268,6 @@ func compareManifests(manifest1, manifest2 *manifest.Manifest, opts *DiffManifes
 		projects2[p.Name] = p
 	}
 
-	return compareProjectsConcurrently(projects1, projects2, opts)
+	log.Debug("第一个清单包含 %d 个项目，第二个清单包含 %d 个项目", len(projects1), len(projects2))
+	return compareProjectsConcurrently(projects1, projects2, opts, log)
 }

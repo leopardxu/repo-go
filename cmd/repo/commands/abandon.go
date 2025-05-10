@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/cix-code/gogo/internal/config"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
 	"github.com/cix-code/gogo/internal/repo_sync"
@@ -58,6 +59,16 @@ It is equivalent to "git branch -D <branchname>".`,
 
 // runAbandon 执行abandon命令
 func runAbandon(opts *AbandonOptions, args []string) error {
+	// 初始化日志系统
+	log := logger.NewDefaultLogger()
+	if opts.Quiet {
+		log.SetLevel(logger.LogLevelError)
+	} else if opts.Verbose {
+		log.SetLevel(logger.LogLevelDebug)
+	} else {
+		log.SetLevel(logger.LogLevelInfo)
+	}
+
 	branchName := ""
 	if len(args) > 0 {
 		branchName = args[0]
@@ -72,38 +83,66 @@ func runAbandon(opts *AbandonOptions, args []string) error {
 
 	if !opts.Quiet {
 		if opts.DryRun {
-			fmt.Printf("Would abandon branch '%s'\n", branchName)
+			log.Info("将要放弃分支 '%s'", branchName)
 		} else {
-			fmt.Printf("Abandoning branch '%s'\n", branchName)
+			log.Info("正在放弃分支 '%s'", branchName)
 		}
 	}
 
+	log.Debug("正在加载配置文件...")
 	cfg, err := config.Load()
 	if err != nil {
+		log.Error("加载配置文件失败: %v", err)
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+	
+	log.Debug("正在解析清单文件 %s...", cfg.ManifestName)
 	parser := manifest.NewParser()
-	manifestObj, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups,","))
 	if err != nil {
+		log.Error("解析清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-	manager := project.NewManager(manifestObj, cfg)
+	
+	log.Debug("正在初始化项目管理器...")
+	manager := project.NewManagerFromManifest(manifestObj, cfg)
 
 	var projects []*project.Project
 	if len(projectNames) == 0 {
-		projects, err = manager.GetProjects(nil)
+		log.Debug("获取所有项目...")
+		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
+			log.Error("获取项目失败: %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
+		log.Debug("共获取到 %d 个项目", len(projects))
 	} else {
+		log.Debug("根据名称获取项目: %v", projectNames)
 		projects, err = manager.GetProjectsByNames(projectNames)
 		if err != nil {
+			log.Error("根据名称获取项目失败: %v", err)
 			return fmt.Errorf("failed to get projects by names: %w", err)
 		}
+		log.Debug("共获取到 %d 个项目", len(projects))
 	}
 
-	engine := repo_sync.NewEngine(nil, &repo_sync.Options{JobsCheckout: opts.Jobs, Quiet: opts.Quiet}, nil, nil)
+	// 创建引擎并设置选项
+	log.Debug("创建同步引擎，并行任务数: %d", opts.Jobs)
+	engine := repo_sync.NewEngine(&repo_sync.Options{
+		JobsCheckout: opts.Jobs, 
+		Quiet: opts.Quiet,
+		Verbose: opts.Verbose,
+		DryRun: opts.DryRun,
+		Force: opts.Force,
+	}, manifestObj, log)
+	
+	// 执行放弃分支操作
+	if !opts.Quiet {
+		log.Info("开始处理 %d 个项目的分支放弃操作...", len(projects))
+	}
 	results := engine.AbandonTopics(projects, branchName)
-	repo_sync.PrintAbandonSummary(results)
+	
+	// 输出结果汇总
+	repo_sync.PrintAbandonSummary(results, log)
 	return nil
 }

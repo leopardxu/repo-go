@@ -8,7 +8,36 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time" // 添加这一行
+	"sync"
+	"time"
+
+	"github.com/cix-code/gogo/internal/logger"
+)
+
+// 定义错误类型
+type ManifestError struct {
+	Op      string // 操作名称
+	Path    string // 文件路径
+	Err     error  // 原始错误
+}
+
+func (e *ManifestError) Error() string {
+	if e.Path == "" {
+		return fmt.Sprintf("manifest %s: %v", e.Op, e.Err)
+	}
+	return fmt.Sprintf("manifest %s %s: %v", e.Op, e.Path, e.Err)
+}
+
+func (e *ManifestError) Unwrap() error {
+	return e.Err
+}
+
+// 全局缓存
+var (
+	manifestCache     = make(map[string]*Manifest)
+	manifestCacheMux  sync.RWMutex
+	fileModTimeCache  = make(map[string]time.Time)
+	fileModTimeMux    sync.RWMutex
 )
 
 // Manifest 表示repo的清单文件
@@ -230,29 +259,137 @@ func (m *Manifest) GetThisManifest() *Manifest {
 	return m
 }
 
+// 全局静默模式设置
+var (
+	globalSilentMode bool = false
+)
+
+// SetSilentMode 设置全局静默模式
+func SetSilentMode(silent bool) {
+	globalSilentMode = silent
+}
+
 // Parser 负责解析清单文件
 type Parser struct {
 	silentMode bool
-	// 配置项
+	cacheEnabled bool
 }
 
 // NewParser 创建清单解析器
 // 这是一个包级别函数，供外部调用
 func NewParser() *Parser {
-	return &Parser{}
+	return &Parser{
+		silentMode: globalSilentMode,
+		cacheEnabled: true,
+	}
+}
+
+
+
+// SetParserSilentMode 设置解析器的静默模式
+func (p *Parser) SetSilentMode(silent bool) {
+	p.silentMode = silent
+}
+
+// SetCacheEnabled 设置是否启用缓存
+func (p *Parser) SetCacheEnabled(enabled bool) {
+	p.cacheEnabled = enabled
 }
 
 
 // ParseFromFile 从文件解析清单
 func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, error) {
-	// 处理清单文件路径
-	// 构建可能的路径列表
-	paths := []string{}
-	
+	// 检查参数
+	if filename == "" {
+		return nil, &ManifestError{Op: "parse", Err: fmt.Errorf("文件名不能为空")}
+	}
+
+	// 查找文件
+	successPath, err := p.findManifestFile(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	// 检查缓存
+	if p.cacheEnabled {
+		manifestCacheMux.RLock()
+		fileModTimeMux.RLock()
+		cachedManifest, hasCachedManifest := manifestCache[successPath]
+		cachedModTime, hasCachedModTime := fileModTimeCache[successPath]
+		fileModTimeMux.RUnlock()
+		manifestCacheMux.RUnlock()
+
+		if hasCachedManifest && hasCachedModTime {
+			// 检查文件是否被修改
+			fileInfo, err := os.Stat(successPath)
+			if err == nil && !fileInfo.ModTime().After(cachedModTime) {
+				// 文件未被修改，使用缓存
+				logger.Debug("使用缓存的清单文件: %s", successPath)
+				
+				// 创建副本以避免修改缓存
+				manifestCopy := *cachedManifest
+				
+				// 应用组过滤
+				if len(groups) > 0 && !containsAll(groups) {
+					return p.filterProjectsByGroups(&manifestCopy, groups)
+				}
+				
+				return &manifestCopy, nil
+			}
+		}
+	}
+
+	// 读取文件
+	data, err := ioutil.ReadFile(successPath)
+	if err != nil {
+		return nil, &ManifestError{Op: "read", Path: successPath, Err: err}
+	}
+
+	// 记录文件信息
+	logger.Info("成功从以下位置加载清单: %s", successPath)
+	if len(data) == 0 {
+		logger.Warn("清单文件为空: %s", successPath)
+	} else if !p.silentMode {
+		previewLen := 100
+		if len(data) < previewLen {
+			previewLen = len(data)
+		}
+		logger.Debug("清单内容预览: %s...", data[:previewLen])
+	}
+
+	// 解析数据
+	manifest, err := p.Parse(data, groups)
+	if err != nil {
+		return nil, err
+	}
+
+	// 更新缓存
+	if p.cacheEnabled {
+		fileInfo, err := os.Stat(successPath)
+		if err == nil {
+			// 创建副本以避免缓存被修改
+			manifestCopy := *manifest
+			
+			manifestCacheMux.Lock()
+			fileModTimeMux.Lock()
+			manifestCache[successPath] = &manifestCopy
+			fileModTimeCache[successPath] = fileInfo.ModTime()
+			fileModTimeMux.Unlock()
+			manifestCacheMux.Unlock()
+			
+			logger.Debug("已缓存清单文件: %s", successPath)
+		}
+	}
+
+	return manifest, nil
+}
+
+// findManifestFile 查找清单文件的实际路径
+func (p *Parser) findManifestFile(filename string) (string, error) {
 	// 获取当前工作目录
 	cwd, err := os.Getwd()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get current working directory: %w", err)
+		return "", &ManifestError{Op: "find", Err: fmt.Errorf("无法获取当前工作目录: %w", err)}
 	}
 	
 	// 查找顶层仓库目录
@@ -260,6 +397,9 @@ func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, err
 	if topDir == "" {
 		topDir = cwd // 如果找不到顶层目录，使用当前目录
 	}
+	
+	// 构建可能的路径列表
+	paths := []string{}
 	
 	// 1. 首先尝试直接使用manifest.xml（优先级最高）
 	paths = append(paths, ".repo/manifest.xml")
@@ -319,68 +459,62 @@ func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, err
 	}
 	paths = uniquePaths
 	
-	// 只在非静默模式下打印调试信息
-	if !p.silentMode {
-		fmt.Printf("正在查找清单文件，尝试以下路径:\n")
-		for _, path := range paths {
-			fmt.Printf("  - %s\n", path)
-		}
+	// 记录查找路径
+	logger.Debug("正在查找清单文件，尝试以下路径:")
+	for _, path := range paths {
+		logger.Debug("  - %s", path)
 	}
 
 	// 尝试读取文件
-	var data []byte
-	var readErr error
-	var foundFile bool
-	var successPath string
-
 	for _, path := range paths {
-		data, readErr = ioutil.ReadFile(path)
-		if readErr == nil {
-			foundFile = true
-			successPath = path
-			break
+		if fileExists(path) {
+			return path, nil
 		}
 	}
 
-	if !foundFile {
-		// 检查.repo目录是否存在
-		repoPath := filepath.Join(cwd, ".repo")
-		if _, dirErr := os.Stat(repoPath); os.IsNotExist(dirErr) {
-			return nil, fmt.Errorf(".repo目录不存在，请先运行 'repo init' 命令: %w", dirErr)
-		}
-		
-		// 检查.repo/manifest.xml是否存在
-		manifestPath := filepath.Join(repoPath, "manifest.xml")
-		if _, manifestErr := os.Stat(manifestPath); os.IsNotExist(manifestErr) {
-			return nil, fmt.Errorf(".repo目录中未找到manifest.xml文件，请先运行 'repo init' 命令: %w", manifestErr)
-		}
-		
-		return nil, fmt.Errorf("无法从任何可能的位置读取清单文件 (已尝试 %v): %w", paths, readErr)
+	// 检查.repo目录是否存在
+	repoPath := filepath.Join(cwd, ".repo")
+	if !fileExists(repoPath) {
+		return "", &ManifestError{Op: "find", Err: fmt.Errorf(".repo目录不存在，请先运行 'repo init' 命令")}
 	}
+	
+	// 检查.repo/manifest.xml是否存在
+	manifestPath := filepath.Join(repoPath, "manifest.xml")
+	if !fileExists(manifestPath) {
+		return "", &ManifestError{Op: "find", Err: fmt.Errorf(".repo目录中未找到manifest.xml文件，请先运行 'repo init' 命令")}
+	}
+	
+	return "", &ManifestError{Op: "find", Err: fmt.Errorf("无法从任何可能的位置找到清单文件 (已尝试 %d 个路径)", len(paths))}
+}
 
-	// 只在非静默模式下打印调试信息
-	if !p.silentMode {
-		fmt.Printf("成功从以下位置加载清单: %s\n", successPath)
-		
-		// 打印文件内容的前100个字符，便于调试
-		if len(data) > 0 {
-			previewLen := 100
-			if len(data) < previewLen {
-				previewLen = len(data)
-			}
-			fmt.Printf("清单内容预览: %s...\n", data[:previewLen])
+// fileExists 检查文件是否存在
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// filterProjectsByGroups 根据组过滤项目
+func (p *Parser) filterProjectsByGroups(manifest *Manifest, groups []string) (*Manifest, error) {
+	if len(groups) == 0 || containsAll(groups) {
+		return manifest, nil
+	}
+	
+	logger.Info("根据以下组过滤项目: %v", groups)
+	
+	filteredProjects := make([]Project, 0)
+	for _, proj := range manifest.Projects {
+		if shouldIncludeProject(proj, groups) {
+			filteredProjects = append(filteredProjects, proj)
+			logger.Debug("包含项目: %s (组: %s)", proj.Name, proj.Groups)
 		} else {
-			fmt.Printf("警告: 清单文件为空!\n")
+			logger.Debug("排除项目: %s (组: %s)", proj.Name, proj.Groups)
 		}
 	}
 	
-	// 确保groups参数正确处理
-	var groupsToUse []string
-	if groups != nil {
-		groupsToUse = groups
-	}
+	logger.Info("过滤后的项目数量: %d (原始数量: %d)", len(filteredProjects), len(manifest.Projects))
 	
-	return p.Parse(data, groupsToUse)
+	manifest.Projects = filteredProjects
+	return manifest, nil
 }
 
 // ParseFromBytes 从字节数据解析清单
@@ -396,7 +530,7 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 	// 首先使用标准解析
 	var manifest Manifest
 	if err := xml.Unmarshal(data, &manifest); err != nil {
-		return nil, fmt.Errorf("解析清单XML失败: %w", err)
+		return nil, &ManifestError{Op: "parse", Err: fmt.Errorf("解析清单XML失败: %w", err)}
 	}
 
 	// 初始化所有结构体的CustomAttrs字段
@@ -428,17 +562,17 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 		// 如果项目没有指定路径，则使用项目名称作为默认路径
 		if manifest.Projects[i].Path == "" {
 			manifest.Projects[i].Path = manifest.Projects[i].Name
-			// fmt.Printf("Project %s does not specify path, using name as default path\n", manifest.Projects[i].Name)
+			logger.Debug("项目 %s 未指定路径，使用名称作为默认路径", manifest.Projects[i].Name)
 		}
 		// 如果项目没有指定远程仓库，则使用默认远程仓库
 		if manifest.Projects[i].Remote == "" {
 			manifest.Projects[i].Remote = manifest.Default.Remote
-			// fmt.Printf("Project %s does not specify remote, using default remote %s\n", manifest.Projects[i].Name, manifest.Default.Remote)
+			logger.Debug("项目 %s 未指定远程仓库，使用默认远程仓库 %s", manifest.Projects[i].Name, manifest.Default.Remote)
 		}
 		// 如果项目没有指定修订版本，则使用默认修订版本
 		if manifest.Projects[i].Revision == "" {
 			manifest.Projects[i].Revision = manifest.Default.Revision
-			// fmt.Printf("Project %s does not specify revision, using default revision %s\n", manifest.Projects[i].Name, manifest.Default.Revision)
+			logger.Debug("项目 %s 未指定修订版本，使用默认修订版本 %s", manifest.Projects[i].Name, manifest.Default.Revision)
 		}
 		// 验证远程仓库是否存在
 		remoteExists := false
@@ -452,7 +586,8 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 		}
 		if !remoteExists {
 			// 如果找不到远程仓库，记录警告但不中断处理
-			// fmt.Printf("Warning: project %s references non-existent remote %s, this may cause sync failures\n", manifest.Projects[i].Name, manifest.Projects[i].Remote)
+			logger.Warn("警告: 项目 %s 引用了不存在的远程仓库 %s，这可能导致同步失败", 
+				manifest.Projects[i].Name, manifest.Projects[i].Remote)
 		} else {
 			// 记录远程仓库的Fetch属性，用于后续构建完整URL
 			manifest.Projects[i].CustomAttrs["__remote_fetch"] = remoteObj.Fetch
@@ -464,6 +599,7 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 			}
 			remoteURL += manifest.Projects[i].Name
 			manifest.Projects[i].CustomAttrs["__remote_url"] = remoteURL
+			logger.Debug("项目 %s 的远程URL: %s", manifest.Projects[i].Name, remoteURL)
 		}
 		for j := range manifest.Projects[i].Copyfiles {
 			manifest.Projects[i].Copyfiles[j].CustomAttrs = make(map[string]string)
@@ -483,52 +619,226 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 
 	// 解析自定义属性
 	if err := parseCustomAttributes(data, &manifest); err != nil {
-		return nil, fmt.Errorf("failed to parse custom attributes: %w", err)
+		return nil, &ManifestError{Op: "parse_custom_attrs", Err: err}
 	}
 
 	// 处理包含的清单文件
-	if err := p.processIncludes(&manifest,groups); err != nil {
-		return nil, fmt.Errorf("failed to process included manifests: %w", err)
+	if err := p.processIncludes(&manifest, groups); err != nil {
+		return nil, &ManifestError{Op: "process_includes", Err: err}
 	}
 
 	// 根据groups过滤项目
 	if len(groups) > 0 && !containsAll(groups) {
-		if !p.silentMode {
-			fmt.Printf("根据以下组过滤项目: %v\n", groups)
-		}
-		
-		filteredProjects := make([]Project, 0)
-		for _, proj := range manifest.Projects {
-			if shouldIncludeProject(proj, groups) {
-				filteredProjects = append(filteredProjects, proj)
-				if !p.silentMode {
-					fmt.Printf("包含项目: %s (组: %s)\n", proj.Name, proj.Groups)
-				}
-			} else if !p.silentMode {
-				fmt.Printf("排除项目: %s (组: %s)\n", proj.Name, proj.Groups)
-			}
-		}
-		
-		if !p.silentMode {
-			fmt.Printf("过滤后的项目数量: %d (原始数量: %d)\n", len(filteredProjects), len(manifest.Projects))
-		}
-		
-		manifest.Projects = filteredProjects
+		return p.filterProjectsByGroups(&manifest, groups)
 	}
 
 	return &manifest, nil
 }
 
-// processIncludes 处理包含的清单文件
-func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
-	if len(manifest.Includes) == 0 {
-		return nil
+// parseCustomAttributes 解析XML中的自定义属性
+func parseCustomAttributes(data []byte, manifest *Manifest) error {
+	// 创建一个临时结构来解析XML
+	type xmlNode struct {
+		XMLName xml.Name   `xml:""`
+		Attrs   []xml.Attr `xml:",any,attr"`
+		Nodes   []xmlNode  `xml:",any"`
+	}
+
+	// 解析XML到临时结构
+	var root xmlNode
+	if err := xml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("解析XML失败: %w", err)
+	}
+
+	// 处理根节点的属性
+	for _, attr := range root.Attrs {
+		// 跳过已知属性
+		if isStandardManifestAttr(attr.Name.Local) {
+			continue
+		}
+		// 存储自定义属性
+		manifest.CustomAttrs[attr.Name.Local] = attr.Value
+	}
+
+	// 处理子节点
+	for _, node := range root.Nodes {
+		switch node.XMLName.Local {
+		case "remote":
+			// 查找匹配的远程仓库
+			var name string
+			for _, attr := range node.Attrs {
+				if attr.Name.Local == "name" {
+					name = attr.Value
+					break
+				}
+			}
+			// 找到匹配的远程仓库并添加自定义属性
+			for i, remote := range manifest.Remotes {
+				if remote.Name == name {
+					for _, attr := range node.Attrs {
+						if !isKnownRemoteAttr(attr.Name.Local) {
+							manifest.Remotes[i].CustomAttrs[attr.Name.Local] = attr.Value
+						}
+					}
+					break
+				}
+			}
+		case "default":
+			// 处理默认设置的自定义属性
+			for _, attr := range node.Attrs {
+				if !isKnownDefaultAttr(attr.Name.Local) {
+					manifest.Default.CustomAttrs[attr.Name.Local] = attr.Value
+				}
+			}
+		case "project":
+			// 查找匹配的项目
+			var name string
+			for _, attr := range node.Attrs {
+				if attr.Name.Local == "name" {
+					name = attr.Value
+					break
+				}
+			}
+			// 找到匹配的项目并添加自定义属性
+			for i, project := range manifest.Projects {
+				if project.Name == name {
+					for _, attr := range node.Attrs {
+						if !isKnownProjectAttr(attr.Name.Local) {
+							manifest.Projects[i].CustomAttrs[attr.Name.Local] = attr.Value
+						}
+					}
+					// 处理项目的子节点（copyfile和linkfile）
+					for _, subNode := range node.Nodes {
+						switch subNode.XMLName.Local {
+						case "copyfile":
+							// 查找匹配的copyfile
+							var src, dest string
+							for _, attr := range subNode.Attrs {
+								if attr.Name.Local == "src" {
+									src = attr.Value
+								} else if attr.Name.Local == "dest" {
+									dest = attr.Value
+								}
+							}
+							// 找到匹配的copyfile并添加自定义属性
+							for j, copyfile := range manifest.Projects[i].Copyfiles {
+								if copyfile.Src == src && copyfile.Dest == dest {
+									for _, attr := range subNode.Attrs {
+										if !isKnownCopyfileAttr(attr.Name.Local) {
+											manifest.Projects[i].Copyfiles[j].CustomAttrs[attr.Name.Local] = attr.Value
+										}
+									}
+									break
+								}
+							}
+						case "linkfile":
+							// 查找匹配的linkfile
+							var src, dest string
+							for _, attr := range subNode.Attrs {
+								if attr.Name.Local == "src" {
+									src = attr.Value
+								} else if attr.Name.Local == "dest" {
+									dest = attr.Value
+								}
+							}
+							// 找到匹配的linkfile并添加自定义属性
+							for j, linkfile := range manifest.Projects[i].Linkfiles {
+								if linkfile.Src == src && linkfile.Dest == dest {
+									for _, attr := range subNode.Attrs {
+										if !isKnownLinkfileAttr(attr.Name.Local) {
+											manifest.Projects[i].Linkfiles[j].CustomAttrs[attr.Name.Local] = attr.Value
+										}
+									}
+									break
+								}
+							}
+						}
+					}
+					break
+				}
+			}
+		case "include":
+			// 查找匹配的include
+			var name string
+			for _, attr := range node.Attrs {
+				if attr.Name.Local == "name" {
+					name = attr.Value
+					break
+				}
+			}
+			// 找到匹配的include并添加自定义属性
+			for i, include := range manifest.Includes {
+				if include.Name == name {
+					for _, attr := range node.Attrs {
+						if !isKnownIncludeAttr(attr.Name.Local) {
+							manifest.Includes[i].CustomAttrs[attr.Name.Local] = attr.Value
+						}
+					}
+					break
+				}
+			}
+		case "remove-project":
+			// 查找匹配的remove-project
+			var name string
+			for _, attr := range node.Attrs {
+				if attr.Name.Local == "name" {
+					name = attr.Value
+					break
+				}
+			}
+			// 找到匹配的remove-project并添加自定义属性
+			for i, removeProject := range manifest.RemoveProjects {
+				if removeProject.Name == name {
+					for _, attr := range node.Attrs {
+						if !isKnownRemoveProjectAttr(attr.Name.Local) {
+							manifest.RemoveProjects[i].CustomAttrs[attr.Name.Local] = attr.Value
+						}
+					}
+					break
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// findTopLevelRepoDir 查找包含.repo目录的顶层目录
+func findTopLevelRepoDir(startDir string) string {
+	currentDir := startDir
+	
+	// 最多向上查找10层目录
+	for i := 0; i < 10; i++ {
+		// 检查当前目录是否包含.repo目录
+		repoDir := filepath.Join(currentDir, ".repo")
+		if fileExists(repoDir) {
+			return currentDir
+		}
+		
+		// 获取父目录
+		parentDir := filepath.Dir(currentDir)
+		
+		// 如果已经到达根目录，则停止查找
+		if parentDir == currentDir {
+			break
+		}
+		
+		currentDir = parentDir
 	}
 	
+	return ""
+}
+
+// 此函数已在文件前面定义，这里删除重复声明
+// filterProjectsByGroups 根据组过滤项目
+// 已删除重复声明
+
+// processIncludes 处理包含的清单文件
+func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 	// 获取当前工作目录
 	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to get current working directory: %w", err)
+		return &ManifestError{Op: "process_includes", Err: fmt.Errorf("无法获取当前工作目录: %w", err)}
 	}
 	
 	// 查找顶层仓库目录
@@ -537,9 +847,10 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 		topDir = cwd // 如果找不到顶层目录，使用当前目录
 	}
 	
-	// 处理每个包含的清单文件
-	for i := range manifest.Includes {
-		includeName := manifest.Includes[i].Name
+	// 处理所有包含的清单文件
+	for i, include := range manifest.Includes {
+		includeName := include.Name
+		logger.Debug("处理包含的清单文件: %s", includeName)
 		
 		// 构建可能的路径
 		paths := []string{}
@@ -664,153 +975,13 @@ type Config struct {
 	Depth          int
 }
 
+// 此函数已在文件前面定义，这里删除重复声明
 // parseCustomAttributes 解析XML中的自定义属性
-func parseCustomAttributes(data []byte, manifest *Manifest) error {
-	// 创建一个临时结构来存储所有XML元素及其属性
-	type rawManifest struct {
-		XMLName        xml.Name     `xml:"manifest"`
-		Attrs          []xml.Attr   `xml:",any,attr"`
-		Remotes        []struct {
-			XMLName xml.Name   `xml:"remote"`
-			Attrs   []xml.Attr `xml:",any,attr"`
-		} `xml:"remote"`
-		Default        struct {
-			XMLName xml.Name   `xml:"default"`
-			Attrs   []xml.Attr `xml:",any,attr"`
-		} `xml:"default"`
-		Projects       []struct {
-			XMLName   xml.Name   `xml:"project"`
-			Attrs     []xml.Attr `xml:",any,attr"`
-			Copyfiles []struct {
-				XMLName xml.Name   `xml:"copyfile"`
-				Attrs   []xml.Attr `xml:",any,attr"`
-			} `xml:"copyfile"`
-			Linkfiles []struct {
-				XMLName xml.Name   `xml:"linkfile"`
-				Attrs   []xml.Attr `xml:",any,attr"`
-			} `xml:"linkfile"`
-		} `xml:"project"`
-		Includes       []struct {
-			XMLName xml.Name   `xml:"include"`
-			Attrs   []xml.Attr `xml:",any,attr"`
-		} `xml:"include"`
-		RemoveProjects []struct {
-			XMLName xml.Name   `xml:"remove-project"`
-			Attrs   []xml.Attr `xml:",any,attr"`
-		} `xml:"remove-project"`
-	}
+// 已删除重复声明
 
-	var raw rawManifest
-
-	// 解析XML以获取所有属性
-	if err := xml.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-
-	// 处理Manifest级别的自定义属性
-	for _, attr := range raw.Attrs {
-		if !isStandardManifestAttr(attr.Name.Local) {
-			manifest.CustomAttrs[attr.Name.Local] = attr.Value
-		}
-	}
-
-	// 处理Default的自定义属性
-	for _, attr := range raw.Default.Attrs {
-		if !isStandardDefaultAttr(attr.Name.Local) {
-			manifest.Default.CustomAttrs[attr.Name.Local] = attr.Value
-		}
-	}
-
-	// 处理Remote的自定义属性
-	for i, remote := range raw.Remotes {
-		if i < len(manifest.Remotes) {
-			for _, attr := range remote.Attrs {
-				if !isStandardRemoteAttr(attr.Name.Local) {
-					manifest.Remotes[i].CustomAttrs[attr.Name.Local] = attr.Value
-				}
-			}
-		}
-	}
-
-	// 处理Project的自定义属性
-	for i, project := range raw.Projects {
-		if i < len(manifest.Projects) {
-			for _, attr := range project.Attrs {
-				if !isStandardProjectAttr(attr.Name.Local) {
-					manifest.Projects[i].CustomAttrs[attr.Name.Local] = attr.Value
-				}
-			}
-
-			// 处理Copyfile的自定义属性
-			for j, copyfile := range project.Copyfiles {
-				if j < len(manifest.Projects[i].Copyfiles) {
-					for _, attr := range copyfile.Attrs {
-						if !isStandardCopyfileAttr(attr.Name.Local) {
-							manifest.Projects[i].Copyfiles[j].CustomAttrs[attr.Name.Local] = attr.Value
-						}
-					}
-				}
-			}
-
-			// 处理Linkfile的自定义属性
-			for j, linkfile := range project.Linkfiles {
-				if j < len(manifest.Projects[i].Linkfiles) {
-					for _, attr := range linkfile.Attrs {
-						if !isStandardLinkfileAttr(attr.Name.Local) {
-							manifest.Projects[i].Linkfiles[j].CustomAttrs[attr.Name.Local] = attr.Value
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// 处理Include的自定义属性
-	for i, include := range raw.Includes {
-		if i < len(manifest.Includes) {
-			for _, attr := range include.Attrs {
-				if !isStandardIncludeAttr(attr.Name.Local) {
-					manifest.Includes[i].CustomAttrs[attr.Name.Local] = attr.Value
-				}
-			}
-		}
-	}
-
-	// 处理RemoveProject的自定义属性
-	for i, removeProject := range raw.RemoveProjects {
-		if i < len(manifest.RemoveProjects) {
-			for _, attr := range removeProject.Attrs {
-				if !isStandardRemoveProjectAttr(attr.Name.Local) {
-					manifest.RemoveProjects[i].CustomAttrs[attr.Name.Local] = attr.Value
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
+// 此函数已在文件前面定义，这里删除重复声明
 // findTopLevelRepoDir 查找包含.repo目录的顶层目录
-func findTopLevelRepoDir(startDir string) string {
-	// 从当前目录开始向上查找，直到找到包含.repo目录的目录
-	dir := startDir
-	for {
-		// 检查当前目录是否包含.repo目录
-		repoDir := filepath.Join(dir, ".repo")
-		if _, err := os.Stat(repoDir); err == nil {
-			// 找到了.repo目录
-			return dir
-		}
-		
-		// 获取父目录
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// 已经到达根目录，没有找到.repo目录
-			return ""
-		}
-		dir = parent
-	}
-}
+// 已删除重复声明
 
 // 以下是用于检查属性是否为标准属性的辅助函数
 func isStandardManifestAttr(name string) bool {
@@ -826,6 +997,19 @@ func isStandardDefaultAttr(name string) bool {
 	return false
 }
 
+// 以下是用于检查属性是否为已知属性的辅助函数
+func isKnownManifestAttr(name string) bool {
+	return isStandardManifestAttr(name)
+}
+
+func isKnownDefaultAttr(name string) bool {
+	return isStandardDefaultAttr(name)
+}
+
+func isKnownRemoteAttr(name string) bool {
+	return isStandardRemoteAttr(name)
+}
+
 func isStandardRemoteAttr(name string) bool {
 	switch name {
 	case "name", "fetch", "review", "revision", "alias":
@@ -836,7 +1020,7 @@ func isStandardRemoteAttr(name string) bool {
 
 func isStandardProjectAttr(name string) bool {
 	switch name {
-	case "name", "path", "remote", "revision", "groups", "sync-c", "sync-s", "clone-depth":
+	case "name", "path", "remote", "revision", "groups", "sync-c", "sync-s", "clone-depth", "references":
 		return true
 	}
 	return false
@@ -873,6 +1057,29 @@ func isStandardRemoveProjectAttr(name string) bool {
 	}
 	return false
 }
+
+// 以下是用于检查属性是否为已知属性的辅助函数
+func isKnownProjectAttr(name string) bool {
+	return isStandardProjectAttr(name)
+}
+
+func isKnownCopyfileAttr(name string) bool {
+	return isStandardCopyfileAttr(name)
+}
+
+func isKnownLinkfileAttr(name string) bool {
+	return isStandardLinkfileAttr(name)
+}
+
+func isKnownIncludeAttr(name string) bool {
+	return isStandardIncludeAttr(name)
+}
+
+func isKnownRemoveProjectAttr(name string) bool {
+	return isStandardRemoveProjectAttr(name)
+}
+
+// 这些函数已在前面定义，这里删除重复声明
 
 // WriteToFile 将清单写入文件
 func (m *Manifest) WriteToFile(filename string) error {
@@ -1045,57 +1252,43 @@ func (m *Manifest) GetCurrentBranch() string {
 }
 
 
-func (p *Parser) SetSilentMode(silent bool) {
-    p.silentMode = silent
-}
-
-func shouldIncludeProject(proj Project, groups []string) bool {
-    // 如果没有指定过滤组，则包含所有项目
-    if len(groups) == 0 {
-        return true
-    }
-    
-    // 如果项目没有指定groups，则默认包含
-    if proj.Groups == "" {
-        return true
-    }
-    
-    // 如果传入的是"all"，则包含所有项目
-    for _, g := range groups {
-        if g == "all" {
-            return true
-        }
-    }
-    
-    // 检查项目groups是否包含任一传入的group
-    projGroups := strings.Split(proj.Groups, ",")
-    for _, pg := range projGroups {
-        pg = strings.TrimSpace(pg) // 去除可能的空格
-        if pg == "" {
-            continue // 跳过空组
-        }
-        
-        for _, g := range groups {
-            g = strings.TrimSpace(g) // 去除可能的空格
-            if g == "" {
-                continue // 跳过空组
-            }
-            
-            if pg == g {
-                return true
-            }
-        }
-    }
-    
-    return false
-}
-
-// containsAll checks if groups contains "all"
+// 判断是否包含所有组
 func containsAll(groups []string) bool {
-    for _, g := range groups {
-        if g == "all" {
-            return true
-        }
-    }
-    return false
+	for _, group := range groups {
+		if group == "all" {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldIncludeProject 检查项目是否应该包含在指定的组中
+func shouldIncludeProject(project Project, groups []string) bool {
+	// 如果项目没有指定组，则默认为"default"
+	if project.Groups == "" {
+		project.Groups = "default"
+	}
+	
+	// 解析项目的组
+	projectGroups := strings.Split(project.Groups, ",")
+	
+	// 检查是否包含"all"组
+	for _, group := range groups {
+		if group == "all" {
+			return true
+		}
+	}
+	
+	// 检查是否有匹配的组
+	for _, projectGroup := range projectGroups {
+		projectGroup = strings.TrimSpace(projectGroup)
+		for _, group := range groups {
+			group = strings.TrimSpace(group)
+			if projectGroup == group {
+				return true
+			}
+		}
+	}
+	
+	return false
 }

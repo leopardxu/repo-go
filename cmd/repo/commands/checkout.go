@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cix-code/gogo/internal/config" // Ensure config is imported
+	"github.com/cix-code/gogo/internal/config"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
+	"github.com/cix-code/gogo/internal/repo_sync"
 	"github.com/spf13/cobra"
 )
 
@@ -60,6 +62,16 @@ func CheckoutCmd() *cobra.Command {
 
 // runCheckout executes the checkout command logic
 func runCheckout(opts *CheckoutOptions, args []string) error {
+	// 初始化日志记录器
+	log := logger.NewDefaultLogger()
+	if opts.Verbose {
+		log.SetLevel(logger.LogLevelDebug)
+	} else if opts.Quiet {
+		log.SetLevel(logger.LogLevelError)
+	} else {
+		log.SetLevel(logger.LogLevelInfo)
+	}
+
 	if len(args) < 1 {
 		return fmt.Errorf("missing branch name")
 	}
@@ -69,66 +81,66 @@ func runCheckout(opts *CheckoutOptions, args []string) error {
 	}
 	projectNames := args[1:]
 	cfg := opts.Config
+
+	log.Info("正在检出分支 '%s'", branchName)
+
 	parser := manifest.NewParser()
-	manifestObj, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
 	if err != nil {
+		log.Error("解析清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-	manager := project.NewManager(manifestObj, cfg)
+
+	manager := project.NewManagerFromManifest(manifestObj, cfg)
 	var projects []*project.Project
 	if opts.All || len(projectNames) == 0 {
-		projects, err = manager.GetProjects(nil)
+		log.Debug("获取所有项目")
+		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
+			log.Error("获取项目列表失败: %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
+		log.Debug("获取指定项目: %v", projectNames)
 		projects, err = manager.GetProjectsByNames(projectNames)
 		if err != nil {
+			log.Error("获取指定项目失败: %v", err)
 			return fmt.Errorf("failed to get projects by name: %w", err)
 		}
 	}
-	type checkoutResult struct {
-		ProjectName string
-		Err        error
+
+	log.Info("开始检出 %d 个项目", len(projects))
+
+	// 使用 repo_sync 包中的 Engine 进行检出操作
+	syncOpts := &repo_sync.Options{
+		Detach:         opts.Detach,
+		ForceSync:      opts.ForceSync,
+		ForceOverwrite: opts.ForceOverwrite,
+		JobsCheckout:   opts.JobsCheckout,
+		Quiet:          opts.Quiet,
+		Verbose:        opts.Verbose,
 	}
-	results := make(chan checkoutResult, len(projects))
-	sem := make(chan struct{}, opts.JobsCheckout)
-	for _, p := range projects {
-		p := p
-		sem <- struct{}{}
-		go func() {
-			defer func() { <-sem }()
-			// checkout 分支
-			if opts.Detach {
-				_, err := p.GitRepo.RunCommand("checkout", p.Revision)
-				results <- checkoutResult{ProjectName: p.Name, Err: err}
-				return
-			}
-			// force sync/overwrite 可扩展
-			_, err := p.GitRepo.RunCommand("checkout", "-B", branchName)
-			results <- checkoutResult{ProjectName: p.Name, Err: err}
-		}()
+
+	engine := repo_sync.NewEngine(syncOpts, nil, log)
+	// 设置分支名称
+	engine.SetBranchName(branchName)
+	// 执行检出操作
+	err = engine.CheckoutBranch(projects)
+	if err != nil {
+		log.Error("检出分支失败: %v", err)
+		return err
 	}
-	success, failed := 0, 0
-	for i := 0; i < len(projects); i++ {
-		res := <-results
-		if res.Err != nil {
-			failed++
-			if !opts.Quiet {
-				fmt.Printf("[FAILED] %s: %v\n", res.ProjectName, res.Err)
-			}
-		} else {
-			success++
-			if opts.Verbose && !opts.Quiet {
-				fmt.Printf("[OK] %s\n", res.ProjectName)
-			}
-		}
-	}
+
+	// 获取检出结果
+	success, failed := engine.GetCheckoutStats()
+
 	if !opts.Quiet {
-		fmt.Printf("Checkout branch '%s': %d success, %d failed\n", branchName, success, failed)
+		log.Info("检出分支 '%s' 完成: %d 成功, %d 失败", branchName, success, failed)
 	}
+
 	if failed > 0 {
 		return fmt.Errorf("checkout failed for %d projects", failed)
 	}
+
 	return nil
 }

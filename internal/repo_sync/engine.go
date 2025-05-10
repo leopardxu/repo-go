@@ -6,172 +6,530 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"bytes"
+	"os/exec"
 
 	"github.com/cix-code/gogo/internal/config"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
+	"github.com/cix-code/gogo/internal/progress"
 	"github.com/cix-code/gogo/internal/project"
 	"github.com/cix-code/gogo/internal/ssh"
+	"github.com/cix-code/gogo/internal/workerpool"
 	"golang.org/x/sync/errgroup"
 )
+
+// SyncError 表示同步过程中的错误
+type SyncError struct {
+	ProjectName string
+	Phase       string
+	Err         error
+	Output      string
+}
+
+// Error 实现 error 接口
+func (e *SyncError) Error() string {
+	if e.Output != "" {
+		return fmt.Sprintf("%s 在 %s 阶段失败: %v\n%s", e.ProjectName, e.Phase, e.Err, e.Output)
+	}
+	return fmt.Sprintf("%s 在 %s 阶段失败: %v", e.ProjectName, e.Phase, e.Err)
+}
+
+// NewMultiError 创建包含多个错误的错误对象
+func NewMultiError(errs []error) error {
+	if len(errs) == 0 {
+		return nil
+	}
+	if len(errs) == 1 {
+		return errs[0]
+	}
+	return fmt.Errorf("发生了 %d 个错误", len(errs))
+}
 
 // Options 包含同步引擎的选项
 // Options moved to options.go to avoid duplicate declarations
 
-// Engine 是同步引擎
+// Engine 同步引擎
 type Engine struct {
-	manifestCache []byte
-	projects []*project.Project
-	options  *Options
-	manifest *manifest.Manifest
-	config   *config.Config
-	sshProxy *ssh.Proxy
-	ctx      context.Context
-	
-	// 同步状态
-	fetchTimes     map[string]float64
-	fetchTimesLock sync.Mutex
+	projects       []*project.Project
+	config         *config.Config
+	options        *Options
+	logger         logger.Logger
+	progressReport progress.Reporter
+	workerPool     *workerpool.WorkerPool
+	repoRoot       string
+	errors         []error
+	errorsMu       sync.Mutex
 	errResults     []string
-	errEvent       chan struct{}
-	
-	// 仓库根目录
-	repoRoot string
-	
-	// 日志控制
-	silentMode bool
+	manifestCache  []byte
+	manifest       *manifest.Manifest
+	errEvent       chan error // 添加 errEvent 字段
+	sshProxy       *ssh.Proxy // 添加 sshProxy 字段
+	fetchTimes     map[string]time.Time // 添加 fetchTimes 字段
+	fetchTimesLock sync.Mutex // 添加 fetchTimesLock 字段
+	ctx            context.Context // 添加 ctx 字段
+	log            logger.Logger // 添加 log 字段
+	branchName     string       // 要检出的分支名称
+	checkoutStats  *checkoutStats // 检出操作的统计信息
+	commitHash     string       // 要cherry-pick的提交哈希
+	cherryPickStats *cherryPickStats // cherry-pick操作的统计信息
 }
 
-// SetSilentMode 设置引擎的静默模式
-func (e *Engine) SetSilentMode(silent bool) {
-	e.silentMode = silent
-}
+// NewEngine 创建同步引擎
+func NewEngine(options *Options, manifest *manifest.Manifest, log logger.Logger) *Engine {
+	if options.Jobs <= 0 {
+		options.Jobs = runtime.NumCPU()
+	}
 
-// NewEngine 创建一个新的同步引擎
-func NewEngine(projects []*project.Project, options *Options, manifest *manifest.Manifest, config *config.Config) *Engine {
-	// 确保options.HTTPTimeout和options.Debug可用
-	if options.HTTPTimeout == 0 {
-		options.HTTPTimeout = 30 * time.Second
+	var progressReport progress.Reporter
+	if !options.Quiet {
+		progressReport = progress.NewConsoleReporter()
 	}
-	
-	// 默认非静默模式
-	silentMode := false
-	
-	// 设置默认值
-	if options.JobsNetwork <= 0 {
-		options.JobsNetwork = options.Jobs
-	}
-	if options.JobsCheckout <= 0 {
-		options.JobsCheckout = options.Jobs
-	}
-	
-	// 获取仓库根目录
-	var repoRoot string
-	if len(projects) > 0 && projects[0].Worktree != "" {
-		// 通过项目路径推断 repo 根目录
-		repoRoot = filepath.Dir(projects[0].Worktree)
-	} else if config != nil {
-		// 从配置中获取
-		repoRoot = config.RepoRoot
-	} else {
-		// 默认使用当前目录
-		repoRoot, _ = os.Getwd()
-	}
-	
-	// 创建上下文
-	ctx := context.Background()
-	
+
+	// 初始化项目列表
+	var projects []*project.Project
+	// 项目列表将在后续操作中填充
+
 	return &Engine{
-		projects:   projects,
-		options:    options,
-		manifest:   manifest,
-		config:     config,
-		fetchTimes: make(map[string]float64),
-		errEvent:   make(chan struct{}, 1),
-		repoRoot:   repoRoot,
-		silentMode: silentMode,
-		ctx:        ctx,
+		projects:       projects,
+		options:        options,
+		manifest:       manifest,
+		logger:         log,
+		progressReport: progressReport,
+		workerPool:     workerpool.New(options.Jobs),
+		errEvent:       make(chan error), // 初始化 errEvent 字段
+		fetchTimes:     make(map[string]time.Time), // 初始化 fetchTimes 映射
+		ctx:            context.Background(), // 初始化 ctx 字段
+		log:            log, // 初始化 log 字段
 	}
 }
 
-// Run 执行同步操作
-func (e *Engine) Run() error {
-	var err error
-	
-	// 初始化SSH代理
-	e.sshProxy, err = ssh.NewProxy()
-	if err != nil {
-		return fmt.Errorf("初始化SSH代理失败: %w", err)
-	}
-	defer e.sshProxy.Close()
-	
-	// 更新项目列表
-	if e.options.Prune {
-		if err := e.updateProjectList(); err != nil {
-			return err
-		}
-	}
-	
-	// 更新复制和链接文件列表
-	if err := e.updateCopyLinkfileList(); err != nil {
-		return err
-	}
-	
-	// 处理智能同步
-	if e.options.SmartSync || e.options.SmartTag != "" {
-		if err := e.handleSmartSync(); err != nil {
-			return err
-		}
-	}
-	
-	// 处理超级项目
-	if e.options.UseSuperproject {
-		_, err = e.updateProjectsRevisionId()
-		if err != nil {
-			return err
-		}
-	}
-	
-	// 处理HyperSync
-	var hyperSyncProjects []*project.Project
-	if e.options.HyperSync {
-		hyperSyncProjects, err = e.getHyperSyncProjects()
-		if err != nil {
-			return err
-		}
-	}
-	
-	// 执行网络同步
-	if err := e.fetchMainParallel(e.projects); err != nil {
-		return err
-	}
-	
-	// 如果只执行网络同步，则返回
-	if e.options.NetworkOnly {
-		if len(e.errResults) > 0 {
-			return fmt.Errorf("同步失败: 同步过程中发生了 %d 个错误", len(e.errResults))
-		}
+// Sync 执行同步
+func (e *Engine) Sync() error {
+	totalProjects := len(e.projects)
+	if totalProjects == 0 {
+		e.logger.Info("没有项目需要同步")
 		return nil
 	}
-	
-	// 执行本地检出
-	if err := e.checkoutParallel(e.projects, hyperSyncProjects); err != nil {
-		return err
+
+	if !e.options.Quiet {
+		e.logger.Info("同步 %d 个项目，并发数: %d", totalProjects, e.options.Jobs)
+		if e.progressReport != nil {
+			e.progressReport.Start(totalProjects)
+		}
 	}
-	
-	// 检查是否有错误
-	if len(e.errResults) > 0 {
-		return fmt.Errorf("同步失败: 同步过程中发生了 %d 个错误", len(e.errResults))
+
+	var count int32
+
+	// 提交同步任务
+	for _, p := range e.projects {
+		project := p // 创建副本避免闭包问题
+		e.workerPool.Submit(func() {
+			err := e.syncProject(project)
+
+			current := atomic.AddInt32(&count, 1)
+			if !e.options.Quiet && e.progressReport != nil {
+				status := "完成"
+				if err != nil {
+					status = "失败"
+				}
+				e.progressReport.Update(int(current), fmt.Sprintf("%s: %s", project.Name, status))
+			}
+
+			if err != nil {
+				e.errorsMu.Lock()
+				e.errors = append(e.errors, err)
+				e.errorsMu.Unlock()
+				e.logger.Error("同步项目 %s 失败: %v", project.Name, err)
+			} else if !e.options.Quiet {
+				e.logger.Debug("同步项目 %s 完成", project.Name)
+			}
+		})
 	}
-	
+
+	// 等待所有任务完成
+	e.workerPool.Wait()
+	e.workerPool.Stop()
+
+	if !e.options.Quiet && e.progressReport != nil {
+		e.progressReport.Finish()
+	}
+
+	// 汇总错误
+	if len(e.errors) > 0 {
+		e.logger.Error("同步完成，有 %d 个项目失败", len(e.errors))
+		return NewMultiError(e.errors)
+	}
+
+	e.logger.Info("所有项目同步完成")
+	return nil
+}
+
+// syncProject 同步单个项目
+func (e *Engine) syncProject(p *project.Project) error {
+	// 检查项目目录是否存在
+	exists, err := e.projectExists(p)
+	if err != nil {
+		return fmt.Errorf("检查项目 %s 失败: %w", p.Name, err)
+	}
+
+	if !exists {
+		// 克隆项目
+		if !e.options.Quiet {
+			e.logger.Info("克隆项目: %s", p.Name)
+		}
+		return e.cloneProject(p)
+	} else {
+		// 更新项目
+		if !e.options.NetworkOnly && !e.options.LocalOnly {
+			if !e.options.Quiet {
+				e.logger.Info("更新项目: %s", p.Name)
+			}
+		}
+
+		if !e.options.LocalOnly {
+			// 执行网络操作
+			if err := e.fetchProject(p); err != nil {
+				return err
+			}
+		}
+
+		if !e.options.NetworkOnly {
+			// 执行本地操作
+			if err := e.checkoutProject(p); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
 // fetchProject 执行单个项目的网络同步
 func (e *Engine) fetchProject(p *project.Project) error {
-	// 实现项目网络同步逻辑
+	// 输出详细日志，显示实际使用的远程 URL
+	if e.options.Verbose {
+		e.logger.Debug("正在获取项目 %s，原始远程 URL: %s", p.Name, p.RemoteURL)
+	}
+
+	// 确保使用项目的 RemoteURL 属性
+	remoteURL := p.RemoteURL
+
+	// 如果是相对路径，转换为完整的 SSH URL
+	if strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
+		// 从配置中获取基础URL
+		if e.config != nil && e.config.ManifestURL != "" {
+			baseURL := e.config.ExtractBaseURLFromManifestURL(e.config.ManifestURL)
+			if baseURL != "" {
+				// 移除相对路径前缀
+				relPath := strings.TrimPrefix(remoteURL, "../")
+				relPath = strings.TrimPrefix(relPath, "./")
+
+				// 确保baseURL不以/结尾
+				baseURL = strings.TrimSuffix(baseURL, "/")
+
+				// 构建完整URL
+				remoteURL = baseURL + "/" + relPath
+
+				if e.options.Verbose {
+					e.logger.Debug("将相对路径 %s 转换为远程 URL: %s", p.RemoteURL, remoteURL)
+				}
+			}
+		}
+	}
+
+	// 更新项目的 RemoteURL 为解析后的 URL
+	p.RemoteURL = remoteURL
+
+	// 执行 Git 操作
+	// 检查远程仓库是否存在
+	if err := e.ensureRemoteExists(p, remoteURL); err != nil {
+		return &SyncError{
+			ProjectName: p.Name,
+			Phase:       "ensure_remote",
+			Err:         err,
+		}
+	}
+
+	// 执行 fetch 命令
+	args := []string{"-C", p.Worktree, "fetch"}
+	if e.options.Tags {
+		args = append(args, "--tags")
+	}
+	if e.options.Quiet {
+		args = append(args, "--quiet")
+	}
+
+	// 使用远程名称
+	args = append(args, p.RemoteName)
+
+	cmd := exec.Command("git", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return &SyncError{
+			ProjectName: p.Name,
+			Phase:       "fetch",
+			Err:         err,
+			Output:      stderr.String(),
+		}
+	}
+
+	// 如果启用了 LFS，执行 LFS 拉取
+	if e.options.GitLFS {
+		if err := e.pullLFS(p); err != nil {
+			return &SyncError{
+				ProjectName: p.Name,
+				Phase:       "lfs_pull",
+				Err:         err,
+			}
+		}
+	}
+
+	return nil
+}
+
+// cloneProject 克隆单个项目
+func (e *Engine) cloneProject(p *project.Project) error {
+	// 确保使用项目的 RemoteURL 属性
+	remoteURL := p.RemoteURL
+
+	// 如果是相对路径，转换为完整的 SSH URL
+	if strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
+		// 从配置中获取基础URL
+		if e.config != nil && e.config.ManifestURL != "" {
+			baseURL := e.config.ExtractBaseURLFromManifestURL(e.config.ManifestURL)
+			if baseURL != "" {
+				// 移除相对路径前缀
+				relPath := strings.TrimPrefix(remoteURL, "../")
+				relPath = strings.TrimPrefix(relPath, "./")
+
+				// 确保baseURL不以/结尾
+				baseURL = strings.TrimSuffix(baseURL, "/")
+
+				// 构建完整URL
+				remoteURL = baseURL + "/" + relPath
+
+				if e.options.Verbose {
+					e.logger.Debug("将相对路径 %s 转换为远程 URL: %s", p.RemoteURL, remoteURL)
+				}
+			}
+		}
+	}
+
+	// 更新项目的 RemoteURL 为解析后的 URL
+	p.RemoteURL = remoteURL
+
+	// 创建父目录
+	if err := os.MkdirAll(filepath.Dir(p.Worktree), 0755); err != nil {
+		return &SyncError{
+			ProjectName: p.Name,
+			Phase:       "mkdir",
+			Err:         err,
+		}
+	}
+
+	// 构建 clone 命令
+	args := []string{"clone"}
+
+	// 添加 LFS 支持
+	if e.options.GitLFS {
+		// 确保 git-lfs 已安装
+		if _, err := exec.LookPath("git-lfs"); err == nil {
+			args = append(args, "--filter=blob:limit=0")
+		}
+	}
+
+	if e.options.Quiet {
+		args = append(args, "--quiet")
+	}
+
+	// 添加远程URL和目标目录
+	args = append(args, remoteURL, p.Worktree)
+
+	// 执行 clone 命令
+	cmd := exec.Command("git", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return &SyncError{
+			ProjectName: p.Name,
+			Phase:       "clone",
+			Err:         err,
+			Output:      stderr.String(),
+		}
+	}
+
+	// 克隆成功后，设置远程仓库
+	if err := e.setupRemote(p, remoteURL); err != nil {
+		return &SyncError{
+			ProjectName: p.Name,
+			Phase:       "setup_remote",
+			Err:         err,
+		}
+	}
+
+	// 如果启用了 LFS，执行 LFS 拉取
+	if e.options.GitLFS {
+		if err := e.pullLFS(p); err != nil {
+			return &SyncError{
+				ProjectName: p.Name,
+				Phase:       "lfs_pull",
+				Err:         err,
+			}
+		}
+	}
+
+	return nil
+}
+
+// checkoutProject 检出项目
+func (e *Engine) checkoutProject(p *project.Project) error {
+	// 执行 checkout 命令
+	args := []string{"-C", p.Worktree, "checkout"}
+	if e.options.Detach {
+		args = append(args, "--detach")
+	}
+	args = append(args, p.Revision)
+
+	cmd := exec.Command("git", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return &SyncError{
+			ProjectName: p.Name,
+			Phase:       "checkout",
+			Err:         err,
+			Output:      stderr.String(),
+		}
+	}
+
+	return nil
+}
+
+// projectExists 检查项目目录是否存在
+func (e *Engine) projectExists(p *project.Project) (bool, error) {
+	gitDir := filepath.Join(p.Worktree, ".git")
+	_, err := os.Stat(gitDir)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// setupRemote 设置远程仓库
+func (e *Engine) setupRemote(p *project.Project, remoteURL string) error {
+	// 检查远程仓库是否已存在
+	cmd := exec.Command("git", "-C", p.Worktree, "remote")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("获取远程仓库列表失败: %w", err)
+	}
+
+	remotes := strings.Split(strings.TrimSpace(string(output)), "\n")
+	remoteExists := false
+	for _, r := range remotes {
+		if r == p.RemoteName {
+			remoteExists = true
+			break
+		}
+	}
+
+	// 如果远程仓库不存在，添加它
+	if !remoteExists {
+		cmd = exec.Command("git", "-C", p.Worktree, "remote", "add", p.RemoteName, remoteURL)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("添加远程仓库失败: %w", err)
+		}
+	} else {
+		// 如果远程仓库已存在，更新URL
+		cmd = exec.Command("git", "-C", p.Worktree, "remote", "set-url", p.RemoteName, remoteURL)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("更新远程仓库URL失败: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// ensureRemoteExists 确保远程仓库存在
+func (e *Engine) ensureRemoteExists(p *project.Project, remoteURL string) error {
+	// 检查远程仓库是否已存在
+	cmd := exec.Command("git", "-C", p.Worktree, "remote")
+	output, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("获取远程仓库列表失败: %w", err)
+	}
+
+	remotes := strings.Split(strings.TrimSpace(string(output)), "\n")
+	remoteExists := false
+	for _, r := range remotes {
+		if r == p.RemoteName {
+			remoteExists = true
+			break
+		}
+	}
+
+	// 如果远程仓库不存在，添加它
+	if !remoteExists {
+		cmd = exec.Command("git", "-C", p.Worktree, "remote", "add", p.RemoteName, remoteURL)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("添加远程仓库失败: %w", err)
+		}
+	} else {
+		// 检查远程URL是否正确
+		cmd = exec.Command("git", "-C", p.Worktree, "remote", "get-url", p.RemoteName)
+		output, err := cmd.Output()
+		if err != nil {
+			return fmt.Errorf("获取远程仓库URL失败: %w", err)
+		}
+
+		currentURL := strings.TrimSpace(string(output))
+		if currentURL != remoteURL {
+			// 更新远程URL
+			cmd = exec.Command("git", "-C", p.Worktree, "remote", "set-url", p.RemoteName, remoteURL)
+			if err := cmd.Run(); err != nil {
+				return fmt.Errorf("更新远程仓库URL失败: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// pullLFS 拉取 LFS 文件
+func (e *Engine) pullLFS(p *project.Project) error {
+	// 检查是否安装了 git-lfs
+	if _, err := exec.LookPath("git-lfs"); err != nil {
+		// git-lfs 未安装，跳过
+		return nil
+	}
+
+	// 检查仓库是否使用 LFS
+	cmd := exec.Command("git", "-C", p.Worktree, "lfs", "ls-files")
+	output, err := cmd.Output()
+	if err != nil {
+		// 可能不是 LFS 仓库，跳过
+		return nil
+	}
+
+	// 如果有 LFS 文件，执行拉取
+	if len(output) > 0 {
+		cmd = exec.Command("git", "-C", p.Worktree, "lfs", "pull")
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("LFS 拉取失败: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -200,7 +558,8 @@ func (e *Engine) fetchMainParallel(projects []*project.Project) error {
 }
 
 // checkoutProject 执行单个项目的本地检出
-func (e *Engine) checkoutProject(p *project.Project, hyperSyncProjects []*project.Project) error {
+// checkoutProjectSimple 简单检出项目
+func (e *Engine) checkoutProjectSimple(p *project.Project) error {
     // 检查项目工作目录是否存在
     if _, err := os.Stat(p.Worktree); os.IsNotExist(err) {
         return fmt.Errorf("project directory %q does not exist", p.Worktree)
@@ -225,7 +584,7 @@ func (e *Engine) checkoutParallel(projects []*project.Project, hyperSyncProjects
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				return e.checkoutProject(p, hyperSyncProjects)
+				return e.checkoutProjectSimple(p)
 			}
 		})
 	}
@@ -368,7 +727,7 @@ func (e *Engine) reloadManifest(manifestName string, localOnly bool,groups []str
     e.manifest = newManifest
     
     // 更新项目列表 - 修复参数类型
-    projects, err := project.NewManager(e.manifest, e.config).GetProjects(e.options.Groups)
+    projects, err := project.NewManagerFromManifest(e.manifest, e.config).GetProjectsInGroups(e.options.Groups)
     if err != nil {
         return fmt.Errorf("failed to get projects: %w", err)
     }
@@ -386,7 +745,7 @@ func (e *Engine) getProjects() ([]*project.Project, error) {
     }
     
     // 获取项目列表 - 修复参数类型
-    projects, err := project.NewManager(e.manifest, e.config).GetProjects(e.options.Groups)
+    projects, err := project.NewManagerFromManifest(e.manifest, e.config).GetProjectsInGroups(e.options.Groups)
     if err != nil {
         return nil, fmt.Errorf("failed to get projects: %w", err)
     }
@@ -413,7 +772,7 @@ func (e *Engine) reloadManifestFromCache() error {
     e.manifest = newManifest
 
     // 重新获取项目列表
-    projects, err := project.NewManager(e.manifest, e.config).GetProjects(e.options.Groups)
+    projects, err := project.NewManagerFromManifest(e.manifest, e.config).GetProjectsInGroups(e.options.Groups)
     if err != nil {
         return fmt.Errorf("failed to get projects from cached manifest: %w", err)
     }
@@ -437,4 +796,28 @@ func (e *Engine) updateProjectsRevisionId() (string, error) {
 	}
 	
 	return manifestPath, nil
+}
+
+// SetSilentMode 设置引擎的静默模式
+func (e *Engine) SetSilentMode(silent bool) {
+	// 根据静默模式设置日志级别或其他相关配置
+	// 这里可以根据实际需求实现具体逻辑
+}
+
+// Run 执行同步操作
+func (e *Engine) Run() error {
+	// 初始化项目列表
+	projects, err := e.getProjects()
+	if err != nil {
+		return fmt.Errorf("获取项目列表失败: %w", err)
+	}
+	e.projects = projects
+
+	// 执行同步操作
+	return e.Sync()
+}
+
+// SetProjects 设置要同步的项目列表
+func (e *Engine) SetProjects(projects []*project.Project) {
+	e.projects = projects
 }

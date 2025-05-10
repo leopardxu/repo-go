@@ -4,6 +4,44 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
+	
+	"github.com/cix-code/gogo/internal/logger"
+)
+
+// 包级别的日志记录器
+var log logger.Logger = &logger.DefaultLogger{}
+
+// SetLogger 设置包级别的日志记录器
+func SetLogger(l logger.Logger) {
+	if l != nil {
+		log = l
+	}
+}
+
+// HookError 表示hook操作过程中的错误
+type HookError struct {
+	Op   string // 操作名称
+	Path string // 文件路径
+	Err  error  // 原始错误
+}
+
+func (e *HookError) Error() string {
+	if e.Path != "" {
+		return fmt.Sprintf("hook error: %s failed for '%s': %v", e.Op, e.Path, e.Err)
+	}
+	return fmt.Sprintf("hook error: %s failed: %v", e.Op, e.Err)
+}
+
+func (e *HookError) Unwrap() error {
+	return e.Err
+}
+
+// 文件操作的重试配置
+const (
+	maxRetries = 3
+	retryDelay = 100 * time.Millisecond
 )
 
 // 预定义的hook模板
@@ -199,27 +237,89 @@ exit 1
 
 // InitHooks 初始化Git hooks
 func InitHooks(repoDir string) error {
+	log.Debug("初始化Git hooks: %s", repoDir)
+	
 	// 创建hooks目录
 	hooksDir := filepath.Join(repoDir, ".repo", "hooks")
 	if err := os.MkdirAll(hooksDir, 0755); err != nil {
-		return fmt.Errorf("failed to create hooks directory: %w", err)
-	}
-
-	// 创建每个hook文件
-	for hookName, hookContent := range hookTemplates {
-		hookPath := filepath.Join(hooksDir, hookName)
-		if err := os.WriteFile(hookPath, []byte(hookContent), 0755); err != nil {
-			return fmt.Errorf("failed to create %s hook: %w", hookName, err)
+		log.Error("创建hooks目录失败: %v", err)
+		return &HookError{
+			Op:   "init_hooks",
+			Path: hooksDir,
+			Err:  err,
 		}
 	}
 
-	return nil
+	// 使用并发创建hook文件
+	var wg sync.WaitGroup
+	errorCh := make(chan error, len(hookTemplates))
+	
+	for hookName, hookContent := range hookTemplates {
+		wg.Add(1)
+		go func(name, content string) {
+			defer wg.Done()
+			
+			hookPath := filepath.Join(hooksDir, name)
+			
+			// 检查文件是否已存在且内容相同
+			if fileExists(hookPath) {
+				existingContent, err := os.ReadFile(hookPath)
+				if err == nil && string(existingContent) == content {
+					log.Debug("Hook文件已存在且内容相同，跳过创建: %s", hookPath)
+					return
+				}
+			}
+			
+			// 使用重试机制写入文件
+			var err error
+			for i := 0; i < maxRetries; i++ {
+				err = os.WriteFile(hookPath, []byte(content), 0755)
+				if err == nil {
+					log.Debug("成功创建hook文件: %s", hookPath)
+					break
+				}
+				
+				log.Debug("创建hook文件失败，尝试重试 (%d/%d): %v", i+1, maxRetries, err)
+				time.Sleep(retryDelay)
+			}
+			
+			if err != nil {
+				errorCh <- &HookError{
+					Op:   "create_hook",
+					Path: hookPath,
+					Err:  err,
+				}
+			}
+		}(hookName, hookContent)
+	}
+	
+	// 等待所有goroutine完成
+	wg.Wait()
+	close(errorCh)
+	
+	// 检查是否有错误
+	select {
+	case err := <-errorCh:
+		return err
+	default:
+		log.Info("成功初始化所有Git hooks")
+		return nil
+	}
 }
 
 // CreateRepoGitConfig 创建repo.git配置文件
 func CreateRepoGitConfig(repoDir string) error {
+	log.Debug("创建repo.git配置文件: %s", repoDir)
+	
 	// 创建.repo/repo.git文件
 	configPath := filepath.Join(repoDir, ".repo", "repo.git")
+	
+	// 检查文件是否已存在
+	if fileExists(configPath) {
+		log.Debug("repo.git配置文件已存在: %s", configPath)
+		return nil
+	}
+	
 	content := `[core]
 	repositoryformatversion = 0
 	filemode = true
@@ -231,8 +331,36 @@ func CreateRepoGitConfig(repoDir string) error {
 	required = true
 `
 
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("failed to create repo.git file: %w", err)
+	// 确保目录存在
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Error("创建配置目录失败: %v", err)
+		return &HookError{
+			Op:   "create_config_dir",
+			Path: configDir,
+			Err:  err,
+		}
+	}
+
+	// 使用重试机制写入文件
+	var err error
+	for i := 0; i < maxRetries; i++ {
+		err = os.WriteFile(configPath, []byte(content), 0644)
+		if err == nil {
+			log.Info("成功创建repo.git配置文件: %s", configPath)
+			break
+		}
+		
+		log.Debug("创建repo.git配置文件失败，尝试重试 (%d/%d): %v", i+1, maxRetries, err)
+		time.Sleep(retryDelay)
+	}
+	
+	if err != nil {
+		return &HookError{
+			Op:   "create_repo_git_config",
+			Path: configPath,
+			Err:  err,
+		}
 	}
 
 	return nil
@@ -240,8 +368,17 @@ func CreateRepoGitConfig(repoDir string) error {
 
 // CreateRepoGitconfig 创建repo.gitconfig文件
 func CreateRepoGitconfig(repoDir string) error {
+	log.Debug("创建repo.gitconfig文件: %s", repoDir)
+	
 	// 创建.repo/repo.gitconfig文件
 	configPath := filepath.Join(repoDir, ".repo", "repo.gitconfig")
+	
+	// 检查文件是否已存在
+	if fileExists(configPath) {
+		log.Debug("repo.gitconfig文件已存在: %s", configPath)
+		return nil
+	}
+	
 	content := `[filter "lfs"]
 	clean = git-lfs clean -- %f
 	smudge = git-lfs smudge -- %f
@@ -249,8 +386,36 @@ func CreateRepoGitconfig(repoDir string) error {
 	required = true
 `
 
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("failed to create repo.gitconfig file: %w", err)
+	// 确保目录存在
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		log.Error("创建配置目录失败: %v", err)
+		return &HookError{
+			Op:   "create_config_dir",
+			Path: configDir,
+			Err:  err,
+		}
+	}
+
+	// 使用重试机制写入文件
+	var err error
+	for i := 0; i < maxRetries; i++ {
+		err = os.WriteFile(configPath, []byte(content), 0644)
+		if err == nil {
+			log.Info("成功创建repo.gitconfig文件: %s", configPath)
+			break
+		}
+		
+		log.Debug("创建repo.gitconfig文件失败，尝试重试 (%d/%d): %v", i+1, maxRetries, err)
+		time.Sleep(retryDelay)
+	}
+	
+	if err != nil {
+		return &HookError{
+			Op:   "create_repo_gitconfig",
+			Path: configPath,
+			Err:  err,
+		}
 	}
 
 	return nil
@@ -258,44 +423,148 @@ func CreateRepoGitconfig(repoDir string) error {
 
 // LinkHooks 将hooks链接到项目目录
 func LinkHooks(projectDir string, hooksDir string) error {
+	log.Debug("链接hooks到项目目录: %s -> %s", hooksDir, projectDir)
+	
+	// 检查项目目录是否存在
+	if !fileExists(projectDir) {
+		log.Error("项目目录不存在: %s", projectDir)
+		return &HookError{
+			Op:   "link_hooks",
+			Path: projectDir,
+			Err:  fmt.Errorf("project directory does not exist"),
+		}
+	}
+	
+	// 检查hooks目录是否存在
+	if !fileExists(hooksDir) {
+		log.Error("hooks目录不存在: %s", hooksDir)
+		return &HookError{
+			Op:   "link_hooks",
+			Path: hooksDir,
+			Err:  fmt.Errorf("hooks directory does not exist"),
+		}
+	}
+	
 	// 确保项目的.git/hooks目录存在
 	projectHooksDir := filepath.Join(projectDir, ".git", "hooks")
 	if err := os.MkdirAll(projectHooksDir, 0755); err != nil {
-		return fmt.Errorf("failed to create project hooks directory: %w", err)
+		log.Error("创建项目hooks目录失败: %v", err)
+		return &HookError{
+			Op:   "create_project_hooks_dir",
+			Path: projectHooksDir,
+			Err:  err,
+		}
 	}
 
 	// 遍历hooks目录中的所有文件
 	entries, err := os.ReadDir(hooksDir)
 	if err != nil {
-		return fmt.Errorf("failed to read hooks directory: %w", err)
+		log.Error("读取hooks目录失败: %v", err)
+		return &HookError{
+			Op:   "read_hooks_dir",
+			Path: hooksDir,
+			Err:  err,
+		}
 	}
 
+	// 使用并发处理hook文件
+	var wg sync.WaitGroup
+	errorCh := make(chan error, len(entries))
+	
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-
-		// 源文件和目标文件路径
-		srcPath := filepath.Join(hooksDir, entry.Name())
-		dstPath := filepath.Join(projectHooksDir, entry.Name())
-
-		// 如果目标文件已存在，先删除
-		if _, err := os.Stat(dstPath); err == nil {
-			if err := os.Remove(dstPath); err != nil {
-				return fmt.Errorf("failed to remove existing hook: %w", err)
+		
+		wg.Add(1)
+		go func(e os.DirEntry) {
+			defer wg.Done()
+			
+			// 源文件和目标文件路径
+			srcPath := filepath.Join(hooksDir, e.Name())
+			dstPath := filepath.Join(projectHooksDir, e.Name())
+			
+			// 尝试使用符号链接（在支持的系统上）
+			if trySymlink(srcPath, dstPath) {
+				log.Debug("成功创建符号链接: %s -> %s", dstPath, srcPath)
+				return
 			}
-		}
 
-		// 复制hook文件
-		srcContent, err := os.ReadFile(srcPath)
-		if err != nil {
-			return fmt.Errorf("failed to read hook file: %w", err)
-		}
+			// 如果目标文件已存在，先删除
+			if fileExists(dstPath) {
+				if err := os.Remove(dstPath); err != nil {
+					errorCh <- &HookError{
+						Op:   "remove_existing_hook",
+						Path: dstPath,
+						Err:  err,
+					}
+					return
+				}
+			}
 
-		if err := os.WriteFile(dstPath, srcContent, 0755); err != nil {
-			return fmt.Errorf("failed to create hook link: %w", err)
+			// 读取源文件内容
+			srcContent, err := os.ReadFile(srcPath)
+			if err != nil {
+				errorCh <- &HookError{
+					Op:   "read_hook_file",
+					Path: srcPath,
+					Err:  err,
+				}
+				return
+			}
+
+			// 使用重试机制写入文件
+			for i := 0; i < maxRetries; i++ {
+				err = os.WriteFile(dstPath, srcContent, 0755)
+				if err == nil {
+					log.Debug("成功复制hook文件: %s -> %s", srcPath, dstPath)
+					break
+				}
+				
+				log.Debug("复制hook文件失败，尝试重试 (%d/%d): %v", i+1, maxRetries, err)
+				time.Sleep(retryDelay)
+			}
+			
+			if err != nil {
+				errorCh <- &HookError{
+					Op:   "write_hook_file",
+					Path: dstPath,
+					Err:  err,
+				}
+			}
+		}(entry)
+	}
+	
+	// 等待所有goroutine完成
+	wg.Wait()
+	close(errorCh)
+	
+	// 检查是否有错误
+	select {
+	case err := <-errorCh:
+		return err
+	default:
+		log.Info("成功链接所有hooks到项目目录: %s", projectDir)
+		return nil
+	}
+}
+
+// fileExists 检查文件或目录是否存在
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// trySymlink 尝试创建符号链接，如果不支持则返回false
+func trySymlink(src, dst string) bool {
+	// 如果目标文件已存在，先删除
+	if fileExists(dst) {
+		if err := os.Remove(dst); err != nil {
+			return false
 		}
 	}
-
-	return nil
+	
+	// 尝试创建符号链接
+	err := os.Symlink(src, dst)
+	return err == nil
 }

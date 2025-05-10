@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/cix-code/gogo/cmd/repo/commands"
-	"github.com/cix-code/gogo/pkg/logger"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +18,14 @@ var (
 
 func main() {
 	// 初始化日志
-	logger.Init()
+	log := logger.NewDefaultLogger()
+	logFile := os.Getenv("GOGO_LOG_FILE")
+	if logFile != "" {
+		if err := log.SetDebugFile(logFile); err != nil {
+			fmt.Printf("警告: 无法设置日志文件 %s: %v\n", logFile, err)
+		}
+	}
+	logger.SetGlobalLogger(log)
 
 	// 创建根命令
 	rootCmd := &cobra.Command{

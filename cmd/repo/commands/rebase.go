@@ -3,8 +3,10 @@ package commands
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/cix-code/gogo/internal/config"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
 	"github.com/spf13/cobra"
@@ -29,6 +31,15 @@ type RebaseOptions struct {
 	OuterManifest  bool
 	NoOuterManifest bool
 	ThisManifestOnly bool
+	Jobs           int
+}
+
+// rebaseStats 用于统计rebase命令的执行结果
+type rebaseStats struct {
+	mu      sync.Mutex
+	success int
+	failed  int
+	total   int
 }
 
 // RebaseCmd 返回rebase命令
@@ -64,123 +75,190 @@ topic branch but need to incorporate new upstream changes "underneath" them.`,
 	cmd.Flags().BoolVar(&opts.OuterManifest, "outer-manifest", false, "operate starting at the outermost manifest")
 	cmd.Flags().BoolVar(&opts.NoOuterManifest, "no-outer-manifest", false, "do not operate on outer manifests")
 	cmd.Flags().BoolVar(&opts.ThisManifestOnly, "this-manifest-only", false, "only operate on this (sub)manifest")
+	cmd.Flags().IntVarP(&opts.Jobs, "jobs", "j", 8, "number of jobs to run in parallel")
 
 	return cmd
 }
 
 // runRebase 执行rebase命令
-// runRebase executes the rebase command logic
 func runRebase(opts *RebaseOptions, args []string) error {
+	// 初始化日志记录器
+	log := logger.NewDefaultLogger()
+	if opts.Verbose {
+		log.SetLevel(logger.LogLevelDebug)
+	} else if opts.Quiet {
+		log.SetLevel(logger.LogLevelError)
+	} else {
+		log.SetLevel(logger.LogLevelInfo)
+	}
+
+	log.Info("开始执行rebase操作")
+
 	// 加载配置
-	cfg, err := config.Load() // First declaration of err
+	log.Debug("正在加载配置...")
+	cfg, err := config.Load()
 	if err != nil {
+		log.Error("加载配置失败: %v", err)
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// 加载清单
+	log.Debug("正在解析清单文件...")
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
 	if err != nil {
+		log.Error("解析清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
 	// 处理多清单选项
+	log.Debug("处理多清单选项...")
 	if opts.OuterManifest {
-		manifest = manifest.GetOuterManifest()
+		log.Debug("使用最外层清单")
+		manifestObj = manifestObj.GetOuterManifest()
 	} else if opts.NoOuterManifest {
-		manifest = manifest.GetInnerManifest()
+		log.Debug("不使用外层清单")
+		manifestObj = manifestObj.GetInnerManifest()
 	}
 
 	if opts.ThisManifestOnly {
-		manifest = manifest.GetThisManifest()
+		log.Debug("仅使用当前清单")
+		manifestObj = manifestObj.GetThisManifest()
 	}
 
 	// 创建项目管理器
-	manager := project.NewManager(manifest, cfg) // Assuming manifest and cfg are loaded
+	log.Debug("正在创建项目管理器...")
+	manager := project.NewManagerFromManifest(manifestObj, cfg)
 
 	var projects []*project.Project
-	// Don't redeclare err here
 	
+	// 获取项目列表
+	log.Debug("正在获取项目列表...")
 	if len(args) == 0 {
-		projects, err = manager.GetProjects(nil) // Use = instead of :=
+		log.Debug("获取所有项目")
+		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
+			log.Error("获取所有项目失败: %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		projects, err = manager.GetProjectsByNames(args) // Use = instead of :=
+		log.Debug("获取指定的项目: %v", args)
+		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
+			log.Error("获取指定项目失败: %v", err)
 			return fmt.Errorf("failed to get projects by name: %w", err)
 		}
 	}
 
+	log.Info("找到 %d 个项目需要执行rebase操作", len(projects))
+
 	// 构建rebase命令选项
+	log.Debug("构建rebase命令选项...")
 	rebaseArgs := []string{"rebase"}
 	
 	if opts.Abort {
 		rebaseArgs = append(rebaseArgs, "--abort")
+		log.Debug("添加--abort选项")
 	} else if opts.Continue {
 		rebaseArgs = append(rebaseArgs, "--continue")
+		log.Debug("添加--continue选项")
 	} else if opts.Skip {
 		rebaseArgs = append(rebaseArgs, "--skip")
+		log.Debug("添加--skip选项")
 	} else {
 		if opts.Interactive {
 			rebaseArgs = append(rebaseArgs, "--interactive")
+			log.Debug("添加--interactive选项")
 		}
 		
 		if opts.Autosquash {
 			rebaseArgs = append(rebaseArgs, "--autosquash")
+			log.Debug("添加--autosquash选项")
 		}
 		
 		if opts.Onto != "" {
 			rebaseArgs = append(rebaseArgs, "--onto", opts.Onto)
+			log.Debug("添加--onto %s选项", opts.Onto)
 		}
 		
 		if opts.Force {
 			rebaseArgs = append(rebaseArgs, "--force")
+			log.Debug("添加--force选项")
 		}
 		
 		if opts.NoFF {
 			rebaseArgs = append(rebaseArgs, "--no-ff")
+			log.Debug("添加--no-ff选项")
 		}
 		
 		if opts.Whitespace != "" {
 			rebaseArgs = append(rebaseArgs, "--whitespace", opts.Whitespace)
+			log.Debug("添加--whitespace %s选项", opts.Whitespace)
 		}
 		
 		if opts.AutoStash {
 			rebaseArgs = append(rebaseArgs, "--autostash")
+			log.Debug("添加--autostash选项")
 		}
 		
-		// Define upstream variable before using it
-		upstream := "origin" // Default value, adjust as needed
-		// Or determine it dynamically based on project configuration
+		// 定义上游分支
+		upstream := "origin" // 默认值，根据需要调整
+		// 或者根据项目配置动态确定
 		// upstream := project.Remote
 		
-		fmt.Printf("Rebasing onto %s\n", upstream)
+		log.Info("将rebase到 %s", upstream)
 	}
 
-	if !opts.Quiet {
-		fmt.Println("Rebasing projects")
-	}
+	// 创建统计对象
+	stats := &rebaseStats{total: len(projects)}
 
 	// 并发执行rebase操作
+	log.Debug("开始并发执行rebase操作...")
 	type rebaseResult struct {
 		Project *project.Project
 		Output  string
 		Err     error
 	}
 
+	// 设置并发控制
+	maxWorkers := opts.Jobs
+	if maxWorkers <= 0 {
+		maxWorkers = 8
+	}
+	log.Debug("设置并发数为: %d", maxWorkers)
+
 	results := make(chan rebaseResult, len(projects))
-	sem := make(chan struct{}, 8) // 控制并发数为8
+	sem := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
 
 	for _, p := range projects {
+		wg.Add(1)
 		p := p
 		go func() {
+			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			
+			log.Debug("正在对项目 %s 执行rebase操作...", p.Name)
 			outputBytes, err := p.GitRepo.RunCommand(rebaseArgs...)
 			output := string(outputBytes)
+			
+			if err != nil {
+				log.Error("项目 %s rebase失败: %v", p.Name, err)
+				
+				// 更新统计信息
+				stats.mu.Lock()
+				stats.failed++
+				stats.mu.Unlock()
+			} else {
+				log.Debug("项目 %s rebase成功", p.Name)
+				
+				// 更新统计信息
+				stats.mu.Lock()
+				stats.success++
+				stats.mu.Unlock()
+			}
+			
 			results <- rebaseResult{
 				Project: p,
 				Output:  output,
@@ -189,31 +267,49 @@ func runRebase(opts *RebaseOptions, args []string) error {
 		}()
 	}
 
+	// 等待所有goroutine完成
+	log.Debug("等待所有rebase任务完成...")
+	wg.Wait()
+	close(results)
+
+	// 处理结果
+	log.Debug("处理rebase结果...")
 	var hasError bool
-	for i := 0; i < len(projects); i++ {
-		res := <-results
+	var errs []error
+
+	// 收集所有结果
+	for res := range results {
 		if res.Err != nil {
 			hasError = true
+			errs = append(errs, fmt.Errorf("项目 %s: %w", res.Project.Name, res.Err))
+			
 			if opts.Verbose {
-				fmt.Printf("Error in project %s: %v\n", res.Project.Name, res.Err)
+				log.Error("项目 %s 出错: %v", res.Project.Name, res.Err)
 			}
+			
 			if opts.FailFast {
+				log.Error("由于设置了fail-fast选项，在首次错误后停止")
 				return fmt.Errorf("failed to rebase project %s: %w", res.Project.Name, res.Err)
 			}
 			continue
 		}
 		
 		if !opts.Quiet {
-			fmt.Printf("\nProject %s:\n", res.Project.Name)
+			log.Info("\n项目 %s:", res.Project.Name)
 			if res.Output != "" {
-				fmt.Println(res.Output)
+				log.Info(res.Output)
 			} else {
-				fmt.Println("Rebase completed successfully")
+				log.Info("Rebase完成")
 			}
 		}
 	}
 
+	// 输出统计信息
+	log.Info("Rebase操作完成: 总计 %d 个项目, 成功 %d 个, 失败 %d 个", 
+		stats.total, stats.success, stats.failed)
+
 	if hasError {
+		log.Error("部分项目rebase失败")
 		return fmt.Errorf("some projects failed to rebase")
 	}
 	return nil

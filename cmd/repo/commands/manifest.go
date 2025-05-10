@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/cix-code/gogo/internal/config"
+	"github.com/cix-code/gogo/internal/logger"
 	"github.com/cix-code/gogo/internal/manifest"
 	"github.com/cix-code/gogo/internal/project"
 	"github.com/spf13/cobra"
@@ -23,6 +25,16 @@ type ManifestOptions struct {
 	JsonOutput              bool
 	PrettyOutput            bool
 	NoLocalManifests        bool
+	Verbose                 bool
+	Quiet                   bool
+	Jobs                    int
+}
+
+// manifestStats 用于统计manifest命令的执行结果
+type manifestStats struct {
+	mu      sync.Mutex
+	success int
+	failed  int
 }
 
 // ManifestCmd 返回manifest命令
@@ -49,6 +61,9 @@ func ManifestCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.JsonOutput, "json", false, "output manifest in JSON format (experimental)")
 	cmd.Flags().BoolVar(&opts.PrettyOutput, "pretty", false, "format output for humans to read")
 	cmd.Flags().BoolVar(&opts.NoLocalManifests, "no-local-manifests", false, "ignore local manifests")
+	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show all output")
+	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
+	cmd.Flags().IntVarP(&opts.Jobs, "jobs", "j", 8, "number of jobs to run in parallel")
 	AddManifestFlags(cmd, &opts.CommonManifestOptions)
 
 	return cmd
@@ -56,76 +71,106 @@ func ManifestCmd() *cobra.Command {
 
 // runManifest 执行manifest命令
 func runManifest(opts *ManifestOptions, args []string) error {
-	fmt.Println("Processing manifest")
+	// 初始化日志记录器
+	log := logger.NewDefaultLogger()
+	if opts.Verbose {
+		log.SetLevel(logger.LogLevelDebug)
+	} else if opts.Quiet {
+		log.SetLevel(logger.LogLevelError)
+	} else {
+		log.SetLevel(logger.LogLevelInfo)
+	}
+
+	log.Info("开始处理清单文件")
 
 	// 加载配置
+	log.Debug("正在加载配置...")
 	cfg, err := config.Load()
 	if err != nil {
+		log.Error("加载配置失败: %v", err)
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// 加载清单
+	log.Debug("正在解析清单文件...")
 	parser := manifest.NewParser()
-	manifest, err := parser.ParseFromFile(cfg.ManifestName,strings.Split(cfg.Groups,","))
+	manifestObj, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
 	if err != nil {
+		log.Error("解析清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
+	log.Debug("清单文件解析成功，包含 %d 个项目", len(manifestObj.Projects))
+
 	// 如果需要创建快照
 	if opts.Snapshot {
+		log.Info("正在创建清单快照...")
 		// 创建快照清单
-		snapshotManifest, err := createSnapshotManifest(manifest, cfg, opts)
+		snapshotManifest, err := createSnapshotManifest(manifestObj, cfg, opts, log)
 		if err != nil {
+			log.Error("创建快照清单失败: %v", err)
 			return fmt.Errorf("failed to create snapshot manifest: %w", err)
 		}
 		
 		// 替换原始清单
-		manifest = snapshotManifest
+		manifestObj = snapshotManifest
+		log.Info("清单快照创建成功")
 	}
 
 	// 如果指定了输出文件
 	if opts.OutputFile != "" {
 		// 确保输出目录存在
 		outputDir := filepath.Dir(opts.OutputFile)
+		log.Debug("确保输出目录存在: %s", outputDir)
 		if err := os.MkdirAll(outputDir, 0755); err != nil {
+			log.Error("创建输出目录失败: %v", err)
 			return fmt.Errorf("failed to create output directory: %w", err)
 		}
 		
 		// 写入输出文件
-		if err := manifest.WriteToFile(opts.OutputFile); err != nil {
+		log.Debug("正在写入清单到文件: %s", opts.OutputFile)
+		if err := manifestObj.WriteToFile(opts.OutputFile); err != nil {
+			log.Error("写入清单到文件失败: %v", err)
 			return fmt.Errorf("failed to write manifest to file: %w", err)
 		}
 		
-		fmt.Printf("Manifest written to %s\n", opts.OutputFile)
+		log.Info("清单已写入到文件: %s", opts.OutputFile)
 	} else {
 		// 否则，输出到标准输出
+		log.Debug("正在准备输出清单到标准输出")
 		if opts.JsonOutput {
-			jsonData, err := manifest.ToJSON()
+			log.Debug("使用JSON格式输出")
+			jsonData, err := manifestObj.ToJSON()
 			if err != nil {
+				log.Error("转换清单到JSON失败: %v", err)
 				return fmt.Errorf("failed to convert manifest to JSON: %w", err)
 			}
 			fmt.Println(jsonData)
 		} else {
-			xml, err := manifest.ToXML()
+			log.Debug("使用XML格式输出")
+			xml, err := manifestObj.ToXML()
 			if err != nil {
+				log.Error("转换清单到XML失败: %v", err)
 				return fmt.Errorf("failed to convert manifest to XML: %w", err)
 			}
 			fmt.Println(xml)
 		}
+		log.Info("清单输出完成")
 	}
 
 	return nil
 }
 
 // createSnapshotManifest 创建快照清单
-func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *ManifestOptions) (*manifest.Manifest, error) {
+func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *ManifestOptions, log logger.Logger) (*manifest.Manifest, error) {
 	// 创建快照清单的副本
 	snapshotManifest := *m
 	
-	fmt.Println("Creating manifest snapshot")
+	log.Info("开始创建清单快照")
 	
 	// 创建项目管理器
-	projectManager := project.NewManager(&snapshotManifest, cfg)
+	log.Debug("正在创建项目管理器...")
+	projectManager := project.NewManagerFromManifest(&snapshotManifest, cfg)
 	
 	// 并发处理项目更新
 	type projectUpdate struct {
@@ -134,40 +179,74 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 		err   error
 	}
 
-	maxWorkers := 8
+	// 设置并发控制
+	maxWorkers := opts.Jobs
+	if maxWorkers <= 0 {
+		maxWorkers = 8
+	}
+	log.Debug("设置并发数为: %d", maxWorkers)
+
+	// 创建统计对象
+	stats := &manifestStats{}
+
+	// 使用WaitGroup确保所有goroutine完成
+	var wg sync.WaitGroup
 	sem := make(chan struct{}, maxWorkers)
 	results := make(chan projectUpdate, len(snapshotManifest.Projects))
 
+	log.Info("开始处理 %d 个项目...", len(snapshotManifest.Projects))
+
 	for i, p := range snapshotManifest.Projects {
+		wg.Add(1)
 		sem <- struct{}{}
 		go func(idx int, projName string) {
-			defer func() { <-sem }()
+			defer func() { 
+				<-sem 
+				wg.Done()
+			}()
 			update := projectUpdate{index: idx}
 			
 			// 获取项目对象
+			log.Debug("正在获取项目: %s", projName)
 			update.proj = projectManager.GetProject(projName)
 			if update.proj == nil {
-				fmt.Printf("Warning: project %s not found in workspace, skipping\n", projName)
+				log.Warn("项目 %s 在工作区中未找到，跳过", projName)
+				
+				// 更新统计信息
+				stats.mu.Lock()
+				stats.failed++
+				stats.mu.Unlock()
+				
 				results <- update
 				return
 			}
 			
 			// 获取当前HEAD提交哈希
+			log.Debug("正在获取项目 %s 的HEAD提交哈希", projName)
 			output, err := update.proj.GitRepo.Runner.RunInDir(update.proj.Path, "rev-parse", "HEAD")
 			if err != nil {
-				fmt.Printf("Warning: failed to get HEAD revision for project %s: %v\n", projName, err)
+				log.Warn("获取项目 %s 的HEAD提交哈希失败: %v", projName, err)
 				update.err = err
+				
+				// 更新统计信息
+				stats.mu.Lock()
+				stats.failed++
+				stats.mu.Unlock()
+				
 				results <- update
 				return
 			}
 			
 			// 获取提交哈希（去除末尾的换行符）
 			commitHash := strings.TrimSpace(string(output))
+			log.Debug("项目 %s 的HEAD提交哈希: %s", projName, commitHash)
 			
 			// 根据选项更新修订版本
 			if opts.RevisionAsHEAD {
+				log.Debug("将项目 %s 的修订版本设置为HEAD", projName)
 				snapshotManifest.Projects[update.index].Revision = "HEAD"
 			} else {
+				log.Debug("将项目 %s 的修订版本设置为提交哈希: %s", projName, commitHash)
 				snapshotManifest.Projects[update.index].Revision = commitHash
 			}
 			
@@ -177,7 +256,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 				upstreamRevision, exists := snapshotManifest.Projects[update.index].GetCustomAttr("upstream-revision")
 				if exists {
 					delete(snapshotManifest.Projects[update.index].CustomAttrs, "upstream-revision")
-					fmt.Printf("Removed upstream-revision %s from project %s\n", upstreamRevision, projName)
+					log.Debug("从项目 %s 中移除上游修订版本: %s", projName, upstreamRevision)
 				}
 			}
 			
@@ -187,7 +266,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 				destBranch, exists := snapshotManifest.Projects[update.index].GetCustomAttr("dest-branch")
 				if exists {
 					delete(snapshotManifest.Projects[update.index].CustomAttrs, "dest-branch")
-					fmt.Printf("Removed dest-branch %s from project %s\n", destBranch, projName)
+					log.Debug("从项目 %s 中移除目标分支: %s", projName, destBranch)
 				}
 			}
 			
@@ -195,24 +274,34 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 			if opts.NoCloneBundle {
 				// 添加no-clone-bundle属性
 				snapshotManifest.Projects[update.index].CustomAttrs["no-clone-bundle"] = "true"
+				log.Debug("为项目 %s 添加no-clone-bundle属性", projName)
 			}
 			
-			fmt.Printf("Updated project %s revision to %s\n", projName, snapshotManifest.Projects[update.index].Revision)
+			log.Info("已更新项目 %s 的修订版本为 %s", projName, snapshotManifest.Projects[update.index].Revision)
+			
+			// 更新统计信息
+			stats.mu.Lock()
+			stats.success++
+			stats.mu.Unlock()
+			
 			results <- update
 		}(i, p.Name)
 	}
 
 	// 等待所有goroutine完成
-	for i := 0; i < len(snapshotManifest.Projects); i++ {
-		<-results
-	}
-	
+	log.Debug("等待所有项目处理完成...")
+	wg.Wait()
+	close(results)
+
 	// 处理Platform选项
 	if opts.Platform {
 		// 在平台模式下，可能需要添加一些特定的属性或修改
 		snapshotManifest.CustomAttrs["platform"] = "true"
-		fmt.Println("Applied platform mode to manifest")
+		log.Info("已应用平台模式到清单")
 	}
+	
+	// 输出统计信息
+	log.Info("清单快照创建完成: %d 个项目成功, %d 个项目失败", stats.success, stats.failed)
 	
 	return &snapshotManifest, nil
 }

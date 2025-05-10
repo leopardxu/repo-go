@@ -2,38 +2,40 @@ package repo_sync
 
 import "time"
 
+// Options 包含同步选项
 type Options struct {
-    HTTPTimeout time.Duration
-    Debug       bool
-    Verbose     bool
-    Jobs           int
-    JobsNetwork    int
-    JobsCheckout   int
-    CurrentBranch  bool
-    Detach         bool
-    ForceSync      bool
-    ForceRemoveDirty bool
-    ForceOverwrite bool
-    LocalOnly      bool
-    NetworkOnly    bool
-    Prune          bool
-    Quiet          bool
-    SmartSync      bool
-    Tags           bool
-    NoTags         bool
-    NoCloneBundle  bool
-    FetchSubmodules bool
-    OptimizedFetch bool
-    RetryFetches   int
-    Groups         []string
-    FailFast       bool
-    NoManifestUpdate bool
-    UseSuperproject bool
-    HyperSync      bool
-    SmartTag       string
-    OuterManifest  bool
-    ThisManifestOnly bool
-    ManifestServerUsername string
-    ManifestServerPassword string
-    Depth           int
+	NetworkOnly     bool
+	LocalOnly       bool
+	CurrentBranch   bool
+	Detach          bool
+	Force           bool
+	NoTags          bool
+	Prune           bool
+	Jobs            int
+	JobsNetwork     int
+	JobsCheckout    int
+	SmartSync       bool
+	SmartTag        string
+	UseSuperproject bool
+	HyperSync       bool
+	Verbose         bool
+	Quiet           bool
+	Tags            bool
+	GitLFS          bool // 添加 GitLFS 字段
+	ForceSync       bool
+	ForceOverwrite  bool
+	ForceRemoveDirty bool // 添加 ForceRemoveDirty 字段
+	FailFast        bool
+	HTTPTimeout     time.Duration
+	ManifestServerUsername string
+	ManifestServerPassword string
+	Groups          []string // 修改为字符串数组
+	Debug           bool // 添加 Debug 字段
+	OptimizedFetch  bool // 添加 OptimizedFetch 字段
+	RetryFetches    int  // 添加 RetryFetches 字段
+	NoCloneBundle   bool // 添加 NoCloneBundle 字段
+	Depth           int  // 添加 Depth 字段
+	FetchSubmodules bool // 添加 FetchSubmodules 字段
+	NoManifestUpdate bool // 添加 NoManifestUpdate 字段
+	DryRun          bool // 添加 DryRun 字段，用于模拟执行但不实际修改
 }
