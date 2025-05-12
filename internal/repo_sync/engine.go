@@ -106,12 +106,6 @@ func NewEngine(options *Options, manifest *manifest.Manifest, log logger.Logger)
 	var projects []*project.Project
 	// 项目列表将在后续操作中填充
 
-	// 获取仓库根目录
-	repoRoot := ""
-	if options.Config != nil {
-		repoRoot = options.Config.RepoRoot
-	}
-
 	return &Engine{
 		projects:       projects,
 		options:        options,
@@ -123,8 +117,6 @@ func NewEngine(options *Options, manifest *manifest.Manifest, log logger.Logger)
 		fetchTimes:     make(map[string]time.Time), // 初始化 fetchTimes 映射
 		ctx:            context.Background(), // 初始化 ctx 字段
 		log:            log, // 初始化 log 字段
-		config:         options.Config, // 初始化 config 字段
-		repoRoot:       repoRoot, // 初始化 repoRoot 字段
 	}
 }
 
@@ -291,170 +283,32 @@ func (e *Engine) syncProject(p *project.Project) error {
 func (e *Engine) resolveRemoteURL(p *project.Project) string {
 	// 确保使用项目的 RemoteURL 属性
 	remoteURL := p.RemoteURL
-	e.logger.Debug("解析项目 %s 的远程URL: %s", p.Name, remoteURL)
 
-	// 首先尝试从清单中获取远程URL的基础地址
-	if e.manifest != nil {
-		// 查找项目使用的远程名称对应的fetch属性
-		for _, remote := range e.manifest.Remotes {
-			if remote.Name == p.RemoteName {
-				// 找到匹配的远程配置
-				fetchURL := remote.Fetch
-				e.logger.Debug("从清单远程配置获取fetchURL: %s", fetchURL)
-				
-				// 如果fetch是相对路径
-				if fetchURL == ".." || strings.HasPrefix(fetchURL, "../") || strings.HasPrefix(fetchURL, "./") {
-					// 从配置中获取基础URL
-					e.logger.Debug(e.config.ManifestURL)
-					if e.config != nil && e.config.ManifestURL != "" {
-						baseURL := e.config.ExtractBaseURLFromManifestURL(e.config.ManifestURL)
-						if baseURL != "" {
-							// 确保baseURL不以/结尾
-							baseURL = strings.TrimSuffix(baseURL, "/")
-							if e.options.Verbose {
-								fmt.Printf("从配置中获取基础URL: %s\n", baseURL)
-							}
-							// 处理不同类型的相对路径
-							var fullFetchURL string
-							if fetchURL == ".." {
-								// 对于单独的 ".."，直接使用基础URL
-								fullFetchURL = baseURL
-							} else if strings.HasPrefix(fetchURL, "../") {
-								// 处理 "../" 开头的路径
-								// 对于每个 "../"，从baseURL中移除一个路径段
-								tempBaseURL := baseURL
-								count := 0
-								for strings.HasPrefix(fetchURL[count*3:], "../") {
-									count++
-								}
-								
-								for i := 0; i < count; i++ {
-									lastSlashIndex := strings.LastIndex(tempBaseURL, "/")
-									if lastSlashIndex != -1 {
-										tempBaseURL = tempBaseURL[:lastSlashIndex]
-									}
-								}
-								
-								// 添加剩余的路径部分
-								remainPath := strings.TrimPrefix(fetchURL, strings.Repeat("../", count))
-								if remainPath != "" {
-									fullFetchURL = tempBaseURL + "/" + remainPath
-								} else {
-									fullFetchURL = tempBaseURL
-								}
-							} else if strings.HasPrefix(fetchURL, "./") {
-								// 处理 "./" 开头的路径
-								relPath := strings.TrimPrefix(fetchURL, "./")
-								fullFetchURL = baseURL + "/" + relPath
-							}
-							
-							// 确保fullFetchURL不以/结尾
-							fullFetchURL = strings.TrimSuffix(fullFetchURL, "/")
-							
-							// 构建完整的项目URL
-							if p.Name != "" {
-								remoteURL = fullFetchURL + "/" + p.Name
-								if e.options.Verbose {
-									e.logger.Debug("从清单远程配置构建URL: %s (基于fetch=%s)", remoteURL, fetchURL)
-								}
-								return remoteURL
-							}
-						}
-					}
-				} else if fetchURL != "" {
-					// 如果fetch是绝对路径或其他格式的相对路径（如 ../../github_mirror/）
-					// 处理 ../../ 开头的路径
-					if strings.HasPrefix(fetchURL, "../../") {
-						// 从配置中获取基础URL
-						if e.config != nil && e.config.ManifestURL != "" {
-							baseURL := e.config.ExtractBaseURLFromManifestURL(e.config.ManifestURL)
-							if baseURL != "" {
-								// 确保baseURL不以/结尾
-								baseURL = strings.TrimSuffix(baseURL, "/")
-								
-								// 对于每个 "../../"，从baseURL中移除两个路径段
-								tempBaseURL := baseURL
-								count := 0
-								for strings.HasPrefix(fetchURL[count*6:], "../../") {
-									count++
-								}
-								
-								for i := 0; i < count*2; i++ {
-									lastSlashIndex := strings.LastIndex(tempBaseURL, "/")
-									if lastSlashIndex != -1 {
-										tempBaseURL = tempBaseURL[:lastSlashIndex]
-									}
-								}
-								
-								// 添加剩余的路径部分
-								remainPath := strings.TrimPrefix(fetchURL, strings.Repeat("../../", count))
-								var fullFetchURL string
-								if remainPath != "" {
-									fullFetchURL = tempBaseURL + "/" + remainPath
-								} else {
-									fullFetchURL = tempBaseURL
-								}
-								
-								// 确保fullFetchURL不以/结尾
-								fullFetchURL = strings.TrimSuffix(fullFetchURL, "/")
-								
-								// 构建完整的项目URL
-								if p.Name != "" {
-									remoteURL = fullFetchURL + "/" + p.Name
-									if e.options.Verbose {
-										e.logger.Debug("从清单远程配置构建URL: %s (基于fetch=%s)", remoteURL, fetchURL)
-									}
-									return remoteURL
-								}
-							}
-						}
-					} else {
-						// 处理其他绝对路径
-						// 确保fetchURL不以/结尾
-						fetchURL = strings.TrimSuffix(fetchURL, "/")
-						
-						// 构建完整的项目URL
-						if p.Name != "" {
-							remoteURL = fetchURL + "/" + p.Name
-							if e.options.Verbose {
-								e.logger.Debug("从清单远程配置构建URL: %s (基于fetch=%s)", remoteURL, fetchURL)
-							}
-							return remoteURL
-						}
-					}
-				}
-				break
-			}
-		}
-	}
-
-	// 如果无法从清单中解析，则使用原来的逻辑
 	// 如果是相对路径，转换为完整的 URL
 	if remoteURL == ".." || strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
 		// 从配置中获取基础URL
 		if e.config != nil && e.config.ManifestURL != "" {
 			baseURL := e.config.ExtractBaseURLFromManifestURL(e.config.ManifestURL)
 			if baseURL != "" {
-				// 特殊处理单独的 ".." 路径
-				if remoteURL == ".." {
-					// 对于单独的 ".."，直接返回基础URL
-					remoteURL = baseURL
-					if e.options.Verbose {
-						e.logger.Debug("将相对路径 %s 转换为远程 URL: %s", p.RemoteURL, remoteURL)
-					}
-					return remoteURL
-				}
-
-				// 处理其他相对路径
+				// 移除相对路径前缀
 				var relPath string
-				relPath = strings.TrimPrefix(remoteURL, "../")
-				relPath = strings.TrimPrefix(relPath, "./")
+				if remoteURL == ".." {
+					// 处理单独的 ".." 路径
+					relPath = ""
+				} else {
+					relPath = strings.TrimPrefix(remoteURL, "../")
+					relPath = strings.TrimPrefix(relPath, "./")
+				}
 
 				// 确保baseURL不以/结尾
 				baseURL = strings.TrimSuffix(baseURL, "/")
 
 				// 构建完整URL
-				remoteURL = baseURL + "/" + relPath
+				if relPath == "" {
+					remoteURL = baseURL
+				} else {
+					remoteURL = baseURL + "/" + relPath
+				}
 
 				if e.options.Verbose {
 					e.logger.Debug("将相对路径 %s 转换为远程 URL: %s", p.RemoteURL, remoteURL)

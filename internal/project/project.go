@@ -94,14 +94,25 @@ func (p *Project) IsInGroup(group string) bool {
 }
 
 // IsInAnyGroup 检查项目是否在任意指定组中
+// 注意：当指定多个组时，项目必须至少属于其中一个组才会被包含
 func (p *Project) IsInAnyGroup(groups []string) bool {
 	if len(groups) == 0 {
 		return true
 	}
 	
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	
+	// 检查项目是否属于任意一个指定的组
 	for _, group := range groups {
-		if p.IsInGroup(group) {
-			return true
+		if group == "" {
+			continue // 跳过空组名
+		}
+		
+		for _, projectGroup := range p.Groups {
+			if projectGroup == group {
+				return true
+			}
 		}
 	}
 	

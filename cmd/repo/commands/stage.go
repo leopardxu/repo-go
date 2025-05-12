@@ -20,6 +20,9 @@ type StageOptions struct {
 	Interactive     bool
 	Verbose         bool
 	Quiet           bool
+	OuterManifest   bool
+	NoOuterManifest bool
+	ThisManifestOnly bool
 	Patch           bool
 	Edit            bool
 	Force           bool

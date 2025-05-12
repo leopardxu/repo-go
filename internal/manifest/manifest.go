@@ -557,6 +557,8 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 		manifest.Remotes[i].CustomAttrs = make(map[string]string)
 	}
 
+	// 处理项目
+
 	for i := range manifest.Projects {
 		manifest.Projects[i].CustomAttrs = make(map[string]string)
 		// 如果项目没有指定路径，则使用项目名称作为默认路径
@@ -598,6 +600,8 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 				remoteURL += "/"
 			}
 			remoteURL += manifest.Projects[i].Name
+			
+			// 存储完整的远程URL
 			manifest.Projects[i].CustomAttrs["__remote_url"] = remoteURL
 			logger.Debug("项目 %s 的远程URL: %s", manifest.Projects[i].Name, remoteURL)
 		}
@@ -626,6 +630,34 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 	if err := p.processIncludes(&manifest, groups); err != nil {
 		return nil, &ManifestError{Op: "process_includes", Err: err}
 	}
+
+	// 对项目列表进行去重处理
+	deduplicatedProjects := make([]Project, 0)
+	projectMap := make(map[string]bool) // 用于跟踪项目名称
+	pathMap := make(map[string]bool)   // 用于跟踪项目路径
+
+	for _, proj := range manifest.Projects {
+		// 使用项目名称和路径作为唯一标识
+		key := proj.Name
+		pathKey := proj.Path
+
+		// 如果项目名称或路径已存在，则跳过
+		if projectMap[key] || pathMap[pathKey] {
+			logger.Debug("跳过重复项目: %s (路径: %s)", key, pathKey)
+			continue
+		}
+
+		// 标记项目名称和路径为已处理
+		projectMap[key] = true
+		pathMap[pathKey] = true
+
+		// 添加到去重后的列表
+		deduplicatedProjects = append(deduplicatedProjects, proj)
+	}
+
+	// 更新项目列表
+	logger.Info("项目去重: 原始数量 %d, 去重后数量 %d", len(manifest.Projects), len(deduplicatedProjects))
+	manifest.Projects = deduplicatedProjects
 
 	// 根据groups过滤项目
 	if len(groups) > 0 && !containsAll(groups) {

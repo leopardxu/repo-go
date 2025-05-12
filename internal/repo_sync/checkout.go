@@ -5,6 +5,7 @@ import (
 	"io" 
 	"os" 
 	"path/filepath" 
+	"strings"
 	"sync"
 
 	"github.com/cix-code/gogo/internal/logger"
@@ -280,10 +281,32 @@ func (e *Engine) checkoutOneBranch(project *project.Project) CheckoutResult {
 	} else {
 		// 否则，创建并检出指定分支
 		e.log.Debug("项目 %s 创建并检出分支 %s", project.Name, e.branchName)
-		_, err := project.GitRepo.RunCommand("checkout", "-B", e.branchName)
-		if err != nil {
-			e.log.Error("项目 %s 创建并检出分支失败: %v", project.Name, err)
-			return CheckoutResult{Success: false, Project: project}
+		
+		// 先检查远程分支是否存在冲突
+		output, _ := project.GitRepo.RunCommand("branch", "-r", "--list", fmt.Sprintf("*/%s", e.branchName))
+		remoteBranches := strings.Split(strings.TrimSpace(string(output)), "\n")
+		
+		if len(remoteBranches) > 1 {
+			// 多个远程分支匹配，需要明确指定远程分支
+			if e.options.DefaultRemote != "" {
+				// 使用配置的默认远程
+				_, err := project.GitRepo.RunCommand("checkout", "--track", fmt.Sprintf("%s/%s", e.options.DefaultRemote, e.branchName))
+				if err != nil {
+					e.log.Error("项目 %s 检出远程分支失败: %v", project.Name, err)
+					return CheckoutResult{Success: false, Project: project}
+				}
+			} else {
+				// 没有配置默认远程，返回错误
+				e.log.Error("项目 %s 检出失败: 分支 '%s' 匹配多个远程跟踪分支", project.Name, e.branchName)
+				return CheckoutResult{Success: false, Project: project}
+			}
+		} else {
+			// 正常创建并检出分支
+			_, err := project.GitRepo.RunCommand("checkout", "-B", e.branchName)
+			if err != nil {
+				e.log.Error("项目 %s 创建并检出分支失败: %v", project.Name, err)
+				return CheckoutResult{Success: false, Project: project}
+			}
 		}
 	}
 	

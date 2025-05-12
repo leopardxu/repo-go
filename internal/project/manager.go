@@ -111,10 +111,9 @@ func (m *Manager) GetProjectsInGroups(groups []string) ([]*Project, error) {
 	// 获取在指定组中的项目
 	projects := m.GetProjectsInAnyGroup(groups)
 	
-	// 如果没有找到项目，返回错误
+	// 如果没有找到项目，返回空列表而不是错误，让调用者决定如何处理
 	if len(projects) == 0 {
-		logger.Warn("在指定组 %v 中未找到项目", groups)
-		return nil, fmt.Errorf("在指定组 %v 中未找到项目", groups)
+		logger.Warn("在指定组 %v 中未找到项目，返回空列表", groups)
 	}
 	
 	logger.Info("找到 %d 个匹配项目", len(projects))

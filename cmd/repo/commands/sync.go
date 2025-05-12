@@ -50,6 +50,7 @@ type SyncOptions struct {
 	SmartTag               string
 	NoThisManifestOnly     bool
 	GitLFS                 bool // 是否启用Git LFS支持
+	DefaultRemote          string // 默认远程仓库名称，用于解决分支匹配多个远程的问题
 	Config                 *config.Config
 	CommonManifestOptions
 }
@@ -150,8 +151,8 @@ func SyncCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.NoThisManifestOnly, "all-manifests", false, "operate on this manifest and its submanifests")
 	cmd.Flags().StringVarP(&opts.ManifestServerUsername, "manifest-server-username", "u", "", "username to authenticate with the manifest server")
 	cmd.Flags().StringVarP(&opts.ManifestServerPassword, "manifest-server-password", "w", "", "password to authenticate with the manifest server")
-	// 添加Git LFS支持选项
-	cmd.Flags().BoolVar(&opts.GitLFS, "git-lfs", false, "启用 Git LFS 支持")
+	cmd.Flags().BoolVar(&opts.GitLFS, "git-lfs", true, "启用 Git LFS 支持")
+	cmd.Flags().StringVar(&opts.DefaultRemote, "default-remote", "origin", "设置默认远程仓库名称，用于解决分支匹配多个远程的问题")
 
 	return cmd
 }
@@ -176,10 +177,35 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
         return fmt.Errorf("manifest.xml文件不存在，请先运行 'repo init' 命令")
     }
 
-    // 加载清单
-    log.Debug("正在加载清单文件: %s", cfg.ManifestName)
+    // 如果命令行没有指定 groups 参数，则从配置文件中读取
+    if opts.Groups == "" && cfg.Groups != "" {
+        log.Debug("从配置文件中读取组信息: %s", cfg.Groups)
+        opts.Groups = cfg.Groups
+        log.Info("使用配置文件中的组信息: %s", cfg.Groups)
+    }
+    
+    // 加载合并后的清单文件(.repo/manifest.xml)，不使用原始仓库列表
+    log.Debug("正在加载合并后的清单文件: %s", manifestPath)
     parser := manifest.NewParser()
-    manifestObj, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
+    var groupsSlice []string
+    if opts.Groups != "" {
+        groupsSlice = strings.Split(opts.Groups, ",")
+        // 去除空白组
+        validGroups := make([]string, 0, len(groupsSlice))
+        for _, g := range groupsSlice {
+            g = strings.TrimSpace(g)
+            if g != "" {
+                validGroups = append(validGroups, g)
+            }
+        }
+        groupsSlice = validGroups
+        log.Info("根据以下组过滤清单: %v", groupsSlice)
+    } else {
+        log.Info("未指定组过滤，将加载所有项目")
+    }
+    
+    // 解析合并后的清单文件，根据组过滤项目
+    manifestObj, err := parser.ParseFromFile(manifestPath, groupsSlice)
     if err != nil {
         log.Error("解析清单失败: %v", err)
         return fmt.Errorf("failed to parse manifest: %w", err)
@@ -194,7 +220,14 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
     if len(args) == 0 {
         // 如果没有指定项目，则处理所有项目
         log.Debug("获取所有项目...")
-        projects, err = manager.GetProjectsInGroups(nil)
+        // 直接使用 groupsSlice 过滤项目，确保只获取指定组的项目
+        if len(groupsSlice) > 0 {
+            log.Debug("根据组过滤获取项目: %v", groupsSlice)
+            projects, err = manager.GetProjectsInGroups(groupsSlice)
+        } else {
+            log.Debug("获取所有项目，不进行组过滤")
+            projects, err = manager.GetProjectsInGroups(nil)
+        }
         if err != nil {
             log.Error("获取项目失败: %v", err)
             return fmt.Errorf("获取项目失败: %w", err)
@@ -211,13 +244,13 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
         log.Debug("共获取到 %d 个项目", len(projects))
     }
     
-    // 过滤项目列表，根据groups参数
-    if opts.Groups != "" {
-        log.Debug("根据组过滤项目: %s", opts.Groups)
-        groups := strings.Split(opts.Groups, ",")
-        filteredProjects := filterProjectsByGroups(projects, groups)
-        log.Debug("过滤后剩余 %d 个项目", len(filteredProjects))
-        projects = filteredProjects
+    // 项目已经在 GetProjectsInGroups 中根据组过滤，不需要再次过滤
+    log.Info("找到 %d 个匹配项目", len(projects))
+    
+    // 如果过滤后没有项目，提前返回错误
+    if len(projects) == 0 {
+        log.Warn("在指定组 %v 中未找到匹配的项目，请检查组名是否正确", groupsSlice)
+        return fmt.Errorf("在指定组 %v 中未找到匹配的项目", groupsSlice)
     }
 
     // 检查是否有项目需要同步
@@ -228,6 +261,13 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 
     // 创建同步引擎
     log.Debug("创建同步引擎...")
+    // 使用已经处理好的 groupsSlice，避免重复处理
+    if len(groupsSlice) > 0 {
+        log.Info("使用以下组过滤项目: %v", groupsSlice)
+    } else {
+        log.Info("未指定组过滤，将同步所有项目")
+    }
+    
     engine := repo_sync.NewEngine(&repo_sync.Options{
         Jobs:           opts.Jobs,
         JobsNetwork:    opts.JobsNetwork,
@@ -248,7 +288,7 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
         FetchSubmodules: opts.FetchSubmodules,
         OptimizedFetch: opts.OptimizedFetch,
         RetryFetches:   opts.RetryFetches,
-        Groups:         nil, // 已在前面处理过groups
+        Groups:         groupsSlice, // 传递已处理的分组信息，确保只克隆指定组的仓库
         FailFast:       opts.FailFast,
         NoManifestUpdate: opts.NoManifestUpdate,
         UseSuperproject: opts.UseSuperproject && !opts.NoUseSuperproject,
@@ -257,6 +297,7 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
         ManifestServerUsername: opts.ManifestServerUsername,
         ManifestServerPassword: opts.ManifestServerPassword,
         GitLFS:         opts.GitLFS, // 添加Git LFS支持选项
+        DefaultRemote:  opts.DefaultRemote, // 添加默认远程仓库选项
         Config:         opts.Config, // 添加Config字段，传递配置信息
     }, manifestObj, log)
     
@@ -287,6 +328,9 @@ func filterProjectsByGroups(projects []*project.Project, groups []string) []*pro
         return projects
     }
     
+    fmt.Printf("根据以下组过滤项目: %v\n", groups)
+    fmt.Printf("过滤前的项目数量: %d\n", len(projects))
+    
     var filtered []*project.Project
     for _, p := range projects {
         if p.IsInAnyGroup(groups) {
@@ -294,5 +338,9 @@ func filterProjectsByGroups(projects []*project.Project, groups []string) []*pro
         }
     }
     
+    fmt.Printf("过滤后的项目数量: %d (原始数量: %d)\n", len(filtered), len(projects))
+    if len(filtered) == 0 {
+        fmt.Printf("警告: 过滤后没有匹配的项目，请检查组名是否正确\n")
+    }
     return filtered
 }

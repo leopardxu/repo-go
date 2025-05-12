@@ -142,6 +142,7 @@ func (e *Engine) SyncAll() error {
 }
 
 // loadManifestSilently 静默加载清单
+// 只使用合并后的清单文件(.repo/manifest.xml)作为输入，不使用原始仓库列表
 func (e *Engine) loadManifestSilently() error {
 	parser := manifest.NewParser()
 	// 设置解析器为静默模式
@@ -164,9 +165,10 @@ func (e *Engine) loadManifestSilently() error {
 		groups = validGroups
 	}
 	
-	// 直接使用.repo/manifest.xml文件
+	// 直接使用.repo/manifest.xml文件（合并后的清单）
 	manifestPath := filepath.Join(e.repoRoot, ".repo", "manifest.xml")
 
+	// 解析合并后的清单文件，根据组过滤项目
 	m, err := parser.ParseFromFile(manifestPath, groups)
 	if err != nil {
 		return fmt.Errorf("加载清单文件失败: %w", err)
