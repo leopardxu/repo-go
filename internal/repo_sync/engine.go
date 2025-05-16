@@ -1,10 +1,12 @@
 package repo_sync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -12,8 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"bytes"
-	"os/exec"
 
 	"github.com/cix-code/gogo/internal/config"
 	"github.com/cix-code/gogo/internal/logger"
@@ -42,12 +42,12 @@ func (e *SyncError) Error() string {
 	if e.RetryCount > 0 {
 		retryInfo = fmt.Sprintf(" (重试次数: %d)", e.RetryCount)
 	}
-	
+
 	if e.Output != "" {
-		return fmt.Sprintf("[%s] %s 在 %s 阶段失败%s: %v\n%s", 
+		return fmt.Sprintf("[%s] %s 在 %s 阶段失败%s: %v\n%s",
 			timeStr, e.ProjectName, e.Phase, retryInfo, e.Err, e.Output)
 	}
-	return fmt.Sprintf("[%s] %s 在 %s 阶段失败%s: %v", 
+	return fmt.Sprintf("[%s] %s 在 %s 阶段失败%s: %v",
 		timeStr, e.ProjectName, e.Phase, retryInfo, e.Err)
 }
 
@@ -67,28 +67,28 @@ func NewMultiError(errs []error) error {
 
 // Engine 同步引擎
 type Engine struct {
-	projects       []*project.Project
-	config         *config.Config
-	options        *Options
-	logger         logger.Logger
-	progressReport progress.Reporter
-	workerPool     *workerpool.WorkerPool
-	repoRoot       string
-	errors         []error
-	errorsMu       sync.Mutex
-	errResults     []string
-	manifestCache  []byte
-	manifest       *manifest.Manifest
-	errEvent       chan error // 添加 errEvent 字段
-	sshProxy       *ssh.Proxy // 添加 sshProxy 字段
-	fetchTimes     map[string]time.Time // 添加 fetchTimes 字段
-	fetchTimesLock sync.Mutex // 添加 fetchTimesLock 字段
-	ctx            context.Context // 添加 ctx 字段
-	log            logger.Logger // 添加 log 字段
-	branchName     string       // 要检出的分支名称
-	checkoutStats  *checkoutStats // 检出操作的统计信息
-	commitHash     string       // 要cherry-pick的提交哈希
-	cherryPickStats *cherryPickStats // cherry-pick操作的统计信息
+	projects        []*project.Project
+	config          *config.Config
+	options         *Options
+	logger          logger.Logger
+	progressReport  progress.Reporter
+	workerPool      *workerpool.WorkerPool
+	repoRoot        string
+	errors          []error
+	errorsMu        sync.Mutex
+	errResults      []string
+	manifestCache   []byte
+	manifest        *manifest.Manifest
+	errEvent        chan error           // 添加 errEvent 字段
+	sshProxy        *ssh.Proxy           // 添加 sshProxy 字段
+	fetchTimes      map[string]time.Time // 添加 fetchTimes 字段
+	fetchTimesLock  sync.Mutex           // 添加 fetchTimesLock 字段
+	ctx             context.Context      // 添加 ctx 字段
+	log             logger.Logger        // 添加 log 字段
+	branchName      string               // 要检出的分支名称
+	checkoutStats   *checkoutStats       // 检出操作的统计信息
+	commitHash      string               // 要cherry-pick的提交哈希
+	cherryPickStats *cherryPickStats     // cherry-pick操作的统计信息
 }
 
 // NewEngine 创建同步引擎
@@ -113,10 +113,10 @@ func NewEngine(options *Options, manifest *manifest.Manifest, log logger.Logger)
 		logger:         log,
 		progressReport: progressReport,
 		workerPool:     workerpool.New(options.Jobs),
-		errEvent:       make(chan error), // 初始化 errEvent 字段
+		errEvent:       make(chan error),           // 初始化 errEvent 字段
 		fetchTimes:     make(map[string]time.Time), // 初始化 fetchTimes 映射
-		ctx:            context.Background(), // 初始化 ctx 字段
-		log:            log, // 初始化 log 字段
+		ctx:            context.Background(),       // 初始化 ctx 字段
+		log:            log,                        // 初始化 log 字段
 	}
 }
 
@@ -184,8 +184,8 @@ func (e *Engine) Sync() error {
 					}
 				}
 
-				progressMsg := fmt.Sprintf("%s: %s (进度: %d/%d, 成功: %d, 失败: %d%s)", 
-					project.Name, status, current, totalProjects, 
+				progressMsg := fmt.Sprintf("%s: %s (进度: %d/%d, 成功: %d, 失败: %d%s)",
+					project.Name, status, current, totalProjects,
 					successCount, failCount, etaStr)
 				e.progressReport.Update(int(current), progressMsg)
 			}
@@ -213,7 +213,7 @@ func (e *Engine) Sync() error {
 
 	// 汇总错误
 	if len(e.errors) > 0 {
-		e.logger.Error("同步完成，有 %d 个项目失败，总耗时: %s", 
+		e.logger.Error("同步完成，有 %d 个项目失败，总耗时: %s",
 			len(e.errors), formatDuration(totalDuration))
 		return NewMultiError(e.errors)
 	}
@@ -286,34 +286,63 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 
 	// 如果是相对路径，转换为完整的 URL
 	if remoteURL == ".." || strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
-		// 从配置中获取基础URL
+		// 尝试获取配置
+		var cfg *config.Config
+		var manifestURL string
+
+		// 首先检查 e.config 是否已初始化
 		if e.config != nil && e.config.ManifestURL != "" {
-			baseURL := e.config.ExtractBaseURLFromManifestURL(e.config.ManifestURL)
+			cfg = e.config
+			manifestURL = e.config.ManifestURL
+		} else {
+			// 如果 e.config 为空或 ManifestURL 为空，尝试从文件加载配置
+			var err error
+			cfg, err = config.Load()
+			if err == nil && cfg != nil {
+				// 更新 Engine 的配置
+				e.config = cfg
+				manifestURL = cfg.ManifestURL
+				if e.options != nil && e.options.Verbose && e.logger != nil {
+					e.logger.Debug("已从文件加载配置，ManifestURL: %s", manifestURL)
+				}
+			} else if e.logger != nil {
+				e.logger.Debug("无法从文件加载配置: %v", err)
+			}
+		}
+
+		// 如果成功获取到配置和ManifestURL，解析相对路径
+		if cfg != nil && manifestURL != "" {
+			// 安全地调用 ExtractBaseURLFromManifestURL 方法
+			baseURL := cfg.ExtractBaseURLFromManifestURL(manifestURL)
 			if baseURL != "" {
 				// 移除相对路径前缀
 				var relPath string
 				if remoteURL == ".." {
 					// 处理单独的 ".." 路径
-					relPath = ""
+					// 对于 ".."，我们需要使用项目名称作为路径
+					relPath = p.Name
 				} else {
 					relPath = strings.TrimPrefix(remoteURL, "../")
 					relPath = strings.TrimPrefix(relPath, "./")
+					// 如果相对路径为空，使用项目名称
+					if relPath == "" {
+						relPath = p.Name
+					}
 				}
 
 				// 确保baseURL不以/结尾
 				baseURL = strings.TrimSuffix(baseURL, "/")
 
 				// 构建完整URL
-				if relPath == "" {
-					remoteURL = baseURL
-				} else {
-					remoteURL = baseURL + "/" + relPath
-				}
+				remoteURL = baseURL + "/" + relPath
 
-				if e.options.Verbose {
+				if e.options != nil && e.options.Verbose && e.logger != nil {
 					e.logger.Debug("将相对路径 %s 转换为远程 URL: %s", p.RemoteURL, remoteURL)
 				}
 			}
+		} else if e.logger != nil {
+			// 记录警告日志，配置为空或缺少ManifestURL
+			e.logger.Debug("无法解析相对路径 %s: 配置为空或缺少ManifestURL", p.RemoteURL)
 		}
 	}
 
@@ -359,29 +388,29 @@ func (e *Engine) fetchProject(p *project.Project) error {
 	const maxRetries = 3
 	var lastErr error
 	var stderr bytes.Buffer
-	
+
 	for retryCount := 0; retryCount <= maxRetries; retryCount++ {
 		// 如果不是第一次尝试，则等待一段时间后重试
 		if retryCount > 0 {
 			retryDelay := time.Duration(retryCount) * 2 * time.Second
-			e.logger.Info("正在重试获取项目 %s (第 %d 次尝试)，将在 %v 后重试", 
+			e.logger.Info("正在重试获取项目 %s (第 %d 次尝试)，将在 %v 后重试",
 				p.Name, retryCount, retryDelay)
 			time.Sleep(retryDelay)
-			
+
 			// 清空上一次的错误输出
 			stderr.Reset()
 		}
-		
+
 		// 执行 git fetch
 		cmd := exec.Command("git", args...)
 		cmd.Stderr = &stderr
 		lastErr = cmd.Run()
-		
+
 		if lastErr == nil {
 			// 成功获取，跳出重试循环
 			break
 		}
-		
+
 		// 如果已经达到最大重试次数，则返回错误
 		if retryCount == maxRetries {
 			return &SyncError{
@@ -448,35 +477,35 @@ func (e *Engine) cloneProject(p *project.Project) error {
 	const maxRetries = 3
 	var lastErr error
 	var stderr bytes.Buffer
-	
+
 	for retryCount := 0; retryCount <= maxRetries; retryCount++ {
 		// 如果不是第一次尝试，则等待一段时间后重试
 		if retryCount > 0 {
 			retryDelay := time.Duration(retryCount) * 3 * time.Second
-			e.logger.Info("正在重试克隆项目 %s (第 %d 次尝试)，将在 %v 后重试", 
+			e.logger.Info("正在重试克隆项目 %s (第 %d 次尝试)，将在 %v 后重试",
 				p.Name, retryCount, retryDelay)
 			time.Sleep(retryDelay)
-			
+
 			// 清空上一次的错误输出
 			stderr.Reset()
-			
+
 			// 检查目标目录是否已存在但不完整，如果存在则删除
 			if _, err := os.Stat(p.Worktree); err == nil {
 				e.logger.Info("删除不完整的克隆目录: %s", p.Worktree)
 				os.RemoveAll(p.Worktree)
 			}
 		}
-		
+
 		// 执行 clone 命令
 		cmd := exec.Command("git", args...)
 		cmd.Stderr = &stderr
 		lastErr = cmd.Run()
-		
+
 		if lastErr == nil {
 			// 成功克隆，跳出重试循环
 			break
 		}
-		
+
 		// 如果已经达到最大重试次数，则返回错误
 		if retryCount == maxRetries {
 			return &SyncError{
@@ -526,18 +555,18 @@ func (e *Engine) checkoutProject(p *project.Project) error {
 	const maxRetries = 2 // 检出操作通常不需要太多重试
 	var lastErr error
 	var stderr bytes.Buffer
-	
+
 	for retryCount := 0; retryCount <= maxRetries; retryCount++ {
 		// 如果不是第一次尝试，则等待一段时间后重试
 		if retryCount > 0 {
 			retryDelay := time.Duration(retryCount) * time.Second
-			e.logger.Info("正在重试检出项目 %s 的 %s 分支 (第 %d 次尝试)，将在 %v 后重试", 
+			e.logger.Info("正在重试检出项目 %s 的 %s 分支 (第 %d 次尝试)，将在 %v 后重试",
 				p.Name, p.Revision, retryCount, retryDelay)
 			time.Sleep(retryDelay)
-			
+
 			// 清空上一次的错误输出
 			stderr.Reset()
-			
+
 			// 如果检出失败，可能是因为有未提交的更改，尝试强制检出
 			if retryCount == maxRetries {
 				e.logger.Info("尝试强制检出项目 %s", p.Name)
@@ -549,17 +578,17 @@ func (e *Engine) checkoutProject(p *project.Project) error {
 				args = forceArgs
 			}
 		}
-		
+
 		// 执行 checkout 命令
 		cmd := exec.Command("git", args...)
 		cmd.Stderr = &stderr
 		lastErr = cmd.Run()
-		
+
 		if lastErr == nil {
 			// 成功检出，跳出重试循环
 			break
 		}
-		
+
 		// 如果已经达到最大重试次数，则返回错误
 		if retryCount == maxRetries {
 			return &SyncError{
@@ -723,12 +752,12 @@ func (e *Engine) fetchMainParallel(projects []*project.Project) error {
 // checkoutProject 执行单个项目的本地检出
 // checkoutProjectSimple 简单检出项目
 func (e *Engine) checkoutProjectSimple(p *project.Project) error {
-    // 检查项目工作目录是否存在
-    if _, err := os.Stat(p.Worktree); os.IsNotExist(err) {
-        return fmt.Errorf("project directory %q does not exist", p.Worktree)
-    }
-    
-    // 实现项目本地检出逻辑
+	// 检查项目工作目录是否存在
+	if _, err := os.Stat(p.Worktree); os.IsNotExist(err) {
+		return fmt.Errorf("project directory %q does not exist", p.Worktree)
+	}
+
+	// 实现项目本地检出逻辑
 	return nil
 }
 
@@ -797,18 +826,18 @@ func (e *Engine) updateProjectList() error {
 			newProjectPaths = append(newProjectPaths, project.Relpath)
 		}
 	}
-	
+
 	fileName := "project.list"
 	filePath := filepath.Join(e.manifest.Subdir, fileName)
 	oldProjectPaths := []string{}
-	
+
 	if _, err := os.Stat(filePath); err == nil {
 		data, err := os.ReadFile(filePath)
 		if err != nil {
 			return fmt.Errorf("读取项目列表失败: %w", err)
 		}
 		oldProjectPaths = strings.Split(string(data), "\n")
-		
+
 		// 按照反向顺序，先删除子文件夹再删除父文件夹
 		for _, path := range oldProjectPaths {
 			if path == "" {
@@ -830,13 +859,13 @@ func (e *Engine) updateProjectList() error {
 			}
 		}
 	}
-	
+
 	// 排序并写入新的项目列表
 	sort.Strings(newProjectPaths)
 	if err := os.WriteFile(filePath, []byte(strings.Join(newProjectPaths, "\n")+"\n"), 0644); err != nil {
 		return fmt.Errorf("写入项目列表失败: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -844,7 +873,7 @@ func (e *Engine) updateProjectList() error {
 func (e *Engine) updateCopyLinkfileList() error {
 	newLinkfilePaths := []string{}
 	newCopyfilePaths := []string{}
-	
+
 	for _, project := range e.projects {
 		for _, linkfile := range project.Linkfiles {
 			newLinkfilePaths = append(newLinkfilePaths, linkfile.Dest)
@@ -853,123 +882,122 @@ func (e *Engine) updateCopyLinkfileList() error {
 			newCopyfilePaths = append(newCopyfilePaths, copyfile.Dest)
 		}
 	}
-	
+
 	newPaths := map[string][]string{
 		"linkfile": newLinkfilePaths,
 		"copyfile": newCopyfilePaths,
 	}
-	
+
 	copylinkfileName := "copy-link-files.json"
 	copylinkfilePath := filepath.Join(e.manifest.Subdir, copylinkfileName)
 	oldCopylinkfilePaths := map[string][]string{}
-	
+
 	if _, err := os.Stat(copylinkfilePath); err == nil {
 		data, err := os.ReadFile(copylinkfilePath)
 		if err != nil {
 			return fmt.Errorf("读取copy-link-files.json失败: %w", err)
 		}
-		
+
 		if err := json.Unmarshal(data, &oldCopylinkfilePaths); err != nil {
 			fmt.Printf("错误: %s 不是一个JSON格式的文件。\n", copylinkfilePath)
 			os.Remove(copylinkfilePath)
 			return nil
 		}
-		
+
 		// 删除不再需要的文件
 		needRemoveFiles := []string{}
-		needRemoveFiles = append(needRemoveFiles, 
+		needRemoveFiles = append(needRemoveFiles,
 			difference(oldCopylinkfilePaths["linkfile"], newLinkfilePaths)...)
-		needRemoveFiles = append(needRemoveFiles, 
+		needRemoveFiles = append(needRemoveFiles,
 			difference(oldCopylinkfilePaths["copyfile"], newCopyfilePaths)...)
-		
+
 		for _, file := range needRemoveFiles {
 			os.Remove(file)
 		}
 	}
-	
+
 	// 创建新的copy-link-files.json
 	data, err := json.Marshal(newPaths)
 	if err != nil {
 		return fmt.Errorf("序列化copy-link-files.json失败: %w", err)
 	}
-	
+
 	if err := os.WriteFile(copylinkfilePath, data, 0644); err != nil {
 		return fmt.Errorf("写入copy-link-files.json失败: %w", err)
 	}
-	
+
 	return nil
 }
 
-
 // reloadManifest 重新加载清单
-func (e *Engine) reloadManifest(manifestName string, localOnly bool,groups []string) error {
-    if manifestName == "" {
-        manifestName = e.config.ManifestName
-    }
-    
-    // 解析清单
-    parser := manifest.NewParser()
-    newManifest, err := parser.ParseFromFile(manifestName,groups)
-    if err != nil {
-        return fmt.Errorf("failed to parse manifest: %w", err)
-    }
-    
-    // 更新清单
-    e.manifest = newManifest
-    
-    // 更新项目列表 - 修复参数类型
-    projects, err := project.NewManagerFromManifest(e.manifest, e.config).GetProjectsInGroups(e.options.Groups)
-    if err != nil {
-        return fmt.Errorf("failed to get projects: %w", err)
-    }
-    
-    e.projects = projects
-    
-    return nil
+func (e *Engine) reloadManifest(manifestName string, localOnly bool, groups []string) error {
+	if manifestName == "" {
+		manifestName = e.config.ManifestName
+	}
+
+	// 解析清单
+	parser := manifest.NewParser()
+	newManifest, err := parser.ParseFromFile(manifestName, groups)
+	if err != nil {
+		return fmt.Errorf("failed to parse manifest: %w", err)
+	}
+
+	// 更新清单
+	e.manifest = newManifest
+
+	// 更新项目列表 - 修复参数类型
+	projects, err := project.NewManagerFromManifest(e.manifest, e.config).GetProjectsInGroups(e.options.Groups)
+	if err != nil {
+		return fmt.Errorf("failed to get projects: %w", err)
+	}
+
+	e.projects = projects
+
+	return nil
 }
 
 // getProjects 获取项目列表
 func (e *Engine) getProjects() ([]*project.Project, error) {
-    // 如果已经有项目列表，直接返回
-    if len(e.projects) > 0 {
-        return e.projects, nil
-    }
-    
-    // 获取项目列表 - 修复参数类型
-    projects, err := project.NewManagerFromManifest(e.manifest, e.config).GetProjectsInGroups(e.options.Groups)
-    if err != nil {
-        return nil, fmt.Errorf("failed to get projects: %w", err)
-    }
-    
-    e.projects = projects
-    
-    return e.projects, nil
+	// 如果已经有项目列表，直接返回
+	if len(e.projects) > 0 {
+		return e.projects, nil
+	}
+
+	// 获取项目列表 - 修复参数类型
+	projects, err := project.NewManagerFromManifest(e.manifest, e.config).GetProjectsInGroups(e.options.Groups)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get projects: %w", err)
+	}
+
+	e.projects = projects
+
+	return e.projects, nil
 }
 
 // reloadManifestFromCache 重新加载manifest
 func (e *Engine) reloadManifestFromCache() error {
-    if len(e.manifestCache) == 0 {
-        return fmt.Errorf("manifest cache is empty")
-    }
+	if len(e.manifestCache) == 0 {
+		return fmt.Errorf("manifest cache is empty")
+	}
 
-    // 解析缓存的manifest数据
-    parser := manifest.NewParser()
-    newManifest, err := parser.ParseFromBytes(e.manifestCache,e.options.Groups)
-    if err != nil {
-        return fmt.Errorf("failed to parse manifest from cache: %w", err)
-    }
+	// 解析缓存的manifest数据
+	parser := manifest.NewParser()
+	newManifest, err := parser.ParseFromBytes(e.manifestCache, e.options.Groups)
+	if err != nil {
+		return fmt.Errorf("failed to parse manifest from cache: %w", err)
+	}
 
-    // 更新引擎中的manifest
-    e.manifest = newManifest
+	// 更新引擎中的manifest
+	e.manifest = newManifest
 
-    // 重新获取项目列表
-    projects, err := project.NewManagerFromManifest(e.manifest, e.config).GetProjectsInGroups(e.options.Groups)
-    if err != nil {
-        return fmt.Errorf("failed to get projects from cached manifest: %w", err)
-    }
-    e.projects = projects
+	// 重新获取项目列表
+	projects, err := project.NewManagerFromManifest(e.manifest, e.config).GetProjectsInGroups(e.options.Groups)
+	if err != nil {
+		return fmt.Errorf("failed to get projects from cached manifest: %w", err)
+	}
+	e.projects = projects
 
-    return nil
+	return nil
 }
 
 // updateProjectsRevisionId 方法
@@ -979,13 +1007,13 @@ func (e *Engine) updateProjectsRevisionId() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("创建超级项目失败: %w", err)
 	}
-	
+
 	// 更新项目的修订ID
 	manifestPath, err := sp.UpdateProjectsRevisionId(e.projects)
 	if err != nil {
 		return "", fmt.Errorf("更新项目修订ID失败: %w", err)
 	}
-	
+
 	return manifestPath, nil
 }
 
