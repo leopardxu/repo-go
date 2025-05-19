@@ -289,60 +289,162 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 		// 尝试获取配置
 		var cfg *config.Config
 		var manifestURL string
+		var baseURL string
 
-		// 首先检查 e.config 是否已初始化
-		if e.config != nil && e.config.ManifestURL != "" {
-			cfg = e.config
-			manifestURL = e.config.ManifestURL
-		} else {
-			// 如果 e.config 为空或 ManifestURL 为空，尝试从文件加载配置
-			var err error
-			cfg, err = config.Load()
-			if err == nil && cfg != nil {
-				// 更新 Engine 的配置
-				e.config = cfg
-				manifestURL = cfg.ManifestURL
+		// 首先尝试从清单中获取远程URL
+		if e.manifest != nil {
+			// 获取项目的远程名称
+			remoteName := p.RemoteName
+
+			// 如果项目未指定远程名称，则使用清单中的默认远程
+			if remoteName == "" {
+				remoteName = e.manifest.Default.Remote
 				if e.options != nil && e.options.Verbose && e.logger != nil {
-					e.logger.Debug("已从文件加载配置，ManifestURL: %s", manifestURL)
+					e.logger.Debug("项目 %s 未指定远程名称，使用默认远程: %s", p.Name, remoteName)
 				}
-			} else if e.logger != nil {
-				e.logger.Debug("无法从文件加载配置: %v", err)
+			}
+
+			// 从清单中获取远程URL
+			if remoteName != "" {
+				var err error
+				baseURL, err = e.manifest.GetRemoteURL(remoteName)
+				if err == nil && baseURL != "" {
+					if e.options != nil && e.options.Verbose && e.logger != nil {
+						e.logger.Debug("从清单中获取到远程 %s 的URL: %s", remoteName, baseURL)
+					}
+				} else if e.logger != nil {
+					e.logger.Debug("无法从清单中获取远程 %s 的URL: %v", remoteName, err)
+				}
 			}
 		}
 
-		// 如果成功获取到配置和ManifestURL，解析相对路径
-		if cfg != nil && manifestURL != "" {
-			// 安全地调用 ExtractBaseURLFromManifestURL 方法
-			baseURL := cfg.ExtractBaseURLFromManifestURL(manifestURL)
-			if baseURL != "" {
-				// 移除相对路径前缀
-				var relPath string
-				if remoteURL == ".." {
-					// 处理单独的 ".." 路径
-					// 对于 ".."，我们需要使用项目名称作为路径
-					relPath = p.Name
+		// 如果无法从清单中获取远程URL或者URL不是有效的协议格式，则回退到从配置中获取的方法
+		if !(strings.HasPrefix(baseURL, "ssh://") || strings.HasPrefix(baseURL, "http://") || strings.HasPrefix(baseURL, "https://")) {
+			// 首先检查 e.config 是否已初始化
+			if e.config != nil && e.config.ManifestURL != "" {
+				cfg = e.config
+				manifestURL = e.config.ManifestURL
+				if e.options != nil && e.options.Verbose && e.logger != nil {
+					e.logger.Debug("使用已加载的配置，ManifestURL: %s", manifestURL)
+				}
+			} else {
+				// 如果 e.config 为空或 ManifestURL 为空，尝试从文件加载配置
+				var err error
+				cfg, err = config.Load()
+				if err == nil && cfg != nil {
+					// 更新 Engine 的配置
+					e.config = cfg
+					manifestURL = cfg.ManifestURL
+					if e.options != nil && e.options.Verbose && e.logger != nil {
+						e.logger.Debug("已从文件加载配置，ManifestURL: %s", manifestURL)
+					}
 				} else {
-					relPath = strings.TrimPrefix(remoteURL, "../")
-					relPath = strings.TrimPrefix(relPath, "./")
-					// 如果相对路径为空，使用项目名称
-					if relPath == "" {
-						relPath = p.Name
+					// 记录错误日志
+					if e.logger != nil {
+						e.logger.Error("无法从文件加载配置: %v", err)
+					}
+					// 尝试直接从 .repo/config.json 文件读取
+					configPath := filepath.Join(".repo", "config.json")
+					if _, statErr := os.Stat(configPath); statErr == nil {
+						data, readErr := os.ReadFile(configPath)
+						if readErr == nil {
+							var configData struct {
+								ManifestURL string `json:"manifest_url"`
+							}
+							if jsonErr := json.Unmarshal(data, &configData); jsonErr == nil && configData.ManifestURL != "" {
+								manifestURL = configData.ManifestURL
+								if e.options != nil && e.options.Verbose && e.logger != nil {
+									e.logger.Debug("直接从config.json读取到ManifestURL: %s", manifestURL)
+								}
+							} else if e.logger != nil {
+								e.logger.Debug("解析config.json失败或ManifestURL为空: %v", jsonErr)
+							}
+						} else if e.logger != nil {
+							e.logger.Debug("读取config.json文件失败: %v", readErr)
+						}
+					} else if e.logger != nil {
+						e.logger.Debug("config.json文件不存在: %v", statErr)
 					}
 				}
+			}
 
-				// 确保baseURL不以/结尾
-				baseURL = strings.TrimSuffix(baseURL, "/")
+			// 如果成功获取到ManifestURL，解析相对路径
+			if manifestURL != "" {
+				// 如果cfg为空，创建一个临时配置对象
+				if cfg == nil {
+					cfg = &config.Config{ManifestURL: manifestURL}
+				}
+
+				// 安全地调用 ExtractBaseURLFromManifestURL 方法
+				baseURL = cfg.ExtractBaseURLFromManifestURL(manifestURL)
+				if baseURL != "" {
+					if e.options != nil && e.options.Verbose && e.logger != nil {
+						e.logger.Debug("从配置中提取的baseURL: %s", baseURL)
+					}
+				} else if e.logger != nil {
+					e.logger.Error("无法从ManifestURL提取baseURL: %s", manifestURL)
+				}
+			} else if e.logger != nil {
+				// 记录警告日志，配置为空或缺少ManifestURL
+				e.logger.Error("无法解析相对路径 %s: 未能获取ManifestURL", p.RemoteURL)
+			}
+		}
+
+		// 如果成功获取到baseURL，处理相对路径
+		if baseURL != "" {
+			// 确保baseURL不以/结尾
+			baseURL = strings.TrimSuffix(baseURL, "/")
+
+			// 处理不同类型的相对路径
+			var relPath string
+			if remoteURL == ".." {
+				// 处理单独的 ".." 路径
+				// 对于 ".."，我们需要使用项目名称作为路径
+				relPath = p.Name
+				remoteURL = baseURL + "/" + relPath
+			} else if strings.HasPrefix(remoteURL, "../") {
+				// 处理 "../" 开头的路径
+				// 计算需要向上回溯的层数
+				count := 0
+				tempURL := remoteURL
+				for strings.HasPrefix(tempURL, "../") {
+					count++
+					tempURL = tempURL[3:]
+				}
+
+				// 从baseURL中移除相应数量的路径段
+				parts := strings.Split(baseURL, "/")
+				if len(parts) > 2 { // 至少保留协议和主机名
+					// 计算要保留的部分
+					keepParts := len(parts) - count
+					if keepParts < 3 { // 确保至少保留协议和主机名
+						keepParts = 3
+					}
+
+					// 重建baseURL
+					baseURL = strings.Join(parts[:keepParts], "/")
+				}
+
+				// 获取剩余路径
+				relPath = tempURL
+				if relPath == "" {
+					relPath = p.Name
+				}
 
 				// 构建完整URL
 				remoteURL = baseURL + "/" + relPath
-
-				if e.options != nil && e.options.Verbose && e.logger != nil {
-					e.logger.Debug("将相对路径 %s 转换为远程 URL: %s", p.RemoteURL, remoteURL)
+			} else if strings.HasPrefix(remoteURL, "./") {
+				// 处理 "./" 开头的路径
+				relPath = strings.TrimPrefix(remoteURL, "./")
+				if relPath == "" {
+					relPath = p.Name
 				}
+				remoteURL = baseURL + "/" + relPath
 			}
-		} else if e.logger != nil {
-			// 记录警告日志，配置为空或缺少ManifestURL
-			e.logger.Debug("无法解析相对路径 %s: 配置为空或缺少ManifestURL", p.RemoteURL)
+
+			if e.options != nil && e.options.Verbose && e.logger != nil {
+				e.logger.Debug("将相对路径 %s 转换为远程 URL: %s", p.RemoteURL, remoteURL)
+			}
 		}
 	}
 
