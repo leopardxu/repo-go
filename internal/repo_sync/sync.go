@@ -21,7 +21,7 @@ func (e *Engine) SyncAll() error {
 	if err := e.loadManifestSilently(); err != nil {
 		return err
 	}
-	
+
 	// 根据verbose选项控制警告日志输出
 	e.SetSilentMode(!e.options.Verbose)
 
@@ -42,7 +42,7 @@ func (e *Engine) SyncAll() error {
 		wg.Add(1)
 		g.Go(func() error {
 			defer wg.Done()
-			
+
 			// 如果设置了FailFast选项并且已经有错误，则跳过此项目
 			if e.options.FailFast {
 				errMutex.Lock()
@@ -52,13 +52,13 @@ func (e *Engine) SyncAll() error {
 				}
 				errMutex.Unlock()
 			}
-			
+
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
 				err := e.syncProject(p)
-				
+
 				// 如果发生错误且设置了FailFast选项，记录第一个错误
 				if err != nil && e.options.FailFast {
 					errMutex.Lock()
@@ -67,7 +67,7 @@ func (e *Engine) SyncAll() error {
 					}
 					errMutex.Unlock()
 				}
-				
+
 				// 即使有错误也继续同步其他项目，不中断整个过程
 				return err
 			}
@@ -76,7 +76,7 @@ func (e *Engine) SyncAll() error {
 
 	wg.Wait()
 	err := g.Wait()
-	
+
 	// 显示错误摘要
 	if len(e.errResults) > 0 {
 		// 对错误进行分类统计
@@ -94,21 +94,21 @@ func (e *Engine) SyncAll() error {
 				errorTypes["其他错误"] += 1
 			}
 		}
-		
+
 		// 打印错误摘要
 		fmt.Printf("\n同步过程中发生了 %d 个错误:\n", len(e.errResults))
-		
+
 		// 先打印错误类型统计
 		fmt.Println("错误类型统计:")
 		for errType, count := range errorTypes {
 			fmt.Printf("  %s: %d 个\n", errType, count)
 		}
-		
+
 		// 再打印详细错误信息
 		fmt.Println("\n详细错误信息:")
 		for i, errMsg := range e.errResults {
 			fmt.Printf("错误 %d: %s\n", i+1, errMsg)
-			
+
 			// 对于exit status 128错误，提供额外的诊断信息
 			if strings.Contains(errMsg, "exit status 128") {
 				fmt.Println("  可能的原因:")
@@ -125,7 +125,7 @@ func (e *Engine) SyncAll() error {
 				} else {
 					fmt.Println("    - Git命令执行失败，可能是权限问题、网络问题或仓库配置错误")
 				}
-				
+
 				fmt.Println("  建议解决方案:")
 				fmt.Println("    - 检查网络连接")
 				fmt.Println("    - 验证远程仓库URL是否正确")
@@ -134,10 +134,10 @@ func (e *Engine) SyncAll() error {
 				fmt.Println("    - 使用 --verbose 选项获取更详细的错误信息")
 			}
 		}
-		
+
 		return fmt.Errorf("同步失败: 同步过程中发生了 %d 个错误", len(e.errResults))
 	}
-	
+
 	return err
 }
 
@@ -147,7 +147,7 @@ func (e *Engine) loadManifestSilently() error {
 	parser := manifest.NewParser()
 	// 设置解析器为静默模式
 	parser.SetSilentMode(true)
-	
+
 	// 确保Groups是字符串切片
 	var groups []string
 	if e.options.Groups != nil {
@@ -164,7 +164,7 @@ func (e *Engine) loadManifestSilently() error {
 		}
 		groups = validGroups
 	}
-	
+
 	// 直接使用.repo/manifest.xml文件（合并后的清单）
 	manifestPath := filepath.Join(e.repoRoot, ".repo", "manifest.xml")
 
@@ -173,12 +173,12 @@ func (e *Engine) loadManifestSilently() error {
 	if err != nil {
 		return fmt.Errorf("加载清单文件失败: %w", err)
 	}
-	
+
 	// 检查清单是否有效
 	if m == nil || len(m.Projects) == 0 {
 		return fmt.Errorf("清单文件无效或不包含任何项目")
 	}
-	
+
 	e.manifest = m
 	return nil
 }
@@ -192,12 +192,12 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 		if len(refParts) != 2 {
 			return fmt.Errorf("项目 %s 的references格式无效，应为'remote:refs'格式", p.Name)
 		}
-		
+
 		// 设置remote和refs
 		p.Remote = refParts[0]
 		p.RemoteName = refParts[0]
 		p.RemoteURL, _ = e.manifest.GetRemoteURL(p.Remote)
-		
+
 		// 更新revision为refs
 		p.Revision = refParts[1]
 	}
@@ -206,7 +206,7 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 		p.Remote = e.manifest.Default.Remote
 	}
 
-// analyzeGitError 分析Git错误并提供详细信息
+	// analyzeGitError 分析Git错误并提供详细信息
 	// 检查项目目录是否存在
 	worktreeExists := false
 	if _, err := os.Stat(p.Worktree); err == nil {
@@ -222,42 +222,42 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 			goto SKIP_CLONE
 		}
 	}
-	
+
 	if !worktreeExists {
 		// 创建项目目录
 		if err := os.MkdirAll(filepath.Dir(p.Worktree), 0755); err != nil {
 			return fmt.Errorf("创建项目目录失败 %s: %w", p.Name, err)
 		}
-		
+
 		// 检查RemoteURL是否为空
 		if p.RemoteURL == "" {
 			return fmt.Errorf("克隆项目 %s 失败: 远程URL未设置", p.Name)
 		}
-		
+
 		// 验证remote URL格式
 		if p.RemoteURL == "" {
 			return fmt.Errorf("克隆项目 %s 失败: 远程URL为空", p.Name)
 		}
-		
+
 		// 检查URL是否包含非法字符
 		if strings.ContainsAny(p.RemoteURL, " \t\n\r") {
 			return fmt.Errorf("克隆项目 %s 失败: 远程URL包含空白字符", p.Name)
 		}
-		
+
 		// 检查URL协议格式
-		validProtocol := strings.HasPrefix(p.RemoteURL, "http") || 
-			strings.HasPrefix(p.RemoteURL, "https") || 
-			strings.HasPrefix(p.RemoteURL, "git@") || 
+		validProtocol := strings.HasPrefix(p.RemoteURL, "http") ||
+			strings.HasPrefix(p.RemoteURL, "https") ||
+			strings.HasPrefix(p.RemoteURL, "git@") ||
 			strings.HasPrefix(p.RemoteURL, "ssh://") ||
 			strings.HasPrefix(p.RemoteURL, "/") ||
 			strings.HasPrefix(p.RemoteURL, "file://") ||
 			strings.HasPrefix(p.RemoteURL, "./") ||
 			strings.HasPrefix(p.RemoteURL, "../")
-			
+
 		if !validProtocol {
 			return fmt.Errorf("克隆项目 %s 失败: 远程URL格式无效 %s (支持的协议: http, https, git@, ssh://, file://, /, ./, ../)", p.Name, p.RemoteURL)
 		}
-		
+
 		// 规范化URL格式
 		if strings.HasPrefix(p.RemoteURL, "./") || strings.HasPrefix(p.RemoteURL, "../") || strings.HasPrefix(p.RemoteURL, "/") {
 			cwd, err := os.Getwd()
@@ -272,7 +272,7 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 				}
 			}
 		}
-		
+
 		// 克隆项目
 		if !e.options.Quiet {
 			fmt.Printf("正在克隆缺失项目: %s\n", p.Name)
@@ -281,7 +281,7 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 				fmt.Printf("使用URL: %s\n", p.RemoteURL)
 			}
 		}
-		
+
 		// 使用 Engine 的 cloneProject 方法来确保调用 resolveRemoteURL
 		cloneErr := e.cloneProject(p)
 		if cloneErr == nil {
@@ -291,17 +291,17 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 			}
 			goto SKIP_CLONE
 		}
-		
+
 		// 如果 cloneProject 失败，回退到原有的重试逻辑
 		// 增强的克隆重试逻辑
 		maxRetries := e.options.RetryFetches
 		if maxRetries <= 0 {
 			maxRetries = 3 // 默认重试3次
 		}
-		
+
 		// 使用指数退避策略
 		baseDelay := 2 * time.Second
-		
+
 		for i := 0; i < maxRetries; i++ {
 			// 检查上下文是否已取消
 			select {
@@ -309,24 +309,24 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 				return fmt.Errorf("克隆项目 %s 取消: %w", p.Name, e.ctx.Err())
 			default:
 			}
-			
+
 			// 使用 Engine 的 cloneProject 方法来确保调用 resolveRemoteURL
 			cloneErr = e.cloneProject(p)
-			
+
 			if cloneErr == nil {
 				break
 			}
-			
+
 			// 分析错误类型，决定是否重试
 			shouldRetry := false
 			retryDelay := time.Duration(1<<uint(i)) * baseDelay // 指数退避
-			
+
 			// 检查是否为网络错误或临时错误
 			if strings.Contains(cloneErr.Error(), "fatal: unable to access") ||
-			   strings.Contains(cloneErr.Error(), "Could not resolve host") ||
-			   strings.Contains(cloneErr.Error(), "timed out") ||
-			   strings.Contains(cloneErr.Error(), "connection refused") ||
-			   strings.Contains(cloneErr.Error(), "temporarily unavailable") {
+				strings.Contains(cloneErr.Error(), "Could not resolve host") ||
+				strings.Contains(cloneErr.Error(), "timed out") ||
+				strings.Contains(cloneErr.Error(), "connection refused") ||
+				strings.Contains(cloneErr.Error(), "temporarily unavailable") {
 				shouldRetry = true
 			} else if strings.Contains(cloneErr.Error(), "exit status 128") {
 				// 对于exit status 128错误，需要进一步分析
@@ -341,7 +341,7 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 						cloneErr = nil
 						break
 					}
-					
+
 					// 目录存在但不是git仓库，尝试移除后重试
 					if e.options.ForceSync && i == 0 { // 只在第一次尝试时执行
 						if !e.options.Quiet {
@@ -361,8 +361,8 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 						shouldRetry = false
 					}
 				} else if strings.Contains(cloneErr.Error(), "does not appear to be a git repository") ||
-				          strings.Contains(cloneErr.Error(), "repository not found") ||
-				          strings.Contains(cloneErr.Error(), "authentication failed") {
+					strings.Contains(cloneErr.Error(), "repository not found") ||
+					strings.Contains(cloneErr.Error(), "authentication failed") {
 					// 这些是不太可能通过重试解决的错误
 					shouldRetry = false
 				} else {
@@ -370,29 +370,29 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 					shouldRetry = true
 				}
 			}
-			
+
 			// 如果是最后一次尝试，不管什么错误都重试
 			if i == maxRetries-1 {
 				shouldRetry = true
 			}
-			
+
 			if !shouldRetry {
 				break
 			}
-			
+
 			if !e.options.Quiet {
 				if e.options.Verbose {
-					fmt.Printf("克隆项目 %s 第 %d 次尝试失败: %v\n原因: %s\n将在 %s 后重试...\n", 
+					fmt.Printf("克隆项目 %s 第 %d 次尝试失败: %v\n原因: %s\n将在 %s 后重试...\n",
 						p.Name, i+1, cloneErr, analyzeGitError(cloneErr.Error()), retryDelay)
 				} else {
-					fmt.Printf("克隆项目 %s 第 %d 次尝试失败，将在 %s 后重试...\n", 
+					fmt.Printf("克隆项目 %s 第 %d 次尝试失败，将在 %s 后重试...\n",
 						p.Name, i+1, retryDelay)
 				}
 			}
-			
+
 			time.Sleep(retryDelay)
 		}
-		
+
 		if cloneErr != nil {
 			// 再次检查目录是否存在且是git仓库（可能在重试过程中被其他进程创建）
 			gitDirPath := filepath.Join(p.Worktree, ".git")
@@ -407,89 +407,89 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 				}
 				return nil
 			}
-			
+
 			// 记录详细的错误信息
 			var errorMsg string
 			errorDetails := analyzeGitError(cloneErr.Error())
-			
+
 			if e.options.Verbose {
 				// 详细模式下记录完整错误信息
-				errorMsg = fmt.Sprintf("克隆项目 %s 失败: %v\n远程URL: %s\n分支/修订版本: %s\n错误详情: %s\n重试次数: %d", 
+				errorMsg = fmt.Sprintf("克隆项目 %s 失败: %v\n远程URL: %s\n分支/修订版本: %s\n错误详情: %s\n重试次数: %d",
 					p.Name, cloneErr, p.RemoteURL, p.Revision, errorDetails, maxRetries)
-			} 
-			
+			}
+
 			// 添加到错误结果列表（使用互斥锁保护）
 			e.fetchTimesLock.Lock()
 			e.errResults = append(e.errResults, errorMsg)
 			e.fetchTimesLock.Unlock()
-			
+
 			return fmt.Errorf("克隆项目 %s 失败: %w", p.Name, cloneErr)
 		}
-		
+
 		if !e.options.Quiet {
 			fmt.Printf("成功克隆项目: %s\n", p.Name)
 		}
 		return nil
 	}
-	
-	SKIP_CLONE:
+
+SKIP_CLONE:
 	// 如果项目目录已存在，执行同步操作
 	// 如果不是只本地操作，执行网络同步
 	if !e.options.LocalOnly {
 		if !e.options.Quiet && e.options.Verbose {
 			fmt.Printf("正在获取项目更新: %s\n", p.Name)
 		}
-		
+
 		// 增强的重试逻辑
 		var fetchErr error
 		maxRetries := e.options.RetryFetches
 		if maxRetries <= 0 {
 			maxRetries = 3 // 默认重试3次
 		}
-		
+
 		// 使用指数退避策略
 		baseDelay := 2 * time.Second
-		
+
 		for i := 0; i < maxRetries; i++ {
 			// 检查远程仓库URL和名称是否有效
 			if p.RemoteURL == "" {
 				fetchErr = fmt.Errorf("远程URL未设置")
 				break
 			}
-			
+
 			if p.RemoteName == "" {
 				p.RemoteName = "origin" // 使用默认远程名称
 				if !e.options.Quiet && e.options.Verbose {
 					fmt.Printf("项目 %s 的远程名称未设置，使用默认名称 'origin'\n", p.Name)
 				}
 			}
-			
+
 			// 执行fetch操作
 			fetchErr = p.GitRepo.Fetch(p.RemoteName, git.FetchOptions{
 				Prune: e.options.Prune,
 				Tags:  e.options.Tags,
 			})
-			
+
 			if fetchErr == nil {
 				break
 			}
-			
+
 			// 分析错误类型，决定是否重试
 			shouldRetry := false
 			retryDelay := time.Duration(1<<uint(i)) * baseDelay // 指数退避
-			
+
 			// 检查是否为网络错误或临时错误
 			if strings.Contains(fetchErr.Error(), "fatal: unable to access") ||
-			   strings.Contains(fetchErr.Error(), "Could not resolve host") ||
-			   strings.Contains(fetchErr.Error(), "timed out") ||
-			   strings.Contains(fetchErr.Error(), "connection refused") ||
-			   strings.Contains(fetchErr.Error(), "temporarily unavailable") {
+				strings.Contains(fetchErr.Error(), "Could not resolve host") ||
+				strings.Contains(fetchErr.Error(), "timed out") ||
+				strings.Contains(fetchErr.Error(), "connection refused") ||
+				strings.Contains(fetchErr.Error(), "temporarily unavailable") {
 				shouldRetry = true
 			} else if strings.Contains(fetchErr.Error(), "exit status 128") {
 				// 对于exit status 128错误，需要进一步分析
 				if strings.Contains(fetchErr.Error(), "does not appear to be a git repository") ||
-				   strings.Contains(fetchErr.Error(), "repository not found") ||
-				   strings.Contains(fetchErr.Error(), "authentication failed") {
+					strings.Contains(fetchErr.Error(), "repository not found") ||
+					strings.Contains(fetchErr.Error(), "authentication failed") {
 					// 这些是不太可能通过重试解决的错误
 					shouldRetry = false
 				} else {
@@ -497,52 +497,52 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 					shouldRetry = true
 				}
 			}
-			
+
 			// 如果是最后一次尝试，不管什么错误都重试
 			if i == maxRetries-1 {
 				shouldRetry = true
 			}
-			
+
 			if !shouldRetry {
 				break
 			}
-			
+
 			if !e.options.Quiet {
 				if e.options.Verbose {
-					fmt.Printf("获取项目 %s 更新第 %d 次尝试失败: %v\n原因: %s\n将在 %s 后重试...\n", 
+					fmt.Printf("获取项目 %s 更新第 %d 次尝试失败: %v\n原因: %s\n将在 %s 后重试...\n",
 						p.Name, i+1, fetchErr, analyzeGitError(fetchErr.Error()), retryDelay)
 				} else {
-					fmt.Printf("获取项目 %s 更新第 %d 次尝试失败，将在 %s 后重试...\n", 
+					fmt.Printf("获取项目 %s 更新第 %d 次尝试失败，将在 %s 后重试...\n",
 						p.Name, i+1, retryDelay)
 				}
 			}
-			
+
 			time.Sleep(retryDelay)
 		}
-		
+
 		if fetchErr != nil {
 			// 记录详细的错误信息
 			var errorMsg string
 			errorDetails := analyzeGitError(fetchErr.Error())
-			
+
 			if e.options.Verbose {
 				// 详细模式下记录完整错误信息
-				errorMsg = fmt.Sprintf("获取项目 %s 更新失败: %v\n远程名称: %s\n远程URL: %s\n错误详情: %s\n重试次数: %d", 
+				errorMsg = fmt.Sprintf("获取项目 %s 更新失败: %v\n远程名称: %s\n远程URL: %s\n错误详情: %s\n重试次数: %d",
 					p.Name, fetchErr, p.RemoteName, p.RemoteURL, errorDetails, maxRetries)
 			} else {
 				// 非详细模式下只记录简短错误信息
 				errorMsg = fmt.Sprintf("获取项目 %s 更新失败: %v", p.Name, fetchErr)
 			}
-			
+
 			// 添加到错误结果列表（使用互斥锁保护）
 			e.fetchTimesLock.Lock()
 			e.errResults = append(e.errResults, errorMsg)
 			e.fetchTimesLock.Unlock()
-			
+
 			return fmt.Errorf("获取项目 %s 更新失败: %w", p.Name, fetchErr)
 		}
 	}
-	
+
 	// 如果不是只网络操作，更新工作区
 	if !e.options.NetworkOnly {
 		// 检查是否有本地修改
@@ -550,27 +550,27 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 		if err != nil {
 			return fmt.Errorf("检查项目 %s 工作区状态失败: %w", p.Name, err)
 		}
-		
+
 		// 如果有本地修改且不强制同步，报错
 		if !clean && !e.options.ForceSync {
 			return fmt.Errorf("项目 %s 工作区不干净，使用 --force-sync 覆盖本地修改", p.Name)
 		}
-		
+
 		// 检出指定版本
 		if !e.options.Quiet && e.options.Verbose {
 			fmt.Printf("正在检出项目 %s 的版本 %s\n", p.Name, p.Revision)
 		}
-		
+
 		// 增强的checkout重试逻辑
 		var checkoutErr error
 		maxRetries := e.options.RetryFetches // 复用fetch的重试次数
 		if maxRetries <= 0 {
 			maxRetries = 3 // 默认重试3次
 		}
-		
+
 		// 使用指数退避策略
 		baseDelay := 2 * time.Second
-		
+
 		// 检查revision是否有效
 		if p.Revision == "" {
 			p.Revision = "HEAD" // 使用默认分支
@@ -578,28 +578,28 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 				fmt.Printf("项目 %s 的修订版本未设置，使用默认值 'HEAD'\n", p.Name)
 			}
 		}
-		
+
 		for i := 0; i < maxRetries; i++ {
 			// 执行checkout操作
 			checkoutErr = p.GitRepo.Checkout(p.Revision)
 			if checkoutErr == nil {
 				break
 			}
-			
+
 			// 分析错误类型，决定是否重试
 			shouldRetry := false
 			retryDelay := time.Duration(1<<uint(i)) * baseDelay // 指数退避
-			
+
 			// 检查是否为可重试的错误
 			if strings.Contains(checkoutErr.Error(), "exit status 128") {
 				// 对于exit status 128错误，需要进一步分析
 				if strings.Contains(checkoutErr.Error(), "did not match any file(s) known to git") ||
-				   strings.Contains(checkoutErr.Error(), "unknown revision") ||
-				   strings.Contains(checkoutErr.Error(), "reference is not a tree") {
+					strings.Contains(checkoutErr.Error(), "unknown revision") ||
+					strings.Contains(checkoutErr.Error(), "reference is not a tree") {
 					// 这些是不太可能通过重试解决的错误
 					shouldRetry = false
 				} else if strings.Contains(checkoutErr.Error(), "local changes") ||
-				        strings.Contains(checkoutErr.Error(), "would be overwritten") {
+					strings.Contains(checkoutErr.Error(), "would be overwritten") {
 					// 本地修改冲突，如果设置了ForceSync，可以尝试强制检出
 					if e.options.ForceSync && i == 0 { // 只在第一次尝试时执行
 						if !e.options.Quiet {
@@ -623,57 +623,57 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 					shouldRetry = true
 				}
 			} else if strings.Contains(checkoutErr.Error(), "timeout") ||
-			          strings.Contains(checkoutErr.Error(), "timed out") ||
-			          strings.Contains(checkoutErr.Error(), "temporarily unavailable") {
+				strings.Contains(checkoutErr.Error(), "timed out") ||
+				strings.Contains(checkoutErr.Error(), "temporarily unavailable") {
 				// 临时错误，可以重试
 				shouldRetry = true
 			}
-			
+
 			// 如果是最后一次尝试，不管什么错误都重试
 			if i == maxRetries-1 {
 				shouldRetry = true
 			}
-			
+
 			if !shouldRetry {
 				break
 			}
-			
+
 			if !e.options.Quiet {
 				if e.options.Verbose {
-					fmt.Printf("检出项目 %s 的版本 %s 第 %d 次尝试失败: %v\n原因: %s\n将在 %s 后重试...\n", 
+					fmt.Printf("检出项目 %s 的版本 %s 第 %d 次尝试失败: %v\n原因: %s\n将在 %s 后重试...\n",
 						p.Name, p.Revision, i+1, checkoutErr, analyzeGitError(checkoutErr.Error()), retryDelay)
 				} else {
-					fmt.Printf("检出项目 %s 的版本 %s 第 %d 次尝试失败，将在 %s 后重试...\n", 
+					fmt.Printf("检出项目 %s 的版本 %s 第 %d 次尝试失败，将在 %s 后重试...\n",
 						p.Name, p.Revision, i+1, retryDelay)
 				}
 			}
-			
+
 			time.Sleep(retryDelay)
 		}
-		
+
 		if checkoutErr != nil {
 			// 记录详细的错误信息
 			var errorMsg string
 			errorDetails := analyzeGitError(checkoutErr.Error())
-			
+
 			if e.options.Verbose {
 				// 详细模式下记录完整错误信息
-				errorMsg = fmt.Sprintf("检出项目 %s 的版本 %s 失败: %v\n错误详情: %s\n重试次数: %d", 
+				errorMsg = fmt.Sprintf("检出项目 %s 的版本 %s 失败: %v\n错误详情: %s\n重试次数: %d",
 					p.Name, p.Revision, checkoutErr, errorDetails, maxRetries)
 			} else {
 				// 非详细模式下只记录简短错误信息
 				errorMsg = fmt.Sprintf("检出项目 %s 失败: %v", p.Name, checkoutErr)
 			}
-			
+
 			// 添加到错误结果列表（使用互斥锁保护）
 			e.fetchTimesLock.Lock()
 			e.errResults = append(e.errResults, errorMsg)
 			e.fetchTimesLock.Unlock()
-			
+
 			return fmt.Errorf("检出项目 %s 的版本 %s 失败: %w", p.Name, p.Revision, checkoutErr)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -705,7 +705,7 @@ func analyzeGitError(errMsg string) string {
 	} else if strings.Contains(errMsg, "conflict") {
 		return "存在冲突，需要手动解决或使用--force-sync选项"
 	}
-	
+
 	// 默认返回原始错误信息
 	return "未知Git错误，请查看详细日志以获取更多信息"
 }

@@ -27,6 +27,7 @@ type CheckoutOptions struct {
 	Verbose        bool
 	All            bool
 	Branch         string
+	DefaultRemote  string
 	Config         *config.Config
 	CommonManifestOptions
 }
@@ -56,6 +57,7 @@ func CheckoutCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&opts.Verbose, "verbose", "v", false, "show all output")
 	cmd.Flags().BoolVar(&opts.All, "all", false, "checkout branch in all projects")
 	cmd.Flags().StringVarP(&opts.Branch, "branch", "b", "", "specify an alternate branch name")
+	cmd.Flags().StringVar(&opts.DefaultRemote, "default-remote", "", "specify the default remote name for checkout")
 	AddManifestFlags(cmd, &opts.CommonManifestOptions)
 	return cmd
 }
@@ -119,6 +121,7 @@ func runCheckout(opts *CheckoutOptions, args []string) error {
 		JobsCheckout:   opts.JobsCheckout,
 		Quiet:          opts.Quiet,
 		Verbose:        opts.Verbose,
+		DefaultRemote:  opts.DefaultRemote, // 添加DefaultRemote参数
 	}
 
 	engine := repo_sync.NewEngine(syncOpts, nil, log)

@@ -286,21 +286,31 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 
 	// 如果是相对路径，转换为完整的 URL
 	if remoteURL == ".." || strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
-		// 尝试获取配置
+		// 尝试从清单中获取远程URL
+		var baseURL string
+		var remoteName string
 		var cfg *config.Config
 		var manifestURL string
-		var baseURL string
 
 		// 首先尝试从清单中获取远程URL
 		if e.manifest != nil {
 			// 获取项目的远程名称
-			remoteName := p.RemoteName
+			remoteName = p.RemoteName
 
-			// 如果项目未指定远程名称，则使用清单中的默认远程
+			// 如果项目未指定远程名称，则使用默认远程
 			if remoteName == "" {
-				remoteName = e.manifest.Default.Remote
-				if e.options != nil && e.options.Verbose && e.logger != nil {
-					e.logger.Debug("项目 %s 未指定远程名称，使用默认远程: %s", p.Name, remoteName)
+				// 如果设置了DefaultRemote选项，优先使用它
+				if e.options != nil && e.options.DefaultRemote != "" {
+					remoteName = e.options.DefaultRemote
+					if e.options.Verbose && e.logger != nil {
+						e.logger.Debug("项目 %s 未指定远程名称，使用命令行指定的默认远程: %s", p.Name, remoteName)
+					}
+				} else if e.manifest.Default.Remote != "" {
+					// 否则使用清单中的默认远程
+					remoteName = e.manifest.Default.Remote
+					if e.options != nil && e.options.Verbose && e.logger != nil {
+						e.logger.Debug("项目 %s 未指定远程名称，使用清单中的默认远程: %s", p.Name, remoteName)
+					}
 				}
 			}
 
@@ -399,7 +409,7 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 			var relPath string
 			if remoteURL == ".." {
 				// 处理单独的 ".." 路径
-				// 对于 ".."，我们需要使用项目名称作为路径
+				// 对于 "..", 我们需要使用项目名称作为路径
 				relPath = p.Name
 				remoteURL = baseURL + "/" + relPath
 			} else if strings.HasPrefix(remoteURL, "../") {
@@ -429,6 +439,8 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 				relPath = tempURL
 				if relPath == "" {
 					relPath = p.Name
+				} else {
+					relPath = relPath + p.Name
 				}
 
 				// 构建完整URL

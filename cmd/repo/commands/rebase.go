@@ -14,24 +14,24 @@ import (
 
 // RebaseOptions 包含rebase命令的选项
 type RebaseOptions struct {
-	Abort          bool
-	Continue       bool
-	Skip           bool
-	Interactive    bool
-	Autosquash     bool
-	Onto           string
-	Force          bool
-	FailFast       bool
-	AutoStash      bool
-	NoFF           bool
-	Whitespace     string
-	OntoManifest   bool
-	Verbose        bool
-	Quiet          bool
-	OuterManifest  bool
-	NoOuterManifest bool
+	Abort            bool
+	Continue         bool
+	Skip             bool
+	Interactive      bool
+	Autosquash       bool
+	Onto             string
+	Force            bool
+	FailFast         bool
+	AutoStash        bool
+	NoFF             bool
+	Whitespace       string
+	OntoManifest     bool
+	Verbose          bool
+	Quiet            bool
+	OuterManifest    bool
+	NoOuterManifest  bool
 	ThisManifestOnly bool
-	Jobs           int
+	Jobs             int
 }
 
 // rebaseStats 用于统计rebase命令的执行结果
@@ -49,7 +49,7 @@ func RebaseCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rebase {[<project>...] | -i <project>...}",
 		Short: "Rebase local branches on upstream branch",
-		Long:  `'repo rebase' uses git rebase to move local changes in the current topic branch
+		Long: `'repo rebase' uses git rebase to move local changes in the current topic branch
 to the HEAD of the upstream history, useful when you have made commits in a
 topic branch but need to incorporate new upstream changes "underneath" them.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -131,7 +131,7 @@ func runRebase(opts *RebaseOptions, args []string) error {
 	manager := project.NewManagerFromManifest(manifestObj, cfg)
 
 	var projects []*project.Project
-	
+
 	// 获取项目列表
 	log.Debug("正在获取项目列表...")
 	if len(args) == 0 {
@@ -155,7 +155,7 @@ func runRebase(opts *RebaseOptions, args []string) error {
 	// 构建rebase命令选项
 	log.Debug("构建rebase命令选项...")
 	rebaseArgs := []string{"rebase"}
-	
+
 	if opts.Abort {
 		rebaseArgs = append(rebaseArgs, "--abort")
 		log.Debug("添加--abort选项")
@@ -170,42 +170,42 @@ func runRebase(opts *RebaseOptions, args []string) error {
 			rebaseArgs = append(rebaseArgs, "--interactive")
 			log.Debug("添加--interactive选项")
 		}
-		
+
 		if opts.Autosquash {
 			rebaseArgs = append(rebaseArgs, "--autosquash")
 			log.Debug("添加--autosquash选项")
 		}
-		
+
 		if opts.Onto != "" {
 			rebaseArgs = append(rebaseArgs, "--onto", opts.Onto)
 			log.Debug("添加--onto %s选项", opts.Onto)
 		}
-		
+
 		if opts.Force {
 			rebaseArgs = append(rebaseArgs, "--force")
 			log.Debug("添加--force选项")
 		}
-		
+
 		if opts.NoFF {
 			rebaseArgs = append(rebaseArgs, "--no-ff")
 			log.Debug("添加--no-ff选项")
 		}
-		
+
 		if opts.Whitespace != "" {
 			rebaseArgs = append(rebaseArgs, "--whitespace", opts.Whitespace)
 			log.Debug("添加--whitespace %s选项", opts.Whitespace)
 		}
-		
+
 		if opts.AutoStash {
 			rebaseArgs = append(rebaseArgs, "--autostash")
 			log.Debug("添加--autostash选项")
 		}
-		
+
 		// 定义上游分支
 		upstream := "origin" // 默认值，根据需要调整
 		// 或者根据项目配置动态确定
-		// upstream := project.Remote
-		
+		// upstream := project.upstream
+
 		log.Info("将rebase到 %s", upstream)
 	}
 
@@ -238,27 +238,27 @@ func runRebase(opts *RebaseOptions, args []string) error {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			
+
 			log.Debug("正在对项目 %s 执行rebase操作...", p.Name)
 			outputBytes, err := p.GitRepo.RunCommand(rebaseArgs...)
 			output := string(outputBytes)
-			
+
 			if err != nil {
 				log.Error("项目 %s rebase失败: %v", p.Name, err)
-				
+
 				// 更新统计信息
 				stats.mu.Lock()
 				stats.failed++
 				stats.mu.Unlock()
 			} else {
 				log.Debug("项目 %s rebase成功", p.Name)
-				
+
 				// 更新统计信息
 				stats.mu.Lock()
 				stats.success++
 				stats.mu.Unlock()
 			}
-			
+
 			results <- rebaseResult{
 				Project: p,
 				Output:  output,
@@ -282,18 +282,18 @@ func runRebase(opts *RebaseOptions, args []string) error {
 		if res.Err != nil {
 			hasError = true
 			errs = append(errs, fmt.Errorf("项目 %s: %w", res.Project.Name, res.Err))
-			
+
 			if opts.Verbose {
 				log.Error("项目 %s 出错: %v", res.Project.Name, res.Err)
 			}
-			
+
 			if opts.FailFast {
 				log.Error("由于设置了fail-fast选项，在首次错误后停止")
 				return fmt.Errorf("failed to rebase project %s: %w", res.Project.Name, res.Err)
 			}
 			continue
 		}
-		
+
 		if !opts.Quiet {
 			log.Info("\n项目 %s:", res.Project.Name)
 			if res.Output != "" {
@@ -305,7 +305,7 @@ func runRebase(opts *RebaseOptions, args []string) error {
 	}
 
 	// 输出统计信息
-	log.Info("Rebase操作完成: 总计 %d 个项目, 成功 %d 个, 失败 %d 个", 
+	log.Info("Rebase操作完成: 总计 %d 个项目, 成功 %d 个, 失败 %d 个",
 		stats.total, stats.success, stats.failed)
 
 	if hasError {
