@@ -284,6 +284,10 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 	// 确保使用项目的 RemoteURL 属性
 	remoteURL := p.RemoteURL
 
+	if remoteURL == "" {
+		remoteURL = ".."
+	}
+
 	// 如果是相对路径，转换为完整的 URL
 	if remoteURL == ".." || strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
 		// 尝试从清单中获取远程URL
@@ -326,6 +330,24 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 					e.logger.Debug("无法从清单中获取远程 %s 的URL: %v", remoteName, err)
 				}
 			}
+		}
+		// 辅助函数：安全地移除URL最后一个路径段，保留协议和主机名部分
+		trimLastPathSegment := func(url string) string {
+			// 确保URL不以/结尾
+			url = strings.TrimSuffix(url, "/")
+
+			// 检查是否是有效的URL格式
+			hasProtocol := strings.Contains(url, "://")
+
+			// 分割URL
+			parts := strings.Split(url, "/")
+			if len(parts) <= 3 && hasProtocol {
+				// URL格式为 protocol://host 或 protocol://host/，保持不变
+				return url
+			}
+
+			// 移除最后一个路径段
+			return strings.Join(parts[:len(parts)-1], "/")
 		}
 
 		// 如果无法从清单中获取远程URL或者URL不是有效的协议格式，则回退到从配置中获取的方法
@@ -386,7 +408,7 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 				}
 
 				// 安全地调用 ExtractBaseURLFromManifestURL 方法
-				baseURL = cfg.ExtractBaseURLFromManifestURL(manifestURL)
+				baseURL = trimLastPathSegment(manifestURL)
 				if baseURL != "" {
 					if e.options != nil && e.options.Verbose && e.logger != nil {
 						e.logger.Debug("从配置中提取的baseURL: %s", baseURL)
@@ -406,14 +428,13 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 			baseURL = strings.TrimSuffix(baseURL, "/")
 
 			// 处理不同类型的相对路径
-			var relPath string
 			if remoteURL == ".." {
-				// 处理单独的 ".." 路径
-				// 对于 "..", 我们需要使用项目名称作为路径
-				relPath = p.Name
-				remoteURL = baseURL + "/" + relPath
+				// 处理remote为空或单独的".."路径
+				// 移除baseURL最后一个路径段
+				baseURL = trimLastPathSegment(baseURL)
+				remoteURL = baseURL + "/" + p.Name
 			} else if strings.HasPrefix(remoteURL, "../") {
-				// 处理 "../" 开头的路径
+				// 处理"../"开头的路径
 				// 计算需要向上回溯的层数
 				count := 0
 				tempURL := remoteURL
@@ -423,35 +444,31 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 				}
 
 				// 从baseURL中移除相应数量的路径段
-				parts := strings.Split(baseURL, "/")
-				if len(parts) > 2 { // 至少保留协议和主机名
-					// 计算要保留的部分
-					keepParts := len(parts) - count
-					if keepParts < 3 { // 确保至少保留协议和主机名
-						keepParts = 3
-					}
-
-					// 重建baseURL
-					baseURL = strings.Join(parts[:keepParts], "/")
+				tempBaseURL := baseURL
+				for i := 0; i < count; i++ {
+					tempBaseURL = trimLastPathSegment(tempBaseURL)
 				}
 
-				// 获取剩余路径
-				relPath = tempURL
-				if relPath == "" {
-					relPath = p.Name
+				// 获取剩余路径并拼接
+				if tempURL == "" {
+					// 如果只有../没有后续路径，直接拼接项目名称
+					remoteURL = tempBaseURL + "/" + p.Name
 				} else {
-					relPath = relPath + p.Name
+					// 如果有后续路径，拼接后续路径和项目名称
+					remoteURL = tempBaseURL + "/" + tempURL + p.Name
 				}
-
-				// 构建完整URL
-				remoteURL = baseURL + "/" + relPath
 			} else if strings.HasPrefix(remoteURL, "./") {
-				// 处理 "./" 开头的路径
-				relPath = strings.TrimPrefix(remoteURL, "./")
+				// 处理"./"开头的路径
+				// 移除baseURL最后一个路径段
+				baseURL = trimLastPathSegment(baseURL)
+
+				// 获取./后面的路径
+				relPath := strings.TrimPrefix(remoteURL, "./")
 				if relPath == "" {
-					relPath = p.Name
+					remoteURL = baseURL + "/" + p.Name
+				} else {
+					remoteURL = baseURL + "/" + relPath + p.Name
 				}
-				remoteURL = baseURL + "/" + relPath
 			}
 
 			if e.options != nil && e.options.Verbose && e.logger != nil {
@@ -663,6 +680,12 @@ func (e *Engine) checkoutProject(p *project.Project) error {
 	if e.options.Detach {
 		args = append(args, "--detach")
 	}
+	if strings.HasPrefix(p.Revision, "refs/heads/") {
+		p.Revision = strings.TrimPrefix(p.Revision, "refs/heads/")
+	}
+	if strings.HasPrefix(p.Revision, "refs/tags/") {
+		p.Revision = strings.TrimPrefix(p.Revision, "refs/tags/")
+	}
 	args = append(args, p.Revision)
 
 	// 添加重试机制
@@ -750,6 +773,10 @@ func (e *Engine) setupRemote(p *project.Project, remoteURL string) error {
 		}
 	}
 
+	if p.RemoteName == "" {
+		p.RemoteName = "origin"
+	}
+
 	// 如果远程仓库不存在，添加它
 	if !remoteExists {
 		cmd = exec.Command("git", "-C", p.Worktree, "remote", "add", p.RemoteName, remoteURL)
@@ -775,7 +802,9 @@ func (e *Engine) ensureRemoteExists(p *project.Project, remoteURL string) error 
 	if err != nil {
 		return fmt.Errorf("获取远程仓库列表失败: %w", err)
 	}
-
+	if p.RemoteName == "" {
+		p.RemoteName = "origin"
+	}
 	remotes := strings.Split(strings.TrimSpace(string(output)), "\n")
 	remoteExists := false
 	for _, r := range remotes {
@@ -784,7 +813,6 @@ func (e *Engine) ensureRemoteExists(p *project.Project, remoteURL string) error 
 			break
 		}
 	}
-
 	// 如果远程仓库不存在，添加它
 	if !remoteExists {
 		cmd = exec.Command("git", "-C", p.Worktree, "remote", "add", p.RemoteName, remoteURL)
