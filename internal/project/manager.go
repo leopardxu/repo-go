@@ -38,7 +38,7 @@ func NewManager(manifestURL, manifestName, repoDir string, gitRunner git.Runner)
 // NewManagerFromManifest 从清单和配置创建项目管理器
 func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
 	logger.Info("从清单创建项目管理器，清单服务器: %s", m.ManifestServer)
-	
+
 	// 创建一个新的Manager实例
 	manager := &Manager{
 		Projects:     make([]*Project, 0),
@@ -47,10 +47,10 @@ func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
 		RepoDir:      m.RepoDir,
 		GitRunner:    git.NewRunner(),
 	}
-	
+
 	// 记录项目加载开始
 	logger.Info("开始从清单加载 %d 个项目", len(m.Projects))
-	
+
 	// 从清单中加载项目
 	for _, p := range m.Projects {
 		// 获取远程信息
@@ -60,7 +60,7 @@ func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
 		} else if m.Default.Remote != "" {
 			remoteName = m.Default.Remote
 		}
-		
+
 		// 查找远程配置
 		for _, r := range m.Remotes {
 			if r.Name == remoteName {
@@ -68,16 +68,16 @@ func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
 				break
 			}
 		}
-		
+
 		// 获取修订版本
 		revision := p.Revision
 		if revision == "" {
 			revision = m.Default.Revision
 		}
-		
+
 		// 创建项目路径
 		projectPath := filepath.Join(m.RepoDir, p.Path)
-		
+
 		// 创建项目对象
 		project := NewProject(
 			p.Name,
@@ -88,11 +88,11 @@ func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
 			strings.Split(p.Groups, ","),
 			git.NewRunner(),
 		)
-		
+
 		// 添加项目到管理器
 		manager.AddProject(project)
 	}
-	
+
 	logger.Info("项目管理器创建完成，共加载 %d 个项目", len(manager.Projects))
 	return manager
 }
@@ -104,18 +104,18 @@ func (m *Manager) GetProjectsInGroups(groups []string) ([]*Project, error) {
 		logger.Debug("未指定项目组，返回所有项目")
 		return m.GetProjects(), nil
 	}
-	
+
 	// 记录过滤操作
 	logger.Info("过滤项目组: %v", groups)
-	
+
 	// 获取在指定组中的项目
 	projects := m.GetProjectsInAnyGroup(groups)
-	
+
 	// 如果没有找到项目，返回空列表而不是错误，让调用者决定如何处理
 	if len(projects) == 0 {
 		logger.Warn("在指定组 %v 中未找到项目，返回空列表", groups)
 	}
-	
+
 	logger.Info("找到 %d 个匹配项目", len(projects))
 	return projects, nil
 }
@@ -124,7 +124,7 @@ func (m *Manager) GetProjectsInGroups(groups []string) ([]*Project, error) {
 func (m *Manager) AddProject(p *Project) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	logger.Info("添加项目: %s (路径: %s, 修订版本: %s)", p.Name, p.Path, p.Revision)
 	m.Projects = append(m.Projects, p)
 }
@@ -156,13 +156,13 @@ func (m *Manager) GetProjectsByNames(names []string) ([]*Project, error) {
 func (m *Manager) GetProject(name string) *Project {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	for _, p := range m.Projects {
 		if p.Name == name {
 			return p
 		}
 	}
-	
+
 	logger.Debug("未找到项目: %s", name)
 	return nil
 }
@@ -171,11 +171,11 @@ func (m *Manager) GetProject(name string) *Project {
 func (m *Manager) GetProjects() []*Project {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	// 创建副本以避免并发修改
 	projects := make([]*Project, len(m.Projects))
 	copy(projects, m.Projects)
-	
+
 	logger.Debug("获取所有项目，共 %d 个", len(projects))
 	return projects
 }
@@ -184,15 +184,15 @@ func (m *Manager) GetProjects() []*Project {
 func (m *Manager) GetProjectsInGroup(group string) []*Project {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	var projects []*Project
-	
+
 	for _, p := range m.Projects {
 		if p.IsInGroup(group) {
 			projects = append(projects, p)
 		}
 	}
-	
+
 	if len(projects) > 0 {
 		logger.Info("组 %s 中找到 %d 个项目", group, len(projects))
 	} else {
@@ -201,27 +201,37 @@ func (m *Manager) GetProjectsInGroup(group string) []*Project {
 	return projects
 }
 
+// 判断是否包含所有组
+func containsAll(groups []string) bool {
+	for _, group := range groups {
+		if group == "all" {
+			return true
+		}
+	}
+	return false
+}
+
 // GetProjectsInAnyGroup 获取在任意指定组中的项目
 func (m *Manager) GetProjectsInAnyGroup(groups []string) []*Project {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
-	if len(groups) == 0 {
+
+	if len(groups) == 0 || containsAll(groups) {
 		// 创建副本以避免并发修改
 		projects := make([]*Project, len(m.Projects))
 		copy(projects, m.Projects)
 		return projects
 	}
-	
+
 	logger.Debug("获取在任意组 %v 中的项目", groups)
 	var projects []*Project
-	
+
 	for _, p := range m.Projects {
 		if p.IsInAnyGroup(groups) {
 			projects = append(projects, p)
 		}
 	}
-	
+
 	logger.Debug("在指定组中找到 %d 个项目", len(projects))
 	return projects
 }
@@ -229,35 +239,35 @@ func (m *Manager) GetProjectsInAnyGroup(groups []string) []*Project {
 // ResolveRemoteURL 解析远程URL
 func (m *Manager) ResolveRemoteURL(remoteURL string) string {
 	logger.Debug("解析远程URL: %s", remoteURL)
-	
+
 	// 如果URL为空，返回空字符串
 	if remoteURL == "" {
 		return ""
 	}
-	
+
 	// 如果URL是绝对路径，直接返回
-	if strings.HasPrefix(remoteURL, "http://") || 
-	   strings.HasPrefix(remoteURL, "https://") || 
-	   strings.HasPrefix(remoteURL, "git://") || 
-	   strings.HasPrefix(remoteURL, "ssh://") || 
-	   strings.HasPrefix(remoteURL, "file://") || 
-	   strings.Contains(remoteURL, "@") {
+	if strings.HasPrefix(remoteURL, "http://") ||
+		strings.HasPrefix(remoteURL, "https://") ||
+		strings.HasPrefix(remoteURL, "git://") ||
+		strings.HasPrefix(remoteURL, "ssh://") ||
+		strings.HasPrefix(remoteURL, "file://") ||
+		strings.Contains(remoteURL, "@") {
 		return remoteURL
 	}
-	
+
 	// 如果URL是相对路径，基于manifestURL解析
 	baseURL := m.extractBaseURL(m.ManifestURL)
 	if baseURL == "" {
 		logger.Warn("无法从 %s 提取基础URL", m.ManifestURL)
 		return remoteURL
 	}
-	
+
 	resolvedURL := baseURL
 	if !strings.HasSuffix(resolvedURL, "/") {
 		resolvedURL += "/"
 	}
 	resolvedURL += remoteURL
-	
+
 	logger.Debug("解析后的URL: %s", resolvedURL)
 	return resolvedURL
 }
@@ -265,9 +275,9 @@ func (m *Manager) ResolveRemoteURL(remoteURL string) string {
 // extractBaseURL 提取基础URL
 func (m *Manager) extractBaseURL(url string) string {
 	logger.Debug("从 %s 提取基础URL", url)
-	
+
 	// 处理不同格式的URL
-	
+
 	// HTTP/HTTPS URL
 	if strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://") {
 		// 移除最后一个路径组件
@@ -277,14 +287,14 @@ func (m *Manager) extractBaseURL(url string) string {
 		}
 		return url
 	}
-	
+
 	// SSH URL (git@github.com:user/repo.git)
 	if strings.Contains(url, "@") && strings.Contains(url, ":") {
 		parts := strings.Split(url, ":")
 		if len(parts) == 2 {
 			host := parts[0]
 			path := parts[1]
-			
+
 			// 移除最后一个路径组件
 			lastSlash := strings.LastIndex(path, "/")
 			if lastSlash >= 0 {
@@ -293,21 +303,21 @@ func (m *Manager) extractBaseURL(url string) string {
 				// 如果没有斜杠，可能是直接的仓库名
 				path = ""
 			}
-			
+
 			if path == "" {
 				return host + ":"
 			}
 			return host + ":" + path
 		}
 	}
-	
+
 	// 文件URL
 	if strings.HasPrefix(url, "file://") {
 		path := strings.TrimPrefix(url, "file://")
 		dir := filepath.Dir(path)
 		return "file://" + dir
 	}
-	
+
 	// 无法识别的URL格式
 	logger.Warn("无法识别的URL格式: %s", url)
 	return ""
@@ -319,26 +329,26 @@ func (m *Manager) ForEach(fn func(*Project) error) error {
 	projects := make([]*Project, len(m.Projects))
 	copy(projects, m.Projects)
 	m.mu.RUnlock()
-	
+
 	logger.Debug("对 %d 个项目执行操作", len(projects))
-	
+
 	if len(projects) == 0 {
 		logger.Warn("没有项目可执行操作")
 		return nil
 	}
-	
+
 	// 创建错误通道
 	errChan := make(chan error, len(projects))
-	
+
 	// 创建等待组
 	var wg sync.WaitGroup
-	
+
 	// 对每个项目执行操作
 	for _, p := range projects {
 		wg.Add(1)
 		go func(p *Project) {
 			defer wg.Done()
-			
+
 			logger.Debug("对项目 %s 执行操作", p.Name)
 			err := fn(p)
 			if err != nil {
@@ -349,7 +359,7 @@ func (m *Manager) ForEach(fn func(*Project) error) error {
 			}
 		}(p)
 	}
-	
+
 	wg.Wait()
 	close(errChan)
 
@@ -374,35 +384,35 @@ func (m *Manager) ForEachWithJobs(fn func(*Project) error, jobs int) error {
 	projects := make([]*Project, len(m.Projects))
 	copy(projects, m.Projects)
 	m.mu.RUnlock()
-	
+
 	logger.Debug("使用 %d 个并发任务对 %d 个项目执行操作", jobs, len(projects))
-	
+
 	if len(projects) == 0 {
 		logger.Warn("没有项目可执行操作")
 		return nil
 	}
-	
+
 	// 如果jobs <= 0，使用项目数量作为并发数
 	if jobs <= 0 {
 		jobs = len(projects)
 		logger.Debug("未指定并发数，使用项目数量 %d 作为并发数", jobs)
 	}
-	
+
 	// 创建任务通道
 	taskChan := make(chan *Project, len(projects))
-	
+
 	// 创建错误通道
 	errChan := make(chan error, len(projects))
-	
+
 	// 创建等待组
 	var wg sync.WaitGroup
-	
+
 	// 启动工作协程
 	for i := 0; i < jobs; i++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			
+
 			logger.Debug("启动工作协程 #%d", workerID)
 			for p := range taskChan {
 				logger.Debug("工作协程 #%d 处理项目 %s", workerID, p.Name)
@@ -417,13 +427,13 @@ func (m *Manager) ForEachWithJobs(fn func(*Project) error, jobs int) error {
 			logger.Debug("工作协程 #%d 完成", workerID)
 		}(i)
 	}
-	
+
 	// 发送任务
 	for _, p := range projects {
 		taskChan <- p
 	}
 	close(taskChan)
-	
+
 	// 等待所有工作协程完成
 	wg.Wait()
 	close(errChan)
@@ -446,7 +456,7 @@ func (m *Manager) ForEachWithJobs(fn func(*Project) error, jobs int) error {
 // Sync 同步所有项目
 func (m *Manager) Sync(opts SyncOptions) error {
 	logger.Info("开始同步 %d 个项目", len(m.Projects))
-	
+
 	// 如果指定了并发数，使用ForEachWithJobs
 	if opts.Jobs > 0 {
 		logger.Debug("使用 %d 个并发任务同步项目", opts.Jobs)
@@ -457,7 +467,7 @@ func (m *Manager) Sync(opts SyncOptions) error {
 			return p.Sync(opts)
 		}, opts.Jobs)
 	}
-	
+
 	// 否则使用ForEach
 	return m.ForEach(func(p *Project) error {
 		if !opts.Quiet {
@@ -487,7 +497,7 @@ type SyncOptions struct {
 // FindTopLevelRepoDir 查找包含.repo目录的顶层目录
 func FindTopLevelRepoDir(startDir string) string {
 	logger.Debug("从 %s 开始查找顶层仓库目录", startDir)
-	
+
 	// 从当前目录开始向上查找，直到找到包含.repo目录的目录
 	dir := startDir
 	for {
@@ -513,7 +523,7 @@ func FindTopLevelRepoDir(startDir string) string {
 // ForEachProject 对每个项目执行操作，支持并发执行
 func (m *Manager) ForEachProject(fn func(*Project) error, concurrency int) error {
 	projects := m.GetProjects()
-	
+
 	// 如果并发数为1，则串行执行
 	if concurrency <= 1 {
 		for _, p := range projects {
@@ -523,61 +533,61 @@ func (m *Manager) ForEachProject(fn func(*Project) error, concurrency int) error
 		}
 		return nil
 	}
-	
+
 	// 并发执行
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(projects))
 	semaphore := make(chan struct{}, concurrency)
-	
+
 	for _, p := range projects {
 		wg.Add(1)
 		go func(proj *Project) {
 			defer wg.Done()
-			
+
 			// 获取信号量
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			
+
 			if err := fn(proj); err != nil {
 				errChan <- err
 			}
 		}(p)
 	}
-	
+
 	// 等待所有任务完成
 	go func() {
 		wg.Wait()
 		close(errChan)
 	}()
-	
+
 	// 收集错误
 	var errs []error
 	for err := range errChan {
 		errs = append(errs, err)
 	}
-	
+
 	if len(errs) > 0 {
 		// 返回第一个错误
 		return errs[0]
 	}
-	
+
 	return nil
 }
 
 // SyncProjects 同步所有项目，支持并发
 func (m *Manager) SyncProjects(opts SyncOptions, concurrency int) error {
 	logger.Info("开始同步 %d 个项目，并发数: %d", len(m.Projects), concurrency)
-	
+
 	// 使用 ForEachProject 并发执行同步
 	err := m.ForEachProject(func(p *Project) error {
 		return p.Sync(opts)
 	}, concurrency)
-	
+
 	if err != nil {
 		logger.Error("项目同步过程中发生错误: %v", err)
 		return err
 	}
-	
+
 	// 同步完成后执行垃圾回收
 	if !opts.NoGC {
 		logger.Info("执行项目垃圾回收")
@@ -585,7 +595,7 @@ func (m *Manager) SyncProjects(opts SyncOptions, concurrency int) error {
 			return p.GC()
 		}, concurrency)
 	}
-	
+
 	logger.Info("所有项目同步完成")
 	return nil
 }
@@ -594,13 +604,13 @@ func (m *Manager) SyncProjects(opts SyncOptions, concurrency int) error {
 func (m *Manager) FilterProjects(filter func(*Project) bool) []*Project {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	var filtered []*Project
 	for _, p := range m.Projects {
 		if filter(p) {
 			filtered = append(filtered, p)
 		}
 	}
-	
+
 	return filtered
 }
