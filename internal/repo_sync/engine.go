@@ -274,6 +274,18 @@ func (e *Engine) syncProject(p *project.Project) error {
 				return err
 			}
 		}
+
+		// 更新成功后处理 linkfile 和 copyfile
+		if !e.options.NetworkOnly { // 只有在执行了本地操作后才处理
+		    if err := e.processLinkAndCopyFiles(p); err != nil {
+		        return &SyncError{
+		            ProjectName: p.Name,
+		            Phase:       "link_copy_files_after_update",
+		            Err:         err,
+		            Timestamp:   time.Now(),
+		        }
+		    }
+		}
 	}
 
 	return nil
@@ -566,6 +578,16 @@ func (e *Engine) fetchProject(p *project.Project) error {
 		}
 	}
 
+	// 处理 linkfile 和 copyfile
+	if err := e.processLinkAndCopyFiles(p); err != nil {
+		return &SyncError{
+			ProjectName: p.Name,
+			Phase:       "link_copy_files",
+			Err:         err,
+			Timestamp:   time.Now(),
+		}
+	}
+
 	return nil
 }
 
@@ -667,6 +689,16 @@ func (e *Engine) cloneProject(p *project.Project) error {
 				Phase:       "lfs_pull",
 				Err:         err,
 			}
+		}
+	}
+
+	// 处理 linkfile 和 copyfile
+	if err := e.processLinkAndCopyFiles(p); err != nil {
+		return &SyncError{
+			ProjectName: p.Name,
+			Phase:       "link_copy_files",
+			Err:         err,
+			Timestamp:   time.Now(),
 		}
 	}
 
@@ -925,6 +957,118 @@ func (e *Engine) checkoutParallel(projects []*project.Project, hyperSyncProjects
 
 	wg.Wait()
 	return g.Wait()
+}
+
+// processLinkAndCopyFiles 处理项目中的 linkfile 和 copyfile
+func (e *Engine) processLinkAndCopyFiles(p *project.Project) error {
+	if p == nil {
+		return fmt.Errorf("项目对象为空")
+	}
+
+	projectRoot := filepath.Join(e.repoRoot, p.Path) // 获取项目在工作区的实际路径
+	if e.repoRoot == "" { // 如果 repoRoot 未设置，尝试从项目工作树推断
+	    // 这部分逻辑可能需要根据您的项目结构进行调整
+	    // 一个简单的假设是项目的工作树就是项目路径本身（相对于某个根）
+	    // 或者，如果项目路径是绝对路径，则 repoRoot 可以是其父目录的某个层级
+	    // 为简化，这里假设项目路径是相对于当前工作目录的
+	    cwd, err := os.Getwd()
+	    if err != nil {
+	        return fmt.Errorf("无法获取当前工作目录: %w", err)
+	    }
+	    projectRoot = filepath.Join(cwd, p.Path)
+	    // 如果 p.Worktree 已经包含完整路径，可以直接使用
+	    if filepath.IsAbs(p.Worktree) {
+	        projectRoot = p.Worktree
+	    } else {
+	        projectRoot = filepath.Join(cwd, p.Worktree) // 假设 Worktree 是相对路径
+	    }
+	    // 更健壮的方式是确保 e.repoRoot 在 Engine 初始化时被正确设置
+	    if e.repoRoot == "" && e.manifest != nil && e.manifest.Topdir != "" {
+	        e.repoRoot = e.manifest.Topdir
+	        projectRoot = filepath.Join(e.repoRoot, p.Path)
+	    }
+	}
+
+
+	// 处理 Copyfile
+	for _, cpFile := range p.Copyfiles {
+		sourcePath := filepath.Join(projectRoot, cpFile.Src) // 源文件在项目内部
+		destPath := filepath.Join(e.repoRoot, cpFile.Dest)    // 目标文件在仓库根目录或其他指定位置
+
+		if !filepath.IsAbs(cpFile.Dest) { // 如果Dest是相对路径，则相对于repoRoot
+		    destPath = filepath.Join(e.repoRoot, cpFile.Dest)
+		} else { // 如果Dest是绝对路径，则直接使用
+		    destPath = cpFile.Dest
+		}
+		// 确保源文件相对于项目路径
+		sourcePath = filepath.Join(projectRoot, cpFile.Src)
+
+
+		e.logger.Info("复制文件: 从 %s 到 %s", sourcePath, destPath)
+
+		input, err := os.ReadFile(sourcePath)
+		if err != nil {
+			return fmt.Errorf("读取源文件 %s 失败: %w", sourcePath, err)
+		}
+
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		    return fmt.Errorf("创建目标目录 %s 失败: %w", filepath.Dir(destPath), err)
+		}
+
+		if err := os.WriteFile(destPath, input, 0644); err != nil {
+			return fmt.Errorf("写入目标文件 %s 失败: %w", destPath, err)
+		}
+	}
+
+	// 处理 Linkfile
+	for _, lnFile := range p.Linkfiles {
+		// Linkfile 的 Dest 通常是相对于仓库根目录的路径，Src 是相对于项目根目录的路径
+		// targetPath 指向实际的文件或目录（源）
+		targetPath := filepath.Join(projectRoot, lnFile.Src) 
+		// linkPath 是要创建的符号链接的路径（目标）
+		linkPath := filepath.Join(e.repoRoot, lnFile.Dest)
+
+		if !filepath.IsAbs(lnFile.Dest) { // 如果Dest是相对路径，则相对于repoRoot
+		    linkPath = filepath.Join(e.repoRoot, lnFile.Dest)
+		} else { // 如果Dest是绝对路径，则直接使用
+		    linkPath = lnFile.Dest
+		}
+		// 确保源文件相对于项目路径
+		targetPath = filepath.Join(projectRoot, lnFile.Src)
+
+
+		e.logger.Info("创建链接: 从 %s 指向 %s", linkPath, targetPath)
+
+		// 创建链接前，确保目标目录存在
+		if err := os.MkdirAll(filepath.Dir(linkPath), 0755); err != nil {
+			return fmt.Errorf("创建链接的目标目录 %s 失败: %w", filepath.Dir(linkPath), err)
+		}
+
+		// 如果链接已存在，先删除
+		if _, err := os.Lstat(linkPath); err == nil {
+			if err := os.Remove(linkPath); err != nil {
+				return fmt.Errorf("删除已存在的链接 %s 失败: %w", linkPath, err)
+			}
+		}
+
+		// 在Windows上，创建符号链接需要管理员权限，或者开发者模式已开启。
+		// os.Symlink的target应该是相对于linkPath的相对路径，或者是一个绝对路径。
+		// 为了简单和跨平台性，我们先尝试将targetPath转换为相对于linkPath父目录的相对路径。
+        linkDir := filepath.Dir(linkPath)
+        relTargetPath, err := filepath.Rel(linkDir, targetPath)
+        if err != nil {
+            // 如果无法计算相对路径（例如，它们不在同一个卷上），则直接使用绝对路径
+            relTargetPath = targetPath
+            e.logger.Debug("无法计算相对路径，将为链接 %s 使用绝对目标路径 %s: %v", linkPath, targetPath, err)
+        }
+
+
+		if err := os.Symlink(relTargetPath, linkPath); err != nil {
+			return fmt.Errorf("创建符号链接从 %s 到 %s 失败: %w", linkPath, relTargetPath, err)
+		}
+	}
+
+	return nil
 }
 
 // Errors 返回同步过程中收集的错误
