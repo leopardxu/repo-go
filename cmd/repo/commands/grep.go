@@ -6,10 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -90,8 +90,8 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// 创建项目管理器
-	log.Debug("正在创建项目管理器...")
+	// 创建项目管理�?
+	log.Debug("正在创建项目管理�?..")
 	manager := project.NewManagerFromManifest(manifest, opts.Config)
 
 	// 获取要处理的项目
@@ -103,7 +103,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 	}
 
 	if len(projectNames) == 0 {
-		log.Debug("获取所有项目...")
+		log.Debug("获取所有项�?..")
 		projects, err = manager.GetProjectsInGroups(groupsArg)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
@@ -111,7 +111,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 		}
 	} else {
 		log.Debug("根据名称获取项目: %v", projectNames)
-		// 过滤指定的项目
+		// 过滤指定的项�?
 		filteredProjects, err := manager.GetProjectsByNames(projectNames)
 		if err != nil {
 			log.Error("根据名称获取项目失败: %v", err)
@@ -155,7 +155,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 		err     error
 	}
 
-	// 创建工作池
+	// 创建工作�?
 	maxWorkers := opts.Jobs
 	if maxWorkers <= 0 {
 		maxWorkers = 8
@@ -171,7 +171,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 
 	for _, p := range projects {
 		if p.Worktree == "" {
-			log.Debug("跳过项目 %s (无工作目录)", p.Name)
+			log.Debug("跳过项目 %s (无工作目�?", p.Name)
 			continue
 		}
 
@@ -182,7 +182,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			log.Debug("在项目 %s 中执行 grep...", p.Name)
+			log.Debug("在项�?%s 中执�?grep...", p.Name)
 			cmd := exec.Command("git", grepArgs...)
 			cmd.Dir = p.Worktree
 			output, err := cmd.CombinedOutput()
@@ -204,7 +204,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 		if res.err != nil {
 			if exitErr, ok := res.err.(*exec.ExitError); ok {
 				if exitErr.ExitCode() == 1 {
-					// 退出码 1 表示没有找到匹配项，这不是错误
+					// 退出码 1 表示没有找到匹配项，这不是错�?
 					log.Debug("项目 %s 中没有找到匹配项", res.project.Name)
 					stats.mu.Lock()
 					stats.Success++
@@ -212,7 +212,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 					continue
 				}
 			}
-			log.Error("在项目 %s 中执行 grep 失败: %v", res.project.Name, res.err)
+			log.Error("在项�?%s 中执�?grep 失败: %v", res.project.Name, res.err)
 			errors = append(errors, fmt.Errorf("error grepping in %s: %v", res.project.Name, res.err))
 			stats.mu.Lock()
 			stats.Failed++
@@ -223,7 +223,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 		if len(res.output) > 0 {
 			foundMatches = true
 			lines := strings.Split(strings.TrimSpace(string(res.output)), "\n")
-			log.Debug("项目 %s 中找到 %d 个匹配项", res.project.Name, len(lines))
+			log.Debug("项目 %s 中找�?%d 个匹配项", res.project.Name, len(lines))
 			
 			stats.mu.Lock()
 			stats.Success++
@@ -243,21 +243,21 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 
 	// 输出错误信息
 	if len(errors) > 0 {
-		log.Error("在 %d 个项目中执行 grep 失败", len(errors))
+		log.Error("�?%d 个项目中执行 grep 失败", len(errors))
 		for _, err := range errors {
 			log.Error("%v", err)
 		}
 	}
 
 	// 输出统计信息
-	log.Info("搜索完成. 处理项目: %d, 成功: %d, 失败: %d, 找到匹配项: %d", 
+	log.Info("搜索完成. 处理项目: %d, 成功: %d, 失败: %d, 找到匹配�? %d", 
 		validProjects, stats.Success, stats.Failed, stats.Matches)
 
 	if !foundMatches && !opts.Quiet {
-		log.Info("没有找到匹配项")
+		log.Info("没有找到匹配�?)
 	}
 
-	// 如果有失败的项目，返回错误
+	// 如果有失败的项目，返回错�?
 	if stats.Failed > 0 {
 		return fmt.Errorf("grep command failed in %d projects", stats.Failed)
 	}

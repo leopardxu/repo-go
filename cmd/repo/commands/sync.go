@@ -8,11 +8,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
-	"github.com/cix-code/gogo/internal/repo_sync"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
+	"github.com/leopardxu/repo-go/internal/repo_sync"
 	"github.com/spf13/cobra"
 )
 
@@ -91,7 +91,7 @@ func SyncCmd() *cobra.Command {
 		Short: "Update working tree to the latest revision",
 		Long:  `Synchronize the local repository with the remote repositories.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// 创建日志记录器
+			// 创建日志记录�?
 			log := logger.NewDefaultLogger()
 
 			// 根据选项设置日志级别
@@ -170,18 +170,18 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 	}
 	opts.Config = cfg
 
-	// 检查 manifest.xml 文件是否存在
+	// 检�?manifest.xml 文件是否存在
 	manifestPath := filepath.Join(cfg.RepoRoot, ".repo", "manifest.xml")
 	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
 		log.Error("manifest.xml文件不存在，请先运行 'repo init' 命令")
 		return fmt.Errorf("manifest.xml文件不存在，请先运行 'repo init' 命令")
 	}
 
-	// 如果命令行没有指定 groups 参数，则从配置文件中读取
+	// 如果命令行没有指�?groups 参数，则从配置文件中读取
 	if opts.Groups == "" && cfg.Groups != "" {
-		log.Debug("从配置文件中读取组信息: %s", cfg.Groups)
+		log.Debug("从配置文件中读取组信�? %s", cfg.Groups)
 		opts.Groups = cfg.Groups
-		log.Info("使用配置文件中的组信息: %s", cfg.Groups)
+		log.Info("使用配置文件中的组信�? %s", cfg.Groups)
 	}
 
 	// 加载合并后的清单文件(.repo/manifest.xml)，不使用原始仓库列表
@@ -190,7 +190,7 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 	var groupsSlice []string
 	if opts.Groups != "" {
 		groupsSlice = strings.Split(opts.Groups, ",")
-		// 去除空白组
+		// 去除空白�?
 		validGroups := make([]string, 0, len(groupsSlice))
 		for _, g := range groupsSlice {
 			g = strings.TrimSpace(g)
@@ -199,9 +199,9 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 			}
 		}
 		groupsSlice = validGroups
-		log.Info("根据以下组过滤清单: %v", groupsSlice)
+		log.Info("根据以下组过滤清�? %v", groupsSlice)
 	} else {
-		log.Info("未指定组过滤，将加载所有项目")
+		log.Info("未指定组过滤，将加载所有项�?)
 	}
 
 	// 解析合并后的清单文件，根据组过滤项目
@@ -210,19 +210,19 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		log.Error("解析清单失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-	log.Debug("成功加载清单，包含 %d 个项目", len(manifestObj.Projects))
+	log.Debug("成功加载清单，包�?%d 个项�?, len(manifestObj.Projects))
 
-	// 创建项目管理器
+	// 创建项目管理�?
 	log.Debug("正在初始化项目管理器...")
 	manager := project.NewManagerFromManifest(manifestObj, opts.Config)
 
 	var projects []*project.Project
 	if len(args) == 0 {
-		// 如果没有指定项目，则处理所有项目
-		log.Debug("获取所有项目...")
+		// 如果没有指定项目，则处理所有项�?
+		log.Debug("获取所有项�?..")
 		// 直接使用 groupsSlice 过滤项目，确保只获取指定组的项目
 		if len(groupsSlice) > 0 {
-			log.Debug("根据组过滤获取项目: %v", groupsSlice)
+			log.Debug("根据组过滤获取项�? %v", groupsSlice)
 			projects, err = manager.GetProjectsInGroups(groupsSlice)
 		} else {
 			log.Debug("获取所有项目，不进行组过滤")
@@ -232,40 +232,40 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 			log.Error("获取项目失败: %v", err)
 			return fmt.Errorf("获取项目失败: %w", err)
 		}
-		log.Debug("共获取到 %d 个项目", len(projects))
+		log.Debug("共获取到 %d 个项�?, len(projects))
 	} else {
-		// 否则，只处理指定的项目
+		// 否则，只处理指定的项�?
 		log.Debug("根据名称获取项目: %v", args)
 		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
 			log.Error("根据名称获取项目失败: %v", err)
 			return fmt.Errorf("根据名称获取项目失败: %w", err)
 		}
-		log.Debug("共获取到 %d 个项目", len(projects))
+		log.Debug("共获取到 %d 个项�?, len(projects))
 	}
 
-	// 项目已经在 GetProjectsInGroups 中根据组过滤，不需要再次过滤
-	log.Info("找到 %d 个匹配项目", len(projects))
+	// 项目已经�?GetProjectsInGroups 中根据组过滤，不需要再次过�?
+	log.Info("找到 %d 个匹配项�?, len(projects))
 
 	// 如果过滤后没有项目，提前返回错误
 	if len(projects) == 0 {
-		log.Warn("在指定组 %v 中未找到匹配的项目，请检查组名是否正确", groupsSlice)
-		return fmt.Errorf("在指定组 %v 中未找到匹配的项目", groupsSlice)
+		log.Warn("在指定组 %v 中未找到匹配的项目，请检查组名是否正�?, groupsSlice)
+		return fmt.Errorf("在指定组 %v 中未找到匹配的项�?, groupsSlice)
 	}
 
-	// 检查是否有项目需要同步
+	// 检查是否有项目需要同�?
 	if len(projects) == 0 {
-		log.Warn("没有找到匹配的项目需要同步")
-		return fmt.Errorf("没有找到匹配的项目需要同步")
+		log.Warn("没有找到匹配的项目需要同�?)
+		return fmt.Errorf("没有找到匹配的项目需要同�?)
 	}
 
 	// 创建同步引擎
 	log.Debug("创建同步引擎...")
-	// 使用已经处理好的 groupsSlice，避免重复处理
+	// 使用已经处理好的 groupsSlice，避免重复处�?
 	if len(groupsSlice) > 0 {
-		log.Info("使用以下组过滤项目: %v", groupsSlice)
+		log.Info("使用以下组过滤项�? %v", groupsSlice)
 	} else {
-		log.Info("未指定组过滤，将同步所有项目")
+		log.Info("未指定组过滤，将同步所有项�?)
 	}
 
 	engine := repo_sync.NewEngine(&repo_sync.Options{
@@ -288,7 +288,7 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		FetchSubmodules:        opts.FetchSubmodules,
 		OptimizedFetch:         opts.OptimizedFetch,
 		RetryFetches:           opts.RetryFetches,
-		Groups:                 groupsSlice, // 传递已处理的分组信息，确保只克隆指定组的仓库
+		Groups:                 groupsSlice, // 传递已处理的分组信息，确保只克隆指定组的仓�?
 		FailFast:               opts.FailFast,
 		NoManifestUpdate:       opts.NoManifestUpdate,
 		UseSuperproject:        opts.UseSuperproject && !opts.NoUseSuperproject,
@@ -298,19 +298,19 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		ManifestServerPassword: opts.ManifestServerPassword,
 		GitLFS:                 opts.GitLFS,        // 添加Git LFS支持选项
 		DefaultRemote:          opts.DefaultRemote, // 添加默认远程仓库选项
-		Config:                 opts.Config,        // 添加Config字段，传递配置信息
+		Config:                 opts.Config,        // 添加Config字段，传递配置信�?
 	}, manifestObj, log)
 
 	// 设置要同步的项目
 	engine.SetProjects(projects)
 
 	// 执行同步
-	log.Info("开始同步项目，并行任务数: %d...", opts.Jobs)
+	log.Info("开始同步项目，并行任务�? %d...", opts.Jobs)
 	err = engine.Sync()
 
 	// 处理同步结果
 	if err != nil {
-		log.Error("同步操作完成，但有错误: %v", err)
+		log.Error("同步操作完成，但有错�? %v", err)
 		stats.failed = len(projects) // 更新统计信息
 		return err
 	}
@@ -318,17 +318,17 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 	// 更新统计信息
 	stats.total = len(projects)
 	stats.success = len(projects)
-	log.Info("同步操作成功完成，共同步 %d 个项目", stats.total)
+	log.Info("同步操作成功完成，共同步 %d 个项�?, stats.total)
 	return nil
 }
 
-// filterProjectsByGroups 根据组过滤项目
+// filterProjectsByGroups 根据组过滤项�?
 func filterProjectsByGroups(projects []*project.Project, groups []string) []*project.Project {
 	if len(groups) == 0 {
 		return projects
 	}
 
-	fmt.Printf("根据以下组过滤项目: %v\n", groups)
+	fmt.Printf("根据以下组过滤项�? %v\n", groups)
 	fmt.Printf("过滤前的项目数量: %d\n", len(projects))
 
 	var filtered []*project.Project

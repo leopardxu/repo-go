@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +25,7 @@ type StatusOptions struct {
 	Config            *config.Config
 }
 
-// statusStats 用于统计状态检查结果
+// statusStats 用于统计状态检查结�?
 type statusStats struct {
 	mu      sync.Mutex
 	total   int
@@ -56,7 +56,7 @@ func StatusCmd() *cobra.Command {
 		Short: "Show the working tree status",
 		Long:  `Show the status of the working tree. This includes projects with uncommitted changes, projects with unpushed commits, and projects on different branches than specified in the manifest.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// 创建日志记录器
+			// 创建日志记录�?
 			log := logger.NewDefaultLogger()
 			
 			// 根据选项设置日志级别
@@ -103,9 +103,9 @@ func runStatus(opts *StatusOptions, args []string, log logger.Logger) error {
 		log.Error("解析清单失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-	log.Debug("成功加载清单，包含 %d 个项目", len(manifest.Projects))
+	log.Debug("成功加载清单，包�?%d 个项�?, len(manifest.Projects))
 
-	// 创建项目管理器
+	// 创建项目管理�?
 	log.Debug("正在初始化项目管理器...")
 	manager := project.NewManagerFromManifest(manifest, cfg)
 
@@ -113,27 +113,27 @@ func runStatus(opts *StatusOptions, args []string, log logger.Logger) error {
 	var projects []*project.Project
 
 	if len(args) == 0 {
-		// 如果没有指定项目，则处理所有项目
-		log.Debug("获取所有项目...")
+		// 如果没有指定项目，则处理所有项�?
+		log.Debug("获取所有项�?..")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
-		log.Debug("共获取到 %d 个项目", len(projects))
+		log.Debug("共获取到 %d 个项�?, len(projects))
 	} else {
-		// 否则，只处理指定的项目
+		// 否则，只处理指定的项�?
 		log.Debug("根据名称获取项目: %v", args)
 		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
 			log.Error("根据名称获取项目失败: %v", err)
 			return fmt.Errorf("failed to get projects by name: %w", err)
 		}
-		log.Debug("共获取到 %d 个项目", len(projects))
+		log.Debug("共获取到 %d 个项�?, len(projects))
 	}
 
-	// 使用goroutine池并发获取项目状态
-	log.Info("开始检查项目状态，并行任务数: %d...", opts.Jobs)
+	// 使用goroutine池并发获取项目状�?
+	log.Info("开始检查项目状态，并行任务�? %d...", opts.Jobs)
 	
 	type statusResult struct {
 		Project *project.Project
@@ -151,18 +151,18 @@ func runStatus(opts *StatusOptions, args []string, log logger.Logger) error {
 		
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{} // 获取信号量
-			defer func() { <-sem }() // 释放信号量
+			sem <- struct{}{} // 获取信号�?
+			defer func() { <-sem }() // 释放信号�?
 			
-			log.Debug("正在检查项目 %s 的状态...", p.Name)
+			log.Debug("正在检查项�?%s 的状�?..", p.Name)
 			
 			status, err := p.GetStatus()
 			if err != nil {
-				log.Error("获取项目 %s 状态失败: %v", p.Name, err)
+				log.Error("获取项目 %s 状态失�? %v", p.Name, err)
 				stats.increment(false)
 			} else {
 				stats.increment(true)
-				log.Debug("项目 %s 状态检查完成", p.Name)
+				log.Debug("项目 %s 状态检查完�?, p.Name)
 			}
 			
 			results <- statusResult{
@@ -173,7 +173,7 @@ func runStatus(opts *StatusOptions, args []string, log logger.Logger) error {
 		}()
 	}
 
-	// 启动一个 goroutine 来关闭结果通道
+	// 启动一�?goroutine 来关闭结果通道
 	go func() {
 		wg.Wait()
 		close(results)
@@ -191,11 +191,11 @@ func runStatus(opts *StatusOptions, args []string, log logger.Logger) error {
 	}
 
 	// 显示统计信息
-	log.Info("状态检查操作完成，总计: %d，成功: %d，失败: %d", stats.total, stats.success, stats.failed)
+	log.Info("状态检查操作完成，总计: %d，成�? %d，失�? %d", stats.total, stats.success, stats.failed)
 
-	// 如果有错误，返回汇总错误
+	// 如果有错误，返回汇总错�?
 	if len(errs) > 0 {
-		log.Error("有 %d 个项目状态检查失败", len(errs))
+		log.Error("�?%d 个项目状态检查失�?, len(errs))
 		return fmt.Errorf("%d projects failed: %v", len(errs), errors.Join(errs...))
 	}
 

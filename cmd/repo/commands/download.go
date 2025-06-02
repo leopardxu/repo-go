@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -109,7 +109,7 @@ func runDownload(opts *DownloadOptions, projectNames []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// 创建项目管理器
+	// 创建项目管理�?
 	log.Debug("Creating project manager")
 	manager := project.NewManagerFromManifest(mf, cfg)
 
@@ -173,7 +173,7 @@ func runDownload(opts *DownloadOptions, projectNames []string) error {
 	// 输出统计信息
 	log.Info("Download complete. Success: %d, Failed: %d", stats.Success, stats.Failed)
 
-	// 如果有失败的项目，返回错误
+	// 如果有失败的项目，返回错�?
 	if stats.Failed > 0 {
 		return fmt.Errorf("%d projects failed to download", stats.Failed)
 	}

@@ -36,7 +36,7 @@ func setDefaultGitConfig() error {
 	// 检查是否已经设置了用户名和邮箱
 	hasUserName, err := hasGitConfig("user.name")
 	if err != nil {
-		log.Warn("检查Git用户名配置失败: %v", err)
+		log.Warn("检查Git用户名配置失�? %v", err)
 	}
 
 	hasUserEmail, err := hasGitConfig("user.email")
@@ -44,15 +44,15 @@ func setDefaultGitConfig() error {
 		log.Warn("检查Git邮箱配置失败: %v", err)
 	}
 
-	// 只有在未设置的情况下才设置默认值
+	// 只有在未设置的情况下才设置默认�?
 	if !hasUserName {
-		log.Info("设置默认Git用户名: CIX Code")
+		log.Info("设置默认Git用户�? CIX Code")
 		if err := runGitCommand("config", "--global", "user.name", "CIX Code"); err != nil {
-			log.Error("设置Git用户名失败: %v", err)
+			log.Error("设置Git用户名失�? %v", err)
 			return err
 		}
 	} else {
-		log.Debug("Git用户名已设置，跳过")
+		log.Debug("Git用户名已设置，跳�?)
 	}
 
 	if !hasUserEmail {
@@ -124,9 +124,9 @@ func hasGitConfig(name string) (bool, error) {
 	output, err := cmd.Output()
 
 	if err != nil {
-		// 如果命令返回非零状态码，通常表示配置不存在
+		// 如果命令返回非零状态码，通常表示配置不存�?
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			log.Debug("Git配置 %s 未设置", name)
+			log.Debug("Git配置 %s 未设�?, name)
 			return false, nil
 		}
 
@@ -135,8 +135,8 @@ func hasGitConfig(name string) (bool, error) {
 		return false, err
 	}
 
-	// 如果有输出，说明配置已存在
+	// 如果有输出，说明配置已存�?
 	hasConfig := len(output) > 0
-	log.Debug("Git配置 %s %s", name, map[bool]string{true: "已设置", false: "未设置"}[hasConfig])
+	log.Debug("Git配置 %s %s", name, map[bool]string{true: "已设�?, false: "未设�?}[hasConfig])
 	return hasConfig, nil
 }

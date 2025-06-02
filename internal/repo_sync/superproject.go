@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cix-code/gogo/internal/git"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/git"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 )
 
 // Superproject 表示超级项目
@@ -20,7 +20,7 @@ type Superproject struct {
 	gitRepo  *git.Repository
 }
 
-// NewSuperproject 创建一个新的超级项目
+// NewSuperproject 创建一个新的超级项�?
 func NewSuperproject(manifest *manifest.Manifest, quiet bool) (*Superproject, error) {
 	// 创建超级项目目录
 	gitdir := filepath.Join(manifest.Subdir, "superproject")
@@ -36,7 +36,7 @@ func NewSuperproject(manifest *manifest.Manifest, quiet bool) (*Superproject, er
 		gitRepo:  git.NewRepository(worktree, git.NewRunner()),
 	}
 	
-	// 初始化超级项目
+	// 初始化超级项�?
 	if err := sp.init(); err != nil {
 		return nil, err
 	}
@@ -44,26 +44,26 @@ func NewSuperproject(manifest *manifest.Manifest, quiet bool) (*Superproject, er
 	return sp, nil
 }
 
-// init 初始化超级项目
+// init 初始化超级项�?
 func (sp *Superproject) init() error {
-	// 检查超级项目目录是否存在
+	// 检查超级项目目录是否存�?
 	if _, err := os.Stat(sp.gitdir); os.IsNotExist(err) {
 		// 创建超级项目目录
 		if err := os.MkdirAll(sp.gitdir, 0755); err != nil {
 			return fmt.Errorf("创建超级项目目录失败: %w", err)
 		}
 		
-		// 初始化超级项目
+		// 初始化超级项�?
 		if _, err := sp.gitRepo.RunCommand("init", "--bare"); err != nil {
-			return fmt.Errorf("初始化超级项目失败: %w", err)
+			return fmt.Errorf("初始化超级项目失�? %w", err)
 		}
 	}
 	
 	// 检查工作树是否存在
 	if _, err := os.Stat(sp.worktree); os.IsNotExist(err) {
-		// 创建工作树
+		// 创建工作�?
 		if err := os.MkdirAll(sp.worktree, 0755); err != nil {
-			return fmt.Errorf("创建超级项目工作树失败: %w", err)
+			return fmt.Errorf("创建超级项目工作树失�? %w", err)
 		}
 		
 		// 初始化工作树
@@ -78,14 +78,14 @@ func (sp *Superproject) init() error {
 // UpdateProjectsRevisionId 从超级项目更新项目的修订ID
 func (sp *Superproject) UpdateProjectsRevisionId(projects []*project.Project) (string, error) {
 	// 获取超级项目的远程URL
-	// 修复字段名称，使用自定义属性
+	// 修复字段名称，使用自定义属�?
 	superprojectRemote, ok := sp.manifest.GetCustomAttr("superproject-remote")
 	if !ok || superprojectRemote == "" {
 		return "", fmt.Errorf("清单中未定义超级项目远程仓库")
 	}
 	
-	// 获取超级项目的分支
-	// 修复字段名称，使用自定义属性
+	// 获取超级项目的分�?
+	// 修复字段名称，使用自定义属�?
 	superprojectBranch, ok := sp.manifest.GetCustomAttr("superproject-branch")
 	if !ok || superprojectBranch == "" {
 		return "", fmt.Errorf("清单中未定义超级项目分支")
@@ -109,9 +109,9 @@ func (sp *Superproject) UpdateProjectsRevisionId(projects []*project.Project) (s
 		return "", fmt.Errorf("获取超级项目失败: %w", err)
 	}
 	
-	// 检出超级项目
+	// 检出超级项�?
 	if _, err := sp.gitRepo.RunCommand("checkout", "FETCH_HEAD"); err != nil {
-		return "", fmt.Errorf("检出超级项目失败: %w", err)
+		return "", fmt.Errorf("检出超级项目失�? %w", err)
 	}
 	
 	// 获取超级项目的提交ID
@@ -147,7 +147,7 @@ func (sp *Superproject) UpdateProjectsRevisionId(projects []*project.Project) (s
 		}
 		projectCommitId := parts[2]
 		
-		// 添加项目到清单
+		// 添加项目到清�?
 		manifestContent += fmt.Sprintf(`  <project name="%s" path="%s" revision="%s" />
 `, project.Name, projectPath, projectCommitId)
 		

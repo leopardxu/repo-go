@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cix-code/gogo/cmd/repo/commands"
-	"github.com/cix-code/gogo/internal/logger"
+	"github.com/leopardxu/repo-go/cmd/repo/commands"
+	"github.com/leopardxu/repo-go/internal/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +17,7 @@ var (
 )
 
 func main() {
-	// 初始化日志
+	// 初始化日�?
 	log := logger.NewDefaultLogger()
 	logFile := os.Getenv("GOGO_LOG_FILE")
 	if logFile != "" {
@@ -27,7 +27,7 @@ func main() {
 	}
 	logger.SetGlobalLogger(log)
 
-	// 创建根命令
+	// 创建根命�?
 	rootCmd := &cobra.Command{
 		Use:   "repo [-p|--paginate|--no-pager] COMMAND [ARGS]",
 		Short: "Repo is a tool for managing multiple git repositories",
@@ -58,7 +58,7 @@ Available commands:
 	}
 
 	// 全局选项
-	// 修改这里，删除 -p 短标志，只保留 --paginate 长标志
+	// 修改这里，删�?-p 短标志，只保�?--paginate 长标�?
 	rootCmd.PersistentFlags().Bool("paginate", false, "display command output in the pager")
 	rootCmd.PersistentFlags().Bool("no-pager", false, "disable the pager")
 	rootCmd.PersistentFlags().String("color", "auto", "control color usage: auto, always, never")
@@ -70,7 +70,7 @@ Available commands:
 	rootCmd.PersistentFlags().String("git-trace2-event-log", "", "directory to write git trace2 event log to")
 	rootCmd.PersistentFlags().String("submanifest-path", "", "submanifest path")
 
-	// 添加子命令
+	// 添加子命�?
 	rootCmd.AddCommand(commands.InitCmd())
 	rootCmd.AddCommand(commands.SyncCmd())
 	rootCmd.AddCommand(commands.StartCmd())
@@ -91,7 +91,7 @@ Available commands:
 	rootCmd.AddCommand(commands.RebaseCmd())
 	rootCmd.AddCommand(commands.SmartSyncCmd())
 	rootCmd.AddCommand(commands.StageCmd())
-	// 注释掉未定义的命令
+	// 注释掉未定义的命�?
 	// commands.ArtifactDlCmd(),
 	// commands.ArtifactLsCmd(),
 	// commands.GitcInitCmd(),

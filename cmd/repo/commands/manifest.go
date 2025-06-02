@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +30,7 @@ type ManifestOptions struct {
 	Jobs                    int
 }
 
-// manifestStats 用于统计manifest命令的执行结果
+// manifestStats 用于统计manifest命令的执行结�?
 type manifestStats struct {
 	mu      sync.Mutex
 	success int
@@ -81,7 +81,7 @@ func runManifest(opts *ManifestOptions, args []string) error {
 		log.SetLevel(logger.LogLevelInfo)
 	}
 
-	log.Info("开始处理清单文件")
+	log.Info("开始处理清单文�?)
 
 	// 加载配置
 	log.Debug("正在加载配置...")
@@ -100,9 +100,9 @@ func runManifest(opts *ManifestOptions, args []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	log.Debug("清单文件解析成功，包含 %d 个项目", len(manifestObj.Projects))
+	log.Debug("清单文件解析成功，包�?%d 个项�?, len(manifestObj.Projects))
 
-	// 如果需要创建快照
+	// 如果需要创建快�?
 	if opts.Snapshot {
 		log.Info("正在创建清单快照...")
 		// 创建快照清单
@@ -117,7 +117,7 @@ func runManifest(opts *ManifestOptions, args []string) error {
 		log.Info("清单快照创建成功")
 	}
 
-	// 如果指定了输出文件
+	// 如果指定了输出文�?
 	if opts.OutputFile != "" {
 		// 确保输出目录存在
 		outputDir := filepath.Dir(opts.OutputFile)
@@ -128,16 +128,16 @@ func runManifest(opts *ManifestOptions, args []string) error {
 		}
 		
 		// 写入输出文件
-		log.Debug("正在写入清单到文件: %s", opts.OutputFile)
+		log.Debug("正在写入清单到文�? %s", opts.OutputFile)
 		if err := manifestObj.WriteToFile(opts.OutputFile); err != nil {
-			log.Error("写入清单到文件失败: %v", err)
+			log.Error("写入清单到文件失�? %v", err)
 			return fmt.Errorf("failed to write manifest to file: %w", err)
 		}
 		
 		log.Info("清单已写入到文件: %s", opts.OutputFile)
 	} else {
 		// 否则，输出到标准输出
-		log.Debug("正在准备输出清单到标准输出")
+		log.Debug("正在准备输出清单到标准输�?)
 		if opts.JsonOutput {
 			log.Debug("使用JSON格式输出")
 			jsonData, err := manifestObj.ToJSON()
@@ -163,13 +163,13 @@ func runManifest(opts *ManifestOptions, args []string) error {
 
 // createSnapshotManifest 创建快照清单
 func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *ManifestOptions, log logger.Logger) (*manifest.Manifest, error) {
-	// 创建快照清单的副本
+	// 创建快照清单的副�?
 	snapshotManifest := *m
 	
-	log.Info("开始创建清单快照")
+	log.Info("开始创建清单快�?)
 	
-	// 创建项目管理器
-	log.Debug("正在创建项目管理器...")
+	// 创建项目管理�?
+	log.Debug("正在创建项目管理�?..")
 	projectManager := project.NewManagerFromManifest(&snapshotManifest, cfg)
 	
 	// 并发处理项目更新
@@ -194,7 +194,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 	sem := make(chan struct{}, maxWorkers)
 	results := make(chan projectUpdate, len(snapshotManifest.Projects))
 
-	log.Info("开始处理 %d 个项目...", len(snapshotManifest.Projects))
+	log.Info("开始处�?%d 个项�?..", len(snapshotManifest.Projects))
 
 	for i, p := range snapshotManifest.Projects {
 		wg.Add(1)
@@ -210,7 +210,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 			log.Debug("正在获取项目: %s", projName)
 			update.proj = projectManager.GetProject(projName)
 			if update.proj == nil {
-				log.Warn("项目 %s 在工作区中未找到，跳过", projName)
+				log.Warn("项目 %s 在工作区中未找到，跳�?, projName)
 				
 				// 更新统计信息
 				stats.mu.Lock()
@@ -243,10 +243,10 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 			
 			// 根据选项更新修订版本
 			if opts.RevisionAsHEAD {
-				log.Debug("将项目 %s 的修订版本设置为HEAD", projName)
+				log.Debug("将项�?%s 的修订版本设置为HEAD", projName)
 				snapshotManifest.Projects[update.index].Revision = "HEAD"
 			} else {
-				log.Debug("将项目 %s 的修订版本设置为提交哈希: %s", projName, commitHash)
+				log.Debug("将项�?%s 的修订版本设置为提交哈希: %s", projName, commitHash)
 				snapshotManifest.Projects[update.index].Revision = commitHash
 			}
 			
@@ -256,7 +256,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 				upstreamRevision, exists := snapshotManifest.Projects[update.index].GetCustomAttr("upstream-revision")
 				if exists {
 					delete(snapshotManifest.Projects[update.index].CustomAttrs, "upstream-revision")
-					log.Debug("从项目 %s 中移除上游修订版本: %s", projName, upstreamRevision)
+					log.Debug("从项�?%s 中移除上游修订版�? %s", projName, upstreamRevision)
 				}
 			}
 			
@@ -266,18 +266,18 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 				destBranch, exists := snapshotManifest.Projects[update.index].GetCustomAttr("dest-branch")
 				if exists {
 					delete(snapshotManifest.Projects[update.index].CustomAttrs, "dest-branch")
-					log.Debug("从项目 %s 中移除目标分支: %s", projName, destBranch)
+					log.Debug("从项�?%s 中移除目标分�? %s", projName, destBranch)
 				}
 			}
 			
 			// 处理NoCloneBundle选项
 			if opts.NoCloneBundle {
-				// 添加no-clone-bundle属性
+				// 添加no-clone-bundle属�?
 				snapshotManifest.Projects[update.index].CustomAttrs["no-clone-bundle"] = "true"
-				log.Debug("为项目 %s 添加no-clone-bundle属性", projName)
+				log.Debug("为项�?%s 添加no-clone-bundle属�?, projName)
 			}
 			
-			log.Info("已更新项目 %s 的修订版本为 %s", projName, snapshotManifest.Projects[update.index].Revision)
+			log.Info("已更新项�?%s 的修订版本为 %s", projName, snapshotManifest.Projects[update.index].Revision)
 			
 			// 更新统计信息
 			stats.mu.Lock()
@@ -289,7 +289,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 	}
 
 	// 等待所有goroutine完成
-	log.Debug("等待所有项目处理完成...")
+	log.Debug("等待所有项目处理完�?..")
 	wg.Wait()
 	close(results)
 
@@ -301,7 +301,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 	}
 	
 	// 输出统计信息
-	log.Info("清单快照创建完成: %d 个项目成功, %d 个项目失败", stats.success, stats.failed)
+	log.Info("清单快照创建完成: %d 个项目成�? %d 个项目失�?, stats.success, stats.failed)
 	
 	return &snapshotManifest, nil
 }

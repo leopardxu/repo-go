@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
 )
 
-// 使用包级别的日志记录器
+// 使用包级别的日志记录�?
 var repoLog logger.Logger = &logger.DefaultLogger{}
 
 // SetRepositoryLogger 设置仓库操作的日志记录器
@@ -71,7 +71,7 @@ func NewRepository(path string, runner Runner) *Repository {
 	return &Repository{
 		Path:            path,
 		Runner:          runner,
-		cacheExpiration: time.Minute * 5, // 默认缓存过期时间为5分钟
+		cacheExpiration: time.Minute * 5, // 默认缓存过期时间�?分钟
 	}
 }
 
@@ -90,9 +90,9 @@ func (r *Repository) ClearCache() {
 	r.branchCache = ""
 }
 
-// RunCommand 执行Git命令并返回结果
+// RunCommand 执行Git命令并返回结�?
 func (r *Repository) RunCommand(args ...string) ([]byte, error) {
-	repoLog.Debug("在仓库 '%s' 执行命令: git %s", r.Path, strings.Join(args, " "))
+	repoLog.Debug("在仓�?'%s' 执行命令: git %s", r.Path, strings.Join(args, " "))
 
 	output, err := r.Runner.RunInDir(r.Path, args...)
 	if err != nil {
@@ -125,7 +125,7 @@ type FetchOptions struct {
 	Config *config.Config // 添加Config字段
 }
 
-// Exists 检查仓库是否存在
+// Exists 检查仓库是否存�?
 func (r *Repository) Exists() (bool, error) {
 	gitDir := filepath.Join(r.Path, ".git")
 	_, err := os.Stat(gitDir)
@@ -140,7 +140,7 @@ func (r *Repository) Exists() (bool, error) {
 
 // Clone 克隆一个Git仓库
 func (r *Repository) Clone(repoURL string, opts CloneOptions) error {
-	repoLog.Info("克隆仓库: %s 到 %s", repoURL, r.Path)
+	repoLog.Info("克隆仓库: %s �?%s", repoURL, r.Path)
 
 	// 构建克隆参数
 	args := []string{"clone"}
@@ -183,9 +183,9 @@ func (r *Repository) Clone(repoURL string, opts CloneOptions) error {
 	return nil
 }
 
-// Fetch 从远程获取更新
+// Fetch 从远程获取更�?
 func (r *Repository) Fetch(remote string, opts FetchOptions) error {
-	repoLog.Info("从远程 '%s' 获取更新到 '%s'", remote, r.Path)
+	repoLog.Info("从远�?'%s' 获取更新�?'%s'", remote, r.Path)
 
 	// 解析远程URL
 	resolvedRemote := remote
@@ -211,7 +211,7 @@ func (r *Repository) Fetch(remote string, opts FetchOptions) error {
 	}
 	if opts.Tags {
 		args = append(args, "--tags")
-		repoLog.Debug("获取所有标签")
+		repoLog.Debug("获取所有标�?)
 	}
 	if opts.Depth > 0 {
 		args = append(args, "--depth", fmt.Sprintf("%d", opts.Depth))
@@ -230,10 +230,10 @@ func (r *Repository) Fetch(remote string, opts FetchOptions) error {
 		}
 	}
 
-	// 清除缓存，因为fetch可能改变仓库状态
+	// 清除缓存，因为fetch可能改变仓库状�?
 	r.ClearCache()
 
-	repoLog.Info("成功从远程 '%s' 获取更新", resolvedRemote)
+	repoLog.Info("成功从远�?'%s' 获取更新", resolvedRemote)
 	return nil
 }
 
@@ -243,23 +243,23 @@ func (r *Repository) Checkout(revision string) error {
 	return err
 }
 
-// Status 获取仓库状态
+// Status 获取仓库状�?
 func (r *Repository) Status() (string, error) {
-	// 检查缓存
+	// 检查缓�?
 	r.cacheMutex.RLock()
 	if r.statusCache != "" && time.Since(r.statusCacheTime) < r.cacheExpiration {
 		status := r.statusCache
 		r.cacheMutex.RUnlock()
-		repoLog.Debug("使用缓存的仓库状态")
+		repoLog.Debug("使用缓存的仓库状�?)
 		return status, nil
 	}
 	r.cacheMutex.RUnlock()
 
-	// 获取状态
-	repoLog.Debug("获取仓库 '%s' 的状态", r.Path)
+	// 获取状�?
+	repoLog.Debug("获取仓库 '%s' 的状�?, r.Path)
 	output, err := r.Runner.RunInDir(r.Path, "status", "--porcelain")
 	if err != nil {
-		repoLog.Error("获取仓库状态失败: %v", err)
+		repoLog.Error("获取仓库状态失�? %v", err)
 		return "", &RepositoryError{
 			Op:      "status",
 			Path:    r.Path,
@@ -280,20 +280,20 @@ func (r *Repository) Status() (string, error) {
 
 // IsClean 检查仓库是否干净（没有未提交的更改）
 func (r *Repository) IsClean() (bool, error) {
-	repoLog.Debug("检查仓库 '%s' 是否干净", r.Path)
+	repoLog.Debug("检查仓�?'%s' 是否干净", r.Path)
 	status, err := r.Status()
 	if err != nil {
 		return false, err
 	}
 
 	isClean := status == ""
-	repoLog.Debug("仓库 '%s' %s", r.Path, map[bool]string{true: "干净", false: "有未提交的更改"}[isClean])
+	repoLog.Debug("仓库 '%s' %s", r.Path, map[bool]string{true: "干净", false: "有未提交的更�?}[isClean])
 	return isClean, nil
 }
 
-// BranchExists 检查分支是否存在
+// BranchExists 检查分支是否存�?
 func (r *Repository) BranchExists(branch string) (bool, error) {
-	// 执行git命令检查分支是否存在
+	// 执行git命令检查分支是否存�?
 	_, err := r.Runner.RunInDir(r.Path, "rev-parse", "--verify", branch)
 	if err != nil {
 		// 如果命令失败，分支不存在
@@ -304,21 +304,21 @@ func (r *Repository) BranchExists(branch string) (bool, error) {
 
 // CurrentBranch 获取当前分支名称
 func (r *Repository) CurrentBranch() (string, error) {
-	// 检查缓存
+	// 检查缓�?
 	r.cacheMutex.RLock()
 	if r.branchCache != "" && time.Since(r.branchCacheTime) < r.cacheExpiration {
 		branch := r.branchCache
 		r.cacheMutex.RUnlock()
-		repoLog.Debug("使用缓存的分支名称")
+		repoLog.Debug("使用缓存的分支名�?)
 		return branch, nil
 	}
 	r.cacheMutex.RUnlock()
 
 	// 获取当前分支
-	repoLog.Debug("获取仓库 '%s' 的当前分支", r.Path)
+	repoLog.Debug("获取仓库 '%s' 的当前分�?, r.Path)
 	output, err := r.Runner.RunInDir(r.Path, "symbolic-ref", "--short", "HEAD")
 	if err != nil {
-		// 可能处于分离头指针状态
+		// 可能处于分离头指针状�?
 		output, err = r.Runner.RunInDir(r.Path, "rev-parse", "--short", "HEAD")
 		if err != nil {
 			repoLog.Error("获取当前分支失败: %v", err)
@@ -329,7 +329,7 @@ func (r *Repository) CurrentBranch() (string, error) {
 				Err:     err,
 			}
 		}
-		// 处于分离头指针状态
+		// 处于分离头指针状�?
 		branch := "HEAD detached at " + strings.TrimSpace(string(output))
 
 		// 更新缓存
@@ -338,7 +338,7 @@ func (r *Repository) CurrentBranch() (string, error) {
 		r.branchCacheTime = time.Now()
 		r.cacheMutex.Unlock()
 
-		repoLog.Debug("仓库 '%s' 处于分离头指针状态: %s", r.Path, branch)
+		repoLog.Debug("仓库 '%s' 处于分离头指针状�? %s", r.Path, branch)
 		return branch, nil
 	}
 
@@ -353,22 +353,22 @@ func (r *Repository) CurrentBranch() (string, error) {
 	return branch, nil
 }
 
-// HasRevision 检查是否有指定的修订版本
+// HasRevision 检查是否有指定的修订版�?
 func (r *Repository) HasRevision(revision string) (bool, error) {
-	repoLog.Debug("检查仓库 '%s' 是否有修订版本: %s", r.Path, revision)
+	repoLog.Debug("检查仓�?'%s' 是否有修订版�? %s", r.Path, revision)
 	_, err := r.Runner.RunInDir(r.Path, "rev-parse", "--verify", revision)
 	if err != nil {
 		repoLog.Debug("仓库 '%s' 没有修订版本: %s", r.Path, revision)
 		return false, nil
 	}
 
-	repoLog.Debug("仓库 '%s' 有修订版本: %s", r.Path, revision)
+	repoLog.Debug("仓库 '%s' 有修订版�? %s", r.Path, revision)
 	return true, nil
 }
 
 // resolveRepositoryURL 解析仓库URL，处理相对路径和特殊格式
 func resolveRepositoryURL(repoURL string, cfg *config.Config) (string, error) {
-	// 检查缓存
+	// 检查缓�?
 	urlCacheMutex.RLock()
 	if cachedURL, ok := urlCache[repoURL]; ok {
 		urlCacheMutex.RUnlock()
@@ -385,14 +385,14 @@ func resolveRepositoryURL(repoURL string, cfg *config.Config) (string, error) {
 		}
 
 		if baseURL == "" {
-			// 如果没有配置或无法获取基础URL，使用默认值
+			// 如果没有配置或无法获取基础URL，使用默认�?
 			baseURL = "ssh://git@gitmirror.cixtech.com"
 		}
 
 		// 确保baseURL不以/结尾
 		baseURL = strings.TrimSuffix(baseURL, "/")
 
-		// 处理不同格式的相对路径
+		// 处理不同格式的相对路�?
 		var resolvedURL string
 		if strings.HasPrefix(repoURL, "../") {
 			// 移除相对路径前缀
@@ -440,7 +440,7 @@ func resolveRepositoryURL(repoURL string, cfg *config.Config) (string, error) {
 		}
 	}
 
-	// URL已经是完整格式或无法解析，直接返回
+	// URL已经是完整格式或无法解析，直接返�?
 	return repoURL, nil
 }
 
@@ -464,7 +464,7 @@ func (r *Repository) DeleteBranch(branch string, force bool) error {
 	return nil
 }
 
-// CreateBranch 创建新分支
+// CreateBranch 创建新分�?
 func (r *Repository) CreateBranch(branch string, startPoint string) error {
 	args := []string{"branch"}
 	if startPoint != "" {
@@ -486,21 +486,21 @@ func (r *Repository) HasChangesToPush(branch string) (bool, error) {
 	// 获取远程分支名称
 	remoteBranch := "origin/" + branch
 
-	// 检查本地分支和远程分支之间的差异
+	// 检查本地分支和远程分支之间的差�?
 	output, err := r.Runner.RunInDir(r.Path, "rev-list", "--count", branch, "^"+remoteBranch)
 	if err != nil {
 		return false, fmt.Errorf("failed to check changes to push: %w", err)
 	}
 
-	// 如果输出不为0，则有更改需要推送
+	// 如果输出不为0，则有更改需要推�?
 	count := strings.TrimSpace(string(output))
 	return count != "0", nil
 }
 
 // GetBranchName 获取当前分支名称
 func (r *Repository) GetBranchName() (string, error) {
-	// 使用 Runner 而不是 runner
-	// 使用 Path 而不是 path
+	// 使用 Runner 而不�?runner
+	// 使用 Path 而不�?path
 	output, err := r.Runner.RunInDir(r.Path, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("failed to get current branch: %w", err)
@@ -509,9 +509,9 @@ func (r *Repository) GetBranchName() (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
-// ListRemotes 列出所有远程仓库
+// ListRemotes 列出所有远程仓�?
 func (r *Repository) ListRemotes() ([]string, error) {
-	repoLog.Debug("列出仓库 '%s' 的所有远程仓库", r.Path)
+	repoLog.Debug("列出仓库 '%s' 的所有远程仓�?, r.Path)
 
 	output, err := r.RunCommand("remote")
 	if err != nil {
@@ -534,9 +534,9 @@ func (r *Repository) ListRemotes() ([]string, error) {
 	return result, nil
 }
 
-// RemoveRemote 删除指定的远程仓库
+// RemoveRemote 删除指定的远程仓�?
 func (r *Repository) RemoveRemote(remoteName string) error {
-	repoLog.Debug("从仓库 '%s' 中删除远程仓库 '%s'", r.Path, remoteName)
+	repoLog.Debug("从仓�?'%s' 中删除远程仓�?'%s'", r.Path, remoteName)
 
 	_, err := r.RunCommand("remote", "remove", remoteName)
 	if err != nil {

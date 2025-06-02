@@ -1,6 +1,6 @@
-# GoGo - Google Git-Repo Golang实现
+# Repo-Go - Google Git-Repo Golang实现
 
-GoGo是Google Git-Repo工具的Golang重新实现，用于管理多个Git仓库。
+Repo-Go是Google Git-Repo工具的Golang重新实现，用于管理多个Git仓库。
 
 ## 特性
 
@@ -12,7 +12,7 @@ GoGo是Google Git-Repo工具的Golang重新实现，用于管理多个Git仓库�
 ## 安装
 
 ```bash
-go install github.com/cix-code/gogo/cmd/repo@latest
+go install github.com/leopardxu/repo-go/cmd/repo@latest
 
 # 初始化
 repo init -u https://example.com/manifest.git

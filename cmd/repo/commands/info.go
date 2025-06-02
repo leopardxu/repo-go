@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +28,7 @@ type InfoOptions struct {
     CommonManifestOptions
 }
 
-// infoStats 用于统计info命令的执行结果
+// infoStats 用于统计info命令的执行结�?
 type infoStats struct {
 	mu      sync.Mutex
 	success int
@@ -84,7 +84,7 @@ func runInfo(opts *InfoOptions, args []string) error {
         log.Error("Failed to load config: %v", err)
         return err
     }
-    opts.Config = cfg // 分配加载的配置
+    opts.Config = cfg // 分配加载的配�?
 
     // 加载manifest
     log.Debug("Loading manifest from %s", cfg.ManifestName)
@@ -95,7 +95,7 @@ func runInfo(opts *InfoOptions, args []string) error {
         return err
     }
 
-    // 创建项目管理器
+    // 创建项目管理�?
     manager := project.NewManagerFromManifest(manifest, cfg)
 
     // 声明projects变量
@@ -128,7 +128,7 @@ func runInfo(opts *InfoOptions, args []string) error {
     }
 
     results := make(chan infoResult, len(projects))
-    sem := make(chan struct{}, 8) // 控制并发数
+    sem := make(chan struct{}, 8) // 控制并发�?
     var wg sync.WaitGroup
     stats := &infoStats{}
 
@@ -185,7 +185,7 @@ func runInfo(opts *InfoOptions, args []string) error {
         close(results)
     }()
 
-    // 收集并显示结果
+    // 收集并显示结�?
     for res := range results {
         if res.Err != nil {
             stats.mu.Lock()
@@ -217,7 +217,7 @@ func runInfo(opts *InfoOptions, args []string) error {
     return nil
 }
 
-// showDiff 显示完整信息和提交差异
+// showDiff 显示完整信息和提交差�?
 func showDiff(p *project.Project) {
 	fmt.Println("Commit differences:")
 	
@@ -275,7 +275,7 @@ func showRemoteBranches(p *project.Project) {
 func showCurrentBranchInfo(p *project.Project) {
 	fmt.Println("Current branch info:")
 	
-	// 获取当前分支的最近提交
+	// 获取当前分支的最近提�?
 	outputBytes, err := p.GitRepo.RunCommand("log", "-1", "--oneline")
 	if err != nil {
 		fmt.Printf("Error getting current branch info: %v\n", err)
@@ -289,7 +289,7 @@ func showCurrentBranchInfo(p *project.Project) {
 	}
 }
 
-// showAllBranches 显示所有分支信息
+// showAllBranches 显示所有分支信�?
 func showAllBranches(p *project.Project) {
 	fmt.Println("All branches:")
 	

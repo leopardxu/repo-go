@@ -21,7 +21,7 @@ type CommonManifestOptions struct {
 	NoLocalManifests        bool
 }
 
-// AddManifestFlags 添加多清单选项到命令
+// AddManifestFlags 添加多清单选项到命�?
 func AddManifestFlags(cmd *cobra.Command, opts *CommonManifestOptions) {
 	cmd.Flags().BoolVar(&opts.OuterManifest, "outer-manifest", false, "operate starting at the outermost manifest")
 	cmd.Flags().BoolVar(&opts.NoOuterManifest, "no-outer-manifest", false, "do not operate on outer manifests")

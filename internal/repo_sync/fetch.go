@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cix-code/gogo/internal/progress"
-	"github.com/cix-code/gogo/internal/project" // Keep this import
+	"github.com/leopardxu/repo-go/internal/progress"
+	"github.com/leopardxu/repo-go/internal/project" // Keep this import
 )
 
 // Removed the sync.Project struct definition
@@ -53,7 +53,7 @@ func (e *Engine) fetchMain(projects []*project.Project) error { // projects para
 
 	// 按照获取时间排序
 	sort.Slice(toFetch, func(i, j int) bool {
-		// 修改比较逻辑，使用 After 或 Before 方法比较时间
+		// 修改比较逻辑，使�?After �?Before 方法比较时间
 		return e.getFetchTime(toFetch[i]).After(e.getFetchTime(toFetch[j]))
 	})
 
@@ -73,15 +73,15 @@ func (e *Engine) fetchMain(projects []*project.Project) error { // projects para
 		e.postRepoFetch(repoProj)
 	}
 
-	// 如果只执行网络同步，则返回
+	// 如果只执行网络同步，则返�?
 	if e.options.NetworkOnly {
 		if !success {
-			return fmt.Errorf("由于获取错误退出同步")
+			return fmt.Errorf("由于获取错误退出同�?)
 		}
 		return nil
 	}
 
-	// 迭代获取缺失的项目
+	// 迭代获取缺失的项�?
 	previouslyMissingSet := make(map[string]bool)
 	for {
 		// 重新加载清单
@@ -89,13 +89,13 @@ func (e *Engine) fetchMain(projects []*project.Project) error { // projects para
 			return err
 		}
 
-		// 获取所有项目 (reloads manifest and projects)
+		// 获取所有项�?(reloads manifest and projects)
 		currentAllProjects, err := e.getProjects() // Use a different variable name
 		if err != nil {
 			return err
 		}
 
-		// 查找缺失的项目
+		// 查找缺失的项�?
 		missing := []*project.Project{}
 		for _, p := range currentAllProjects { // Iterate over the reloaded list
 			if _, ok := fetched[p.Gitdir]; !ok && !noFetch[p.Gitdir] {
@@ -113,14 +113,14 @@ func (e *Engine) fetchMain(projects []*project.Project) error { // projects para
 			missingSet[p.Name] = true
 		}
 
-		// 如果缺失的项目集合没有变化，则退出循环 (avoid infinite loop)
+		// 如果缺失的项目集合没有变化，则退出循�?(avoid infinite loop)
 		if reflect.DeepEqual(previouslyMissingSet, missingSet) {
 			fmt.Println("Warning: Could not fetch all projects, missing set did not change.")
 			break // Or return an error
 		}
 		previouslyMissingSet = missingSet
 
-		// 获取缺失的项目
+		// 获取缺失的项�?
 		success, newFetched := e.fetch(missing)
 		// 修改 errEvent 发送的类型，从 struct{}{} 改为错误类型
 		if !success {
@@ -164,10 +164,10 @@ func (e *Engine) findRepoProject(projects []*project.Project) *project.Project {
 /*
 // Ensure postRepoFetch uses project.Project
 func (e *Engine) postRepoFetch(repoProject *project.Project) {
-    // 更新仓库项目的最后获取时间
+    // 更新仓库项目的最后获取时�?
     repoProject.LastFetch = time.Now()
 
-    // 保存最后获取时间
+    // 保存最后获取时�?
     // Ensure manifest.Subdir is accessible or calculated correctly
     // filePath := filepath.Join(e.manifest.Subdir, ".repo_fetchtimes.json")
     // Need to determine the correct path for storing fetch times
@@ -193,13 +193,13 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 	ret := true
 	fetched := make(map[string]bool)
 
-	// 创建进度条
+	// 创建进度�?
 	var pm progress.Reporter
 	if !e.options.Quiet {
 		pm = progress.New(len(projects))
 	}
 
-	// 按对象目录分组项目
+	// 按对象目录分组项�?
 	objdirProjectMap := make(map[string][]*project.Project)
 	for _, project := range projects {
 		objdirProjectMap[project.Objdir] = append(objdirProjectMap[project.Objdir], project)
@@ -224,7 +224,7 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 				fetched[result.Project.Gitdir] = true
 			}
 
-			// 修改 Update 调用，添加当前索引参数
+			// 修改 Update 调用，添加当前索引参�?
 			if !e.options.Quiet && pm != nil {
 				pm.Update(len(fetched), result.Project.Name)
 			}
@@ -239,7 +239,7 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 
 	// 执行获取
 	if len(projectsList) == 1 || e.options.JobsNetwork == 1 {
-		// 单线程获取
+		// 单线程获�?
 		for _, projects := range projectsList {
 			results := e.fetchProjectList(projects)
 			if !processResults(results) {
@@ -248,14 +248,14 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 			}
 		}
 	} else {
-		// 多线程获取
+		// 多线程获�?
 		jobs := e.options.JobsNetwork
 
-		// 创建工作池
+		// 创建工作�?
 		var wg sync.WaitGroup
 		resultsChan := make(chan []FetchResult, len(projectsList))
 
-		// 限制并发数
+		// 限制并发�?
 		semaphore := make(chan struct{}, jobs)
 
 		for _, projects := range projectsList {
@@ -263,7 +263,7 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 			go func(projects []*project.Project) {
 				defer wg.Done()
 
-				// 获取信号量
+				// 获取信号�?
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
 
@@ -273,7 +273,7 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 			}(projects)
 		}
 
-		// 等待所有获取完成
+		// 等待所有获取完�?
 		go func() {
 			wg.Wait()
 			close(resultsChan)
@@ -288,7 +288,7 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 		}
 	}
 
-	// 修改 End 调用为 Finish
+	// 修改 End 调用�?Finish
 	if !e.options.Quiet && pm != nil {
 		pm.Finish()
 	}
@@ -301,7 +301,7 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 	return ret, fetched
 }
 
-// FetchResult 表示获取操作的结果
+// FetchResult 表示获取操作的结�?
 type FetchResult struct {
 	Success  bool
 	Project  *project.Project
@@ -350,15 +350,15 @@ func (e *Engine) fetchOne(project *project.Project) bool {
 	)
 
 	if !success && !e.options.Quiet {
-		fmt.Printf("错误: 无法从 %s 获取 %s\n", project.RemoteURL, project.Name)
+		fmt.Printf("错误: 无法�?%s 获取 %s\n", project.RemoteURL, project.Name)
 	}
 
 	return success
 }
 
-// gcProjects 对项目执行垃圾回收
+// gcProjects 对项目执行垃圾回�?
 func (e *Engine) gcProjects(projects []*project.Project) {
-	// 检查是否需要执行垃圾回收
+	// 检查是否需要执行垃圾回�?
 	needGC := false
 	for _, project := range projects {
 		if project.NeedGC {
@@ -383,7 +383,7 @@ func (e *Engine) gcProjects(projects []*project.Project) {
 	}
 }
 
-// getFetchTime 获取项目的获取时间
+// getFetchTime 获取项目的获取时�?
 func (e *Engine) getFetchTime(project *project.Project) time.Time {
 	e.fetchTimesLock.Lock()
 	defer e.fetchTimesLock.Unlock()
@@ -391,23 +391,23 @@ func (e *Engine) getFetchTime(project *project.Project) time.Time {
 	if time, ok := e.fetchTimes[project.Name]; ok {
 		return time
 	}
-	return time.Time{} // 返回零值时间
+	return time.Time{} // 返回零值时�?
 }
 
-// setFetchTime 设置项目的获取时间
+// setFetchTime 设置项目的获取时�?
 func (e *Engine) setFetchTime(project *project.Project, duration time.Duration) {
 	e.fetchTimesLock.Lock()
 	defer e.fetchTimesLock.Unlock()
 
-	e.fetchTimes[project.Name] = time.Now() // 存储当前时间而不是秒数
+	e.fetchTimes[project.Name] = time.Now() // 存储当前时间而不是秒�?
 }
 
 // postRepoFetch 处理仓库项目获取后的操作
 func (e *Engine) postRepoFetch(repoProject *project.Project) {
-	// 更新仓库项目的最后获取时间
+	// 更新仓库项目的最后获取时�?
 	repoProject.LastFetch = time.Now()
 
-	// 保存最后获取时间
+	// 保存最后获取时�?
 	filePath := filepath.Join(e.manifest.Subdir, ".repo_fetchtimes.json")
 	data, err := json.Marshal(map[string]time.Time{
 		"repo": repoProject.LastFetch,

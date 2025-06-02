@@ -22,10 +22,10 @@ type Proxy struct {
 
 // NewProxy 创建一个新的SSH代理
 func NewProxy() (*Proxy, error) {
-	// 获取用户主目录
+	// 获取用户主目�?
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("无法获取用户主目录: %w", err)
+		return nil, fmt.Errorf("无法获取用户主目�? %w", err)
 	}
 
 	// 创建SSH目录
@@ -78,17 +78,17 @@ func (p *Proxy) GetSSHCommand(host string) []string {
 
 	// 检查是否已经有连接
 	if _, ok := p.connections[host]; !ok {
-		// 创建新连接
+		// 创建新连�?
 		controlPath := filepath.Join(p.controlPath, fmt.Sprintf("%s.sock", host))
 		
-		// 启动SSH控制主进程
+		// 启动SSH控制主进�?
 		cmd := exec.Command("ssh", 
 			"-o", "ControlMaster=yes",
 			"-o", fmt.Sprintf("ControlPath=%s", controlPath),
 			"-o", "ControlPersist=yes",
 			"-N", host)
 		
-		// 非阻塞启动
+		// 非阻塞启�?
 		cmd.Start()
 		
 		// 保存连接

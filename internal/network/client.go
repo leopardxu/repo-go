@@ -10,10 +10,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/cix-code/gogo/internal/logger"
+	"github.com/leopardxu/repo-go/internal/logger"
 )
 
-// Client 网络客户端
+// Client 网络客户�?
 type Client struct {
 	httpClient *http.Client
 	userAgent  string
@@ -46,9 +46,9 @@ func WithRetry(count int, delay time.Duration) ClientOption {
 	}
 }
 
-// NewClient 创建网络客户端
+// NewClient 创建网络客户�?
 func NewClient(options ...ClientOption) *Client {
-	// 创建HTTP客户端
+	// 创建HTTP客户�?
 	httpClient := &http.Client{
 		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
@@ -88,7 +88,7 @@ func (c *Client) SetTimeout(timeout time.Duration) {
 
 // Download 下载文件
 func (c *Client) Download(url string, destPath string) error {
-	logger.Info("开始下载文件: %s", url)
+	logger.Info("开始下载文�? %s", url)
 	logger.Debug("下载目标路径: %s", destPath)
 	
 	// 确保目标目录存在
@@ -115,11 +115,11 @@ func (c *Client) Download(url string, destPath string) error {
 		logger.Warn("下载失败 (%d/%d): %v", attempt+1, c.retryCount+1, err)
 	}
 	
-	logger.Error("下载失败，已达到最大重试次数: %v", lastErr)
-	return fmt.Errorf("下载失败，已达到最大重试次数: %w", lastErr)
+	logger.Error("下载失败，已达到最大重试次�? %v", lastErr)
+	return fmt.Errorf("下载失败，已达到最大重试次�? %w", lastErr)
 }
 
-// doDownload 执行实际的下载操作
+// doDownload 执行实际的下载操�?
 func (c *Client) doDownload(url string, destPath string) error {
 	// 创建请求
 	req, err := http.NewRequest("GET", url, nil)
@@ -127,18 +127,18 @@ func (c *Client) doDownload(url string, destPath string) error {
 		return fmt.Errorf("创建请求失败: %w", err)
 	}
 	
-	// 设置请求头
+	// 设置请求�?
 	req.Header.Set("User-Agent", c.userAgent)
 	
-	// 发送请求
+	// 发送请�?
 	logger.Debug("发送HTTP请求: %s", url)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("发送请求失败: %w", err)
+		return fmt.Errorf("发送请求失�? %w", err)
 	}
 	defer resp.Body.Close()
 	
-	// 检查响应状态
+	// 检查响应状�?
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("服务器返回非成功状态码: %s", resp.Status)
 	}
@@ -159,7 +159,7 @@ func (c *Client) doDownload(url string, destPath string) error {
 	return nil
 }
 
-// Get 发送GET请求并返回响应
+// Get 发送GET请求并返回响�?
 func (c *Client) Get(url string, headers map[string]string) (*http.Response, error) {
 	logger.Debug("发送GET请求: %s", url)
 	
@@ -169,16 +169,16 @@ func (c *Client) Get(url string, headers map[string]string) (*http.Response, err
 		return nil, fmt.Errorf("创建请求失败: %w", err)
 	}
 	
-	// 设置请求头
+	// 设置请求�?
 	req.Header.Set("User-Agent", c.userAgent)
 	for key, value := range headers {
 		req.Header.Set(key, value)
 	}
 	
-	// 发送请求
+	// 发送请�?
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("发送请求失败: %w", err)
+		return nil, fmt.Errorf("发送请求失�? %w", err)
 	}
 	
 	return resp, nil

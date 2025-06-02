@@ -7,11 +7,11 @@ import (
 	"sync"
 	"strings"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/git"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/git"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +27,7 @@ type PruneOptions struct {
 	ThisManifestOnly bool
 }
 
-// pruneStats 用于统计prune命令的执行结果
+// pruneStats 用于统计prune命令的执行结�?
 type pruneStats struct {
 	mu      sync.Mutex
 	success int
@@ -73,7 +73,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 		log.SetLevel(logger.LogLevelInfo)
 	}
 
-	log.Info("开始清理不在清单中的项目")
+	log.Info("开始清理不在清单中的项�?)
 
 	// 加载配置
 	log.Debug("正在加载配置...")
@@ -92,8 +92,8 @@ func runPrune(opts *PruneOptions, args []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// 创建项目管理器
-	log.Debug("正在创建项目管理器...")
+	// 创建项目管理�?
+	log.Debug("正在创建项目管理�?..")
 	manager := project.NewManagerFromManifest(manifestObj, cfg)
 
 	var projects []*project.Project
@@ -101,14 +101,14 @@ func runPrune(opts *PruneOptions, args []string) error {
 	// 获取项目列表
 	log.Debug("正在获取项目列表...")
 	if len(args) == 0 {
-		log.Debug("获取所有项目")
+		log.Debug("获取所有项�?)
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
-			log.Error("获取所有项目失败: %v", err)
+			log.Error("获取所有项目失�? %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		log.Debug("获取指定的项目: %v", args)
+		log.Debug("获取指定的项�? %v", args)
 		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
 			log.Error("获取指定项目失败: %v", err)
@@ -123,7 +123,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 		projectPaths[p.Path] = true
 	}
 
-	// 获取工作目录中的所有目录
+	// 获取工作目录中的所有目�?
 	log.Debug("获取工作目录...")
 	workDir, err := os.Getwd()
 	if err != nil {
@@ -157,13 +157,13 @@ func runPrune(opts *PruneOptions, args []string) error {
 			continue
 		}
 
-		// 检查目录是否在清单中
+		// 检查目录是否在清单�?
 		if !projectPaths[entry.Name()] {
 			prunedProjects = append(prunedProjects, entry.Name())
 		}
 	}
 
-	// 如果没有要删除的项目，直接返回
+	// 如果没有要删除的项目，直接返�?
 	if len(prunedProjects) == 0 {
 		log.Info("没有需要清理的项目")
 		return nil
@@ -177,7 +177,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 
 	// 如果是模拟运行，直接返回
 	if opts.DryRun {
-		log.Info("模拟运行，没有实际清理任何项目")
+		log.Info("模拟运行，没有实际清理任何项�?)
 		return nil
 	}
 
@@ -185,7 +185,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 	stats := &pruneStats{total: len(prunedProjects)}
 
 	// 并发删除项目
-	log.Debug("开始并发清理项目...")
+	log.Debug("开始并发清理项�?..")
 	errChan := make(chan error, len(prunedProjects))
 	var wg sync.WaitGroup
 
@@ -214,7 +214,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 				repo := git.NewRepository(projectPath, git.NewRunner())
 				clean, err := repo.IsClean()
 				if err != nil {
-					log.Error("检查项目 %s 是否干净失败: %v", name, err)
+					log.Error("检查项�?%s 是否干净失败: %v", name, err)
 					errChan <- fmt.Errorf("failed to check if project %s is clean: %w", name, err)
 					
 					// 更新统计信息
@@ -248,7 +248,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 				return
 			}
 			
-			log.Info("已清理项目 %s", name)
+			log.Info("已清理项�?%s", name)
 			
 			// 更新统计信息
 			stats.mu.Lock()
@@ -258,11 +258,11 @@ func runPrune(opts *PruneOptions, args []string) error {
 	}
 
 	// 等待所有goroutine完成
-	log.Debug("等待所有清理任务完成...")
+	log.Debug("等待所有清理任务完�?..")
 	wg.Wait()
 	close(errChan)
 
-	// 收集所有错误
+	// 收集所有错�?
 	var errs []error
 	for err := range errChan {
 		if err != nil {
@@ -271,11 +271,11 @@ func runPrune(opts *PruneOptions, args []string) error {
 	}
 
 	// 输出统计信息
-	log.Info("清理完成: 总计 %d 个项目, 成功 %d 个, 失败 %d 个", 
+	log.Info("清理完成: 总计 %d 个项�? 成功 %d �? 失败 %d �?, 
 		stats.total, stats.success, stats.failed)
 
 	if len(errs) > 0 {
-		log.Error("清理过程中遇到 %d 个错误", len(errs))
+		log.Error("清理过程中遇�?%d 个错�?, len(errs))
 		return fmt.Errorf("encountered %d errors during pruning", len(errs))
 	}
 

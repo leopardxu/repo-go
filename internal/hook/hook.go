@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 	
-	"github.com/cix-code/gogo/internal/logger"
+	"github.com/leopardxu/repo-go/internal/logger"
 )
 
-// 包级别的日志记录器
+// 包级别的日志记录�?
 var log logger.Logger = &logger.DefaultLogger{}
 
-// SetLogger 设置包级别的日志记录器
+// SetLogger 设置包级别的日志记录�?
 func SetLogger(l logger.Logger) {
 	if l != nil {
 		log = l
@@ -38,7 +38,7 @@ func (e *HookError) Unwrap() error {
 	return e.Err
 }
 
-// 文件操作的重试配置
+// 文件操作的重试配�?
 const (
 	maxRetries = 3
 	retryDelay = 100 * time.Millisecond
@@ -261,11 +261,11 @@ func InitHooks(repoDir string) error {
 			
 			hookPath := filepath.Join(hooksDir, name)
 			
-			// 检查文件是否已存在且内容相同
+			// 检查文件是否已存在且内容相�?
 			if fileExists(hookPath) {
 				existingContent, err := os.ReadFile(hookPath)
 				if err == nil && string(existingContent) == content {
-					log.Debug("Hook文件已存在且内容相同，跳过创建: %s", hookPath)
+					log.Debug("Hook文件已存在且内容相同，跳过创�? %s", hookPath)
 					return
 				}
 			}
@@ -279,7 +279,7 @@ func InitHooks(repoDir string) error {
 					break
 				}
 				
-				log.Debug("创建hook文件失败，尝试重试 (%d/%d): %v", i+1, maxRetries, err)
+				log.Debug("创建hook文件失败，尝试重�?(%d/%d): %v", i+1, maxRetries, err)
 				time.Sleep(retryDelay)
 			}
 			
@@ -316,7 +316,7 @@ func CreateRepoGitConfig(repoDir string) error {
 	
 	// 检查文件是否已存在
 	if fileExists(configPath) {
-		log.Debug("repo.git配置文件已存在: %s", configPath)
+		log.Debug("repo.git配置文件已存�? %s", configPath)
 		return nil
 	}
 	
@@ -351,7 +351,7 @@ func CreateRepoGitConfig(repoDir string) error {
 			break
 		}
 		
-		log.Debug("创建repo.git配置文件失败，尝试重试 (%d/%d): %v", i+1, maxRetries, err)
+		log.Debug("创建repo.git配置文件失败，尝试重�?(%d/%d): %v", i+1, maxRetries, err)
 		time.Sleep(retryDelay)
 	}
 	
@@ -375,7 +375,7 @@ func CreateRepoGitconfig(repoDir string) error {
 	
 	// 检查文件是否已存在
 	if fileExists(configPath) {
-		log.Debug("repo.gitconfig文件已存在: %s", configPath)
+		log.Debug("repo.gitconfig文件已存�? %s", configPath)
 		return nil
 	}
 	
@@ -406,7 +406,7 @@ func CreateRepoGitconfig(repoDir string) error {
 			break
 		}
 		
-		log.Debug("创建repo.gitconfig文件失败，尝试重试 (%d/%d): %v", i+1, maxRetries, err)
+		log.Debug("创建repo.gitconfig文件失败，尝试重�?(%d/%d): %v", i+1, maxRetries, err)
 		time.Sleep(retryDelay)
 	}
 	
@@ -421,13 +421,13 @@ func CreateRepoGitconfig(repoDir string) error {
 	return nil
 }
 
-// LinkHooks 将hooks链接到项目目录
+// LinkHooks 将hooks链接到项目目�?
 func LinkHooks(projectDir string, hooksDir string) error {
-	log.Debug("链接hooks到项目目录: %s -> %s", hooksDir, projectDir)
+	log.Debug("链接hooks到项目目�? %s -> %s", hooksDir, projectDir)
 	
-	// 检查项目目录是否存在
+	// 检查项目目录是否存�?
 	if !fileExists(projectDir) {
-		log.Error("项目目录不存在: %s", projectDir)
+		log.Error("项目目录不存�? %s", projectDir)
 		return &HookError{
 			Op:   "link_hooks",
 			Path: projectDir,
@@ -437,7 +437,7 @@ func LinkHooks(projectDir string, hooksDir string) error {
 	
 	// 检查hooks目录是否存在
 	if !fileExists(hooksDir) {
-		log.Error("hooks目录不存在: %s", hooksDir)
+		log.Error("hooks目录不存�? %s", hooksDir)
 		return &HookError{
 			Op:   "link_hooks",
 			Path: hooksDir,
@@ -445,7 +445,7 @@ func LinkHooks(projectDir string, hooksDir string) error {
 		}
 	}
 	
-	// 确保项目的.git/hooks目录存在
+	// 确保项目�?git/hooks目录存在
 	projectHooksDir := filepath.Join(projectDir, ".git", "hooks")
 	if err := os.MkdirAll(projectHooksDir, 0755); err != nil {
 		log.Error("创建项目hooks目录失败: %v", err)
@@ -456,7 +456,7 @@ func LinkHooks(projectDir string, hooksDir string) error {
 		}
 	}
 
-	// 遍历hooks目录中的所有文件
+	// 遍历hooks目录中的所有文�?
 	entries, err := os.ReadDir(hooksDir)
 	if err != nil {
 		log.Error("读取hooks目录失败: %v", err)
@@ -484,13 +484,13 @@ func LinkHooks(projectDir string, hooksDir string) error {
 			srcPath := filepath.Join(hooksDir, e.Name())
 			dstPath := filepath.Join(projectHooksDir, e.Name())
 			
-			// 尝试使用符号链接（在支持的系统上）
+			// 尝试使用符号链接（在支持的系统上�?
 			if trySymlink(srcPath, dstPath) {
 				log.Debug("成功创建符号链接: %s -> %s", dstPath, srcPath)
 				return
 			}
 
-			// 如果目标文件已存在，先删除
+			// 如果目标文件已存在，先删�?
 			if fileExists(dstPath) {
 				if err := os.Remove(dstPath); err != nil {
 					errorCh <- &HookError{
@@ -502,7 +502,7 @@ func LinkHooks(projectDir string, hooksDir string) error {
 				}
 			}
 
-			// 读取源文件内容
+			// 读取源文件内�?
 			srcContent, err := os.ReadFile(srcPath)
 			if err != nil {
 				errorCh <- &HookError{
@@ -521,7 +521,7 @@ func LinkHooks(projectDir string, hooksDir string) error {
 					break
 				}
 				
-				log.Debug("复制hook文件失败，尝试重试 (%d/%d): %v", i+1, maxRetries, err)
+				log.Debug("复制hook文件失败，尝试重�?(%d/%d): %v", i+1, maxRetries, err)
 				time.Sleep(retryDelay)
 			}
 			
@@ -544,7 +544,7 @@ func LinkHooks(projectDir string, hooksDir string) error {
 	case err := <-errorCh:
 		return err
 	default:
-		log.Info("成功链接所有hooks到项目目录: %s", projectDir)
+		log.Info("成功链接所有hooks到项目目�? %s", projectDir)
 		return nil
 	}
 }
@@ -557,7 +557,7 @@ func fileExists(path string) bool {
 
 // trySymlink 尝试创建符号链接，如果不支持则返回false
 func trySymlink(src, dst string) bool {
-	// 如果目标文件已存在，先删除
+	// 如果目标文件已存在，先删�?
 	if fileExists(dst) {
 		if err := os.Remove(dst); err != nil {
 			return false

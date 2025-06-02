@@ -40,7 +40,7 @@ type DefaultLogger struct {
 	debugLevel LogLevel
 }
 
-// NewDefaultLogger 创建默认日志记录器
+// NewDefaultLogger 创建默认日志记录�?
 func NewDefaultLogger() *DefaultLogger {
 	return &DefaultLogger{
 		level:      LogLevelInfo,
@@ -118,7 +118,7 @@ func (l *DefaultLogger) log(level LogLevel, format string, args ...interface{}) 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// 格式化消息
+	// 格式化消�?
 	msg := fmt.Sprintf(format, args...)
 	now := time.Now().Format("2006-01-02 15:04:05")
 	levelStr := getLevelString(level)
@@ -128,7 +128,7 @@ func (l *DefaultLogger) log(level LogLevel, format string, args ...interface{}) 
 		fmt.Fprintf(l.stdout, "%s [%s] %s\n", now, levelStr, msg)
 	}
 
-	// 输出到调试文件
+	// 输出到调试文�?
 	l.debugMu.Lock()
 	defer l.debugMu.Unlock()
 	if l.debugFile != nil && level <= l.debugLevel {
@@ -136,7 +136,7 @@ func (l *DefaultLogger) log(level LogLevel, format string, args ...interface{}) 
 	}
 }
 
-// getLevelString 获取日志级别字符串
+// getLevelString 获取日志级别字符�?
 func getLevelString(level LogLevel) string {
 	switch level {
 	case LogLevelError:
@@ -154,10 +154,10 @@ func getLevelString(level LogLevel) string {
 	}
 }
 
-// Global 全局日志记录器
+// Global 全局日志记录�?
 var Global Logger = NewDefaultLogger()
 
-// SetGlobalLogger 设置全局日志记录器
+// SetGlobalLogger 设置全局日志记录�?
 func SetGlobalLogger(logger Logger) {
 	Global = logger
 }

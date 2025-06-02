@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -33,7 +33,7 @@ type ListOptions struct {
 	Config      *config.Config
 }
 
-// listStats 用于统计list命令的执行结果
+// listStats 用于统计list命令的执行结�?
 type listStats struct {
 	mu      sync.Mutex
 	success int
@@ -91,7 +91,7 @@ func runList(opts *ListOptions, args []string) error {
 		log.SetLevel(logger.LogLevelInfo)
 	}
 
-	log.Info("开始列出项目")
+	log.Info("开始列出项�?)
 
 	// 加载配置
 	log.Debug("正在加载配置...")
@@ -111,8 +111,8 @@ func runList(opts *ListOptions, args []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// 创建项目管理器
-	log.Debug("正在创建项目管理器...")
+	// 创建项目管理�?
+	log.Debug("正在创建项目管理�?..")
 	manager := project.NewManagerFromManifest(manifestObj, cfg)
 
 	// 获取要处理的项目
@@ -125,7 +125,7 @@ func runList(opts *ListOptions, args []string) error {
 	}
 
 	if len(args) == 0 {
-		log.Debug("获取所有项目")
+		log.Debug("获取所有项�?)
 		projects, err = manager.GetProjectsInGroups(groupsArg)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
@@ -143,7 +143,7 @@ func runList(opts *ListOptions, args []string) error {
 		}
 	}
 
-	log.Info("找到 %d 个项目", len(projects))
+	log.Info("找到 %d 个项�?, len(projects))
 
 	// 过滤函数
 	filterProjects := func(projects []*project.Project, filterFunc func(*project.Project) bool) []*project.Project {
@@ -162,10 +162,10 @@ func runList(opts *ListOptions, args []string) error {
 		projects = filterProjects(projects, func(p *project.Project) bool {
 			return strings.HasPrefix(p.Path, opts.PathPrefix)
 		})
-		log.Debug("过滤后剩余 %d 个项目", len(projects))
+		log.Debug("过滤后剩�?%d 个项�?, len(projects))
 	}
 
-	// 正则表达式过滤
+	// 正则表达式过�?
 	if opts.Regex != "" {
 		log.Debug("按正则表达式过滤: %s", opts.Regex)
 		regex, err := regexp.Compile(opts.Regex)
@@ -176,7 +176,7 @@ func runList(opts *ListOptions, args []string) error {
 		projects = filterProjects(projects, func(p *project.Project) bool {
 			return regex.MatchString(p.Name) || regex.MatchString(p.Path)
 		})
-		log.Debug("过滤后剩余 %d 个项目", len(projects))
+		log.Debug("过滤后剩�?%d 个项�?, len(projects))
 	}
 
 	// 设置并发控制
@@ -190,7 +190,7 @@ func runList(opts *ListOptions, args []string) error {
 	var wg sync.WaitGroup
 	stats := &listStats{}
 
-	log.Debug("开始处理项目信息...")
+	log.Debug("开始处理项目信�?..")
 
 	// 并发输出项目信息
 	for _, p := range projects {
@@ -245,11 +245,11 @@ func runList(opts *ListOptions, args []string) error {
 	}
 
 	// 等待所有goroutine完成
-	log.Debug("等待所有处理完成...")
+	log.Debug("等待所有处理完�?..")
 	wg.Wait()
 
 	// 输出统计信息
-	log.Info("列出完成，共处理 %d 个项目", stats.success)
+	log.Info("列出完成，共处理 %d 个项�?, stats.success)
 
 	return nil
 }

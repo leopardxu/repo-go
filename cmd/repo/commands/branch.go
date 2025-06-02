@@ -6,10 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -55,7 +55,7 @@ func BranchCmd() *cobra.Command {
 
 // runBranch executes the branch command logic
 func runBranch(opts *BranchOptions, args []string) error {
-	// 初始化日志系统
+	// 初始化日志系�?
 	log := logger.NewDefaultLogger()
 	if opts.Quiet {
 		log.SetLevel(logger.LogLevelError)
@@ -85,13 +85,13 @@ func runBranch(opts *BranchOptions, args []string) error {
 
 	var projects []*project.Project
 	if len(args) == 0 {
-		log.Debug("获取所有项目...")
+		log.Debug("获取所有项�?..")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
-		log.Debug("共获取到 %d 个项目", len(projects))
+		log.Debug("共获取到 %d 个项�?, len(projects))
 	} else {
 		log.Debug("根据名称获取项目: %v", args)
 		projects, err = manager.GetProjectsByNames(args)
@@ -99,7 +99,7 @@ func runBranch(opts *BranchOptions, args []string) error {
 			log.Error("根据名称获取项目失败: %v", err)
 			return fmt.Errorf("failed to get projects by names: %w", err)
 		}
-		log.Debug("共获取到 %d 个项目", len(projects))
+		log.Debug("共获取到 %d 个项�?, len(projects))
 	}
 
 	type branchResult struct {
@@ -123,11 +123,11 @@ func runBranch(opts *BranchOptions, args []string) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			
-			log.Debug("获取项目 %s 的分支信息...", p.Name)
+			log.Debug("获取项目 %s 的分支信�?..", p.Name)
 			
 			currentBranchBytes, err := p.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
 			if err != nil {
-				log.Error("获取项目 %s 的当前分支失败: %v", p.Name, err)
+				log.Error("获取项目 %s 的当前分支失�? %v", p.Name, err)
 				results <- branchResult{ProjectName: p.Name, Err: err}
 				return
 			}
@@ -139,7 +139,7 @@ func runBranch(opts *BranchOptions, args []string) error {
 			
 			branchesOutputBytes, err := p.GitRepo.RunCommand(branchArgs...)
 			if err != nil {
-				log.Error("获取项目 %s 的分支列表失败: %v", p.Name, err)
+				log.Error("获取项目 %s 的分支列表失�? %v", p.Name, err)
 				results <- branchResult{ProjectName: p.Name, Err: err}
 				return
 			}
@@ -147,11 +147,11 @@ func runBranch(opts *BranchOptions, args []string) error {
 			currentBranch := strings.TrimSpace(string(currentBranchBytes))
 			branches := strings.Split(strings.TrimSpace(string(branchesOutputBytes)), "\n")
 			
-			log.Debug("项目 %s 当前分支: %s, 共有 %d 个分支", p.Name, currentBranch, len(branches))
+			log.Debug("项目 %s 当前分支: %s, 共有 %d 个分�?, p.Name, currentBranch, len(branches))
 			results <- branchResult{ProjectName: p.Name, CurrentBranch: currentBranch, Branches: branches}
 		}()
 	}
-	// 启动一个 goroutine 来关闭结果通道
+	// 启动一�?goroutine 来关闭结果通道
 	go func() {
 		wg.Wait()
 		close(results)
@@ -166,7 +166,7 @@ func runBranch(opts *BranchOptions, args []string) error {
 	for res := range results {
 		if res.Err != nil {
 			failCount++
-			log.Error("获取项目 %s 的分支信息失败: %v", res.ProjectName, res.Err)
+			log.Error("获取项目 %s 的分支信息失�? %v", res.ProjectName, res.Err)
 			continue
 		}
 		
@@ -179,7 +179,7 @@ func runBranch(opts *BranchOptions, args []string) error {
 				continue
 			}
 			
-			// 处理分支名称，移除前导的 '*' 或空格
+			// 处理分支名称，移除前导的 '*' 或空�?
 			if strings.HasPrefix(branch, "* ") {
 				branch = strings.TrimPrefix(branch, "* ")
 			} else if strings.HasPrefix(branch, "  ") {
@@ -190,7 +190,7 @@ func runBranch(opts *BranchOptions, args []string) error {
 		}
 	}
 	
-	log.Debug("共处理 %d 个项目，成功: %d，失败: %d", len(projects), successCount, failCount)
+	log.Debug("共处�?%d 个项目，成功: %d，失�? %d", len(projects), successCount, failCount)
 	// 对分支名称进行排序，以便有序显示
 	var branchNames []string
 	for branch := range branchInfo {
@@ -200,7 +200,7 @@ func runBranch(opts *BranchOptions, args []string) error {
 	
 	// 显示分支信息
 	if !opts.Quiet {
-		log.Info("分支信息汇总:")
+		log.Info("分支信息汇�?")
 		
 		for _, branch := range branchNames {
 			projs := branchInfo[branch]
@@ -210,13 +210,13 @@ func runBranch(opts *BranchOptions, args []string) error {
 			}
 			
 			if len(projs) == len(projects) {
-				log.Info("%s %-30s | 所有项目", prefix, branch)
+				log.Info("%s %-30s | 所有项�?, prefix, branch)
 			} else {
-				log.Info("%s %-30s | 在项目: %s", prefix, branch, strings.Join(projs, ", "))
+				log.Info("%s %-30s | 在项�? %s", prefix, branch, strings.Join(projs, ", "))
 			}
 		}
 		
-		log.Info("\n共有 %d 个分支", len(branchNames))
+		log.Info("\n共有 %d 个分�?, len(branchNames))
 	}
 	
 	return nil

@@ -3,12 +3,12 @@ package repo_sync
 // import (
 // 	// Keep necessary imports like "strings" if used elsewhere
 // 	"strings"
-// 	// Remove unused imports like "github.com/cix-code/gogo/internal/git"
-// 	// Remove unused imports like "github.com/cix-code/gogo/internal/manifest"
-// 	// Remove unused imports like "github.com/cix-code/gogo/internal/project"
+// 	// Remove unused imports like "github.com/leopardxu/repo-go/internal/git"
+// 	// Remove unused imports like "github.com/leopardxu/repo-go/internal/manifest"
+// 	// Remove unused imports like "github.com/leopardxu/repo-go/internal/project"
 // )
 
-// contains 检查字符串切片是否包含指定字符串
+// contains 检查字符串切片是否包含指定字符�?
 func contains(slice []string, str string) bool {
 	for _, item := range slice {
 		if item == str {

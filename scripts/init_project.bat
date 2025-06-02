@@ -19,7 +19,7 @@ mkdir d:\cix-code\gogo\scripts
 
 REM 初始化Go模块
 cd d:\cix-code\gogo
-go mod init github.com/cix-code/gogo
+go mod init github.com/leopardxu/repo-go
 
 REM 安装依赖
 go get github.com/spf13/cobra

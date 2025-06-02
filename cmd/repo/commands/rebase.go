@@ -5,10 +5,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cix-code/gogo/internal/config"
-	"github.com/cix-code/gogo/internal/logger"
-	"github.com/cix-code/gogo/internal/manifest"
-	"github.com/cix-code/gogo/internal/project"
+	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/logger"
+	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +34,7 @@ type RebaseOptions struct {
 	Jobs             int
 }
 
-// rebaseStats 用于统计rebase命令的执行结果
+// rebaseStats 用于统计rebase命令的执行结�?
 type rebaseStats struct {
 	mu      sync.Mutex
 	success int
@@ -117,17 +117,17 @@ func runRebase(opts *RebaseOptions, args []string) error {
 		log.Debug("使用最外层清单")
 		manifestObj = manifestObj.GetOuterManifest()
 	} else if opts.NoOuterManifest {
-		log.Debug("不使用外层清单")
+		log.Debug("不使用外层清�?)
 		manifestObj = manifestObj.GetInnerManifest()
 	}
 
 	if opts.ThisManifestOnly {
-		log.Debug("仅使用当前清单")
+		log.Debug("仅使用当前清�?)
 		manifestObj = manifestObj.GetThisManifest()
 	}
 
-	// 创建项目管理器
-	log.Debug("正在创建项目管理器...")
+	// 创建项目管理�?
+	log.Debug("正在创建项目管理�?..")
 	manager := project.NewManagerFromManifest(manifestObj, cfg)
 
 	var projects []*project.Project
@@ -135,14 +135,14 @@ func runRebase(opts *RebaseOptions, args []string) error {
 	// 获取项目列表
 	log.Debug("正在获取项目列表...")
 	if len(args) == 0 {
-		log.Debug("获取所有项目")
+		log.Debug("获取所有项�?)
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
-			log.Error("获取所有项目失败: %v", err)
+			log.Error("获取所有项目失�? %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		log.Debug("获取指定的项目: %v", args)
+		log.Debug("获取指定的项�? %v", args)
 		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
 			log.Error("获取指定项目失败: %v", err)
@@ -202,11 +202,11 @@ func runRebase(opts *RebaseOptions, args []string) error {
 		}
 
 		// 定义上游分支
-		upstream := "origin" // 默认值，根据需要调整
-		// 或者根据项目配置动态确定
+		upstream := "origin" // 默认值，根据需要调�?
+		// 或者根据项目配置动态确�?
 		// upstream := project.upstream
 
-		log.Info("将rebase到 %s", upstream)
+		log.Info("将rebase�?%s", upstream)
 	}
 
 	// 创建统计对象
@@ -239,7 +239,7 @@ func runRebase(opts *RebaseOptions, args []string) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			log.Debug("正在对项目 %s 执行rebase操作...", p.Name)
+			log.Debug("正在对项�?%s 执行rebase操作...", p.Name)
 			outputBytes, err := p.GitRepo.RunCommand(rebaseArgs...)
 			output := string(outputBytes)
 
@@ -277,7 +277,7 @@ func runRebase(opts *RebaseOptions, args []string) error {
 	var hasError bool
 	var errs []error
 
-	// 收集所有结果
+	// 收集所有结�?
 	for res := range results {
 		if res.Err != nil {
 			hasError = true
@@ -288,7 +288,7 @@ func runRebase(opts *RebaseOptions, args []string) error {
 			}
 
 			if opts.FailFast {
-				log.Error("由于设置了fail-fast选项，在首次错误后停止")
+				log.Error("由于设置了fail-fast选项，在首次错误后停�?)
 				return fmt.Errorf("failed to rebase project %s: %w", res.Project.Name, res.Err)
 			}
 			continue
@@ -305,7 +305,7 @@ func runRebase(opts *RebaseOptions, args []string) error {
 	}
 
 	// 输出统计信息
-	log.Info("Rebase操作完成: 总计 %d 个项目, 成功 %d 个, 失败 %d 个",
+	log.Info("Rebase操作完成: 总计 %d 个项�? 成功 %d �? 失败 %d �?,
 		stats.total, stats.success, stats.failed)
 
 	if hasError {
