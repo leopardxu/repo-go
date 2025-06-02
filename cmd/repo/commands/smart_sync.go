@@ -44,7 +44,7 @@ type SmartSyncOptions struct {
 	NoOuterManifest        bool
 	ThisManifestOnly       bool
 	NoThisManifestOnly     bool
-	NoPrune               bool
+	NoPrune                bool
 	ManifestServerUsername string
 	ManifestServerPassword string
 	Config                 *config.Config // <-- Add Config field
@@ -80,9 +80,9 @@ func SmartSyncCmd() *cobra.Command {
 		Short: "Update working tree to the latest known good revision",
 		Long:  `The 'repo smartsync' command is a shortcut for sync -s.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// 创建日志记录�?
+			// 创建日志记录器
 			log := logger.NewDefaultLogger()
-			
+
 			// 根据选项设置日志级别
 			if opts.Quiet {
 				log.SetLevel(logger.LogLevelError)
@@ -99,7 +99,7 @@ func SmartSyncCmd() *cobra.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 			opts.Config = cfg // Assign loaded config
-			
+
 			// Pass CommonManifestOptions if needed by AddManifestFlags
 			// Ensure ManifestName is populated if used by config.Load or parser.ParseFromFile
 			// If ManifestName comes from flags, it should be part of CommonManifestOptions
@@ -152,13 +152,13 @@ func SmartSyncCmd() *cobra.Command {
 func runSmartSync(opts *SmartSyncOptions, args []string, log logger.Logger) error {
 	// 创建统计对象
 	stats := &smartSyncStats{}
-	
-	log.Info("开始智能同步项�?)
+
+	log.Info("开始智能同步项目")
 
 	// Config is now loaded in RunE and passed via opts
 	cfg := opts.Config
 	if cfg == nil {
-		log.Error("配置未加�?)
+		log.Error("配置未加载")
 		return fmt.Errorf("config not loaded")
 	}
 
@@ -170,7 +170,7 @@ func runSmartSync(opts *SmartSyncOptions, args []string, log logger.Logger) erro
 		log.Error("解析清单失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-	log.Debug("成功加载清单，包�?%d 个项�?, len(manifest.Projects))
+	log.Debug("成功加载清单，包含 %d 个项目", len(manifest.Projects))
 
 	// 创建同步选项
 	syncOpts := &repo_sync.Options{
@@ -197,14 +197,14 @@ func runSmartSync(opts *SmartSyncOptions, args []string, log logger.Logger) erro
 	engine := repo_sync.NewEngine(syncOpts, manifest, log)
 
 	// 使用单独的goroutine池处理网络和本地操作
-	log.Info("开始执行同步操�?)
+	log.Info("开始执行同步操作")
 	if err := engine.Run(); err != nil {
 		errors := engine.Errors()
 		stats.failed = len(errors)
 		stats.total = len(manifest.Projects)
 		stats.success = stats.total - stats.failed
-		
-		log.Error("同步完成，但�?%d 个错�?, stats.failed)
+
+		log.Error("同步完成，但有 %d 个错误", stats.failed)
 		for _, err := range errors {
 			log.Error("  - %v", err)
 		}
@@ -214,8 +214,8 @@ func runSmartSync(opts *SmartSyncOptions, args []string, log logger.Logger) erro
 	// 更新统计信息
 	stats.total = len(manifest.Projects)
 	stats.success = stats.total
-	
-	log.Info("同步成功完成，共处理 %d 个项�?, stats.total)
+
+	log.Info("同步成功完成，共处理 %d 个项目", stats.total)
 	return nil
 }
 

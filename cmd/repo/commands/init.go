@@ -17,71 +17,71 @@ import (
 
 // RepoConfig 表示repo配置
 type RepoConfig struct {
-	ManifestURL            string `json:"manifest_url"`
-	ManifestBranch         string `json:"manifest_branch"`
-	ManifestName           string `json:"manifest_name"`
-	Groups                 string `json:"groups"`
-	Platform               string `json:"platform"`
-	Mirror                 bool   `json:"mirror"`
-	Archive                bool   `json:"archive"`
-	Worktree               bool   `json:"worktree"`
-	Reference              string `json:"reference"`
-	NoSmartCache           bool   `json:"no_smart_cache"`
-	Dissociate             bool   `json:"dissociate"`
-	Depth                  int    `json:"depth"`
-	PartialClone           bool   `json:"partial_clone"`
-	PartialCloneExclude    string `json:"partial_clone_exclude"`
-	CloneFilter            string `json:"clone_filter"`
-	UseSuperproject        bool   `json:"use_superproject"`
-	CloneBundle            bool   `json:"clone_bundle"`
-	GitLFS                 bool   `json:"git_lfs"`
-	RepoURL                string `json:"repo_url"`
-	RepoRev                string `json:"repo_rev"`
-	NoRepoVerify           bool   `json:"no_repo_verify"`
-	StandaloneManifest     bool   `json:"standalone_manifest"`
-	Submodules             bool   `json:"submodules"`
-	CurrentBranch          bool   `json:"current_branch"`
-	Tags                   bool   `json:"tags"`
+	ManifestURL         string `json:"manifest_url"`
+	ManifestBranch      string `json:"manifest_branch"`
+	ManifestName        string `json:"manifest_name"`
+	Groups              string `json:"groups"`
+	Platform            string `json:"platform"`
+	Mirror              bool   `json:"mirror"`
+	Archive             bool   `json:"archive"`
+	Worktree            bool   `json:"worktree"`
+	Reference           string `json:"reference"`
+	NoSmartCache        bool   `json:"no_smart_cache"`
+	Dissociate          bool   `json:"dissociate"`
+	Depth               int    `json:"depth"`
+	PartialClone        bool   `json:"partial_clone"`
+	PartialCloneExclude string `json:"partial_clone_exclude"`
+	CloneFilter         string `json:"clone_filter"`
+	UseSuperproject     bool   `json:"use_superproject"`
+	CloneBundle         bool   `json:"clone_bundle"`
+	GitLFS              bool   `json:"git_lfs"`
+	RepoURL             string `json:"repo_url"`
+	RepoRev             string `json:"repo_rev"`
+	NoRepoVerify        bool   `json:"no_repo_verify"`
+	StandaloneManifest  bool   `json:"standalone_manifest"`
+	Submodules          bool   `json:"submodules"`
+	CurrentBranch       bool   `json:"current_branch"`
+	Tags                bool   `json:"tags"`
 }
 
 // InitOptions 包含init命令的选项
 type InitOptions struct {
 	CommonManifestOptions
-	Verbose            bool
-	Quiet              bool
-	Debug              bool
-	ManifestURL        string
-	ManifestBranch     string
-	ManifestName       string
-	Groups             string
-	Platform           string
-	Submodules         bool
-	StandaloneManifest bool
-	CurrentBranch      bool
-	NoCurrentBranch    bool
-	Tags               bool
-	NoTags             bool
-	Mirror             bool
-	Archive            bool
-	Worktree           bool
-	Reference          string
-	NoSmartCache       bool
-	Dissociate         bool
-	Depth              int
-	PartialClone       bool
-	NoPartialClone     bool
+	Verbose             bool
+	Quiet               bool
+	Debug               bool
+	ManifestURL         string
+	ManifestBranch      string
+	ManifestName        string
+	Groups              string
+	Platform            string
+	Submodules          bool
+	StandaloneManifest  bool
+	CurrentBranch       bool
+	NoCurrentBranch     bool
+	Tags                bool
+	NoTags              bool
+	Mirror              bool
+	Archive             bool
+	Worktree            bool
+	Reference           string
+	NoSmartCache        bool
+	Dissociate          bool
+	Depth               int
+	PartialClone        bool
+	NoPartialClone      bool
 	PartialCloneExclude string
-	CloneFilter        string
-	UseSuperproject    bool
-	NoUseSuperproject  bool
-	CloneBundle       bool
-	NoCloneBundle     bool
-	GitLFS            bool
-	NoGitLFS          bool
-	RepoURL           string
-	RepoRev           string
-	NoRepoVerify      bool
-	ConfigName        bool
+	CloneFilter         string
+	UseSuperproject     bool
+	NoUseSuperproject   bool
+	CloneBundle         bool
+	NoCloneBundle       bool
+	GitLFS              bool
+	NoGitLFS            bool
+	RepoURL             string
+	RepoRev             string
+	NoRepoVerify        bool
+	ConfigName          bool
 }
 
 // InitCmd 返回init命令
@@ -91,7 +91,7 @@ func InitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init [options] [manifest url]",
 		Short: "Initialize a repo client checkout in the current directory",
-		Long: `Initialize a repository client checkout in the current directory.`,
+		Long:  `Initialize a repository client checkout in the current directory.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				opts.ManifestURL = args[0]
@@ -121,12 +121,12 @@ func InitCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Tags, "tags", false, "fetch tags in the manifest")
 	cmd.Flags().BoolVar(&opts.NoTags, "no-tags", false, "don't fetch tags in the manifest")
 
-	// 检出模�?
+	// 检出模式
 	cmd.Flags().BoolVar(&opts.Mirror, "mirror", false, "create a replica of the remote repositories")
 	cmd.Flags().BoolVar(&opts.Archive, "archive", false, "checkout an archive instead of a git repository")
 	cmd.Flags().BoolVar(&opts.Worktree, "worktree", false, "use git-worktree to manage projects")
 
-	// 项目检出优�?
+	// 项目检出优先
 	cmd.Flags().StringVar(&opts.Reference, "reference", "", "location of mirror directory")
 	cmd.Flags().BoolVar(&opts.NoSmartCache, "no-smart-cache", false, "disable CIX smart cache feature")
 	cmd.Flags().BoolVar(&opts.Dissociate, "dissociate", false, "dissociate from reference mirrors after clone")
@@ -162,19 +162,19 @@ func saveRepoConfig(cfg *RepoConfig) error {
 	if err := os.MkdirAll(".repo", 0755); err != nil {
 		return fmt.Errorf("failed to create .repo directory: %w", err)
 	}
-	
-	// 序列化配�?
+
+	// 序列化配置
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize config: %w", err)
 	}
-	
+
 	// 写入配置文件
 	configPath := filepath.Join(".repo", "config.json")
 	if err := os.WriteFile(configPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -185,33 +185,33 @@ func loadGitConfig() error {
 	if _, err := gitRunner.Run("--version"); err != nil {
 		return fmt.Errorf("git not found: %w", err)
 	}
-	
+
 	// 检查Git配置
 	output, err := gitRunner.Run("config", "--get", "user.name")
 	if err != nil {
 		return fmt.Errorf("failed to get user name: %w", err)
 	}
 	userName := strings.TrimSpace(string(output)) // 添加 string() 转换
-	
+
 	output, err = gitRunner.Run("config", "--get", "user.email")
 	if err != nil {
 		return fmt.Errorf("failed to get user email: %w", err)
 	}
 	userEmail := strings.TrimSpace(string(output)) // 添加 string() 转换
-	
+
 	// 使用userName和userEmail变量
 	fmt.Printf("Using user: %s <%s>\n", userName, userEmail)
 	if err != nil || strings.TrimSpace(string(output)) == "" {
 		return fmt.Errorf("git user.email not set, please run 'git config --global user.email \"your.email@example.com\"'")
 	}
-	
+
 	return nil
 }
 
 // promptForUserInfo 提示用户输入信息
 func promptForUserInfo() error {
 	gitRunner := git.NewRunner()
-	
+
 	// 检查用户名
 	output, _ := gitRunner.Run("config", "--get", "user.name")
 	if strings.TrimSpace(string(output)) == "" { // 添加string()转换
@@ -224,8 +224,8 @@ func promptForUserInfo() error {
 			}
 		}
 	}
-	
-	// 检查邮�?
+
+	// 检查邮箱
 	output, _ = gitRunner.Run("config", "--get", "user.email")
 	if strings.TrimSpace(string(output)) == "" { // 添加string()转换
 		fmt.Print("Enter your email: ")
@@ -237,7 +237,7 @@ func promptForUserInfo() error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -248,39 +248,39 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 	if err := os.MkdirAll(manifestsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create manifests directory: %w", err)
 	}
-	
+
 	// 构建克隆命令
 	args := []string{"clone"}
-	
+
 	// 添加深度参数
 	if cfg.Depth > 0 {
 		args = append(args, fmt.Sprintf("--depth=%d", cfg.Depth))
 	}
-	
+
 	// 添加分支参数
 	if cfg.ManifestBranch != "" {
 		args = append(args, "-b", cfg.ManifestBranch)
 	}
-	
+
 	// 添加镜像参数
 	if cfg.Mirror {
 		args = append(args, "--mirror")
 	}
-	
+
 	// 添加引用参数
 	if cfg.Reference != "" {
 		args = append(args, fmt.Sprintf("--reference=%s", cfg.Reference))
 	}
-	
+
 	// 添加部分克隆参数
 	if cfg.PartialClone {
 		args = append(args, "--filter="+cfg.CloneFilter)
 	}
-	
-	// 添加URL和目标目�?
+
+	// 添加URL和目标目录
 	args = append(args, cfg.ManifestURL, manifestsDir)
-	
-	// 使用goroutine池执行克隆命�?
+
+	// 使用goroutine池执行克隆命令
 	errChan := make(chan error, 1)
 	go func() {
 		var lastErr error
@@ -300,15 +300,15 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 			}
 		}
 		if strings.Contains(lastErr.Error(), "fatal: repository '") {
-			errChan <- fmt.Errorf("清单仓库URL无效或无法访�? %s\n请检查URL是否正确且网络可访问", lastErr)
+			errChan <- fmt.Errorf("清单仓库URL无效或无法访问 %s\n请检查URL是否正确且网络可访问", lastErr)
 		} else if strings.Contains(lastErr.Error(), "Could not read from remote repository") {
-			errChan <- fmt.Errorf("无法从远程仓库读�? %s\n请检查权限和网络连接", lastErr)
+			errChan <- fmt.Errorf("无法从远程仓库读取 %s\n请检查权限和网络连接", lastErr)
 		} else {
 			errChan <- fmt.Errorf("克隆清单仓库失败: %s\n尝试次数: %d/3", lastErr, 3)
 		}
 	}()
-	
-	// 等待克隆完成或超�?
+
+	// 等待克隆完成或超时
 	select {
 	case err := <-errChan:
 		if err != nil {
@@ -317,7 +317,7 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 	case <-time.After(5 * time.Minute):
 		return fmt.Errorf("克隆清单仓库超时\n请检查网络连接或尝试增加超时时间")
 	}
-	
+
 	// 如果需要子模块
 	if cfg.Submodules {
 		// 切换到manifests目录
@@ -325,25 +325,25 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 		if err != nil {
 			return fmt.Errorf("failed to get current directory: %w", err)
 		}
-		
+
 		if err := os.Chdir(manifestsDir); err != nil {
 			return fmt.Errorf("failed to change to manifests directory: %w", err)
 		}
-		
+
 		// 初始化子模块
 		if _, err := gitRunner.Run("submodule", "update", "--init", "--recursive"); err != nil {
-			if err := os.Chdir(currentDir); err != nil { // 确保返回原目�?
+			if err := os.Chdir(currentDir); err != nil { // 确保返回原目录
 				return fmt.Errorf("failed to return to original directory: %w", err)
 			}
 			return fmt.Errorf("failed to initialize submodules: %w", err)
 		}
-		
-		// 返回原目�?
+
+		// 返回原目录
 		if err := os.Chdir(currentDir); err != nil {
 			return fmt.Errorf("failed to return to original directory: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -375,7 +375,7 @@ func validateOptions(opts *InitOptions) error {
 
 // runInit 执行init命令
 func runInit(opts *InitOptions) error {
-	// 创建日志记录�?
+	// 创建日志记录�?
 	log := logger.NewDefaultLogger()
 	if opts.Debug {
 		log.SetLevel(logger.LogLevelDebug)
@@ -395,7 +395,7 @@ func runInit(opts *InitOptions) error {
 		}
 	}
 
-	log.Info("初始�?repo 客户�?..")
+	log.Info("初始化repo 客户端..")
 
 	// 验证选项冲突
 	if err := validateOptions(opts); err != nil {
@@ -405,31 +405,31 @@ func runInit(opts *InitOptions) error {
 
 	// 创建配置
 	cfg := &RepoConfig{
-		ManifestURL:            opts.ManifestURL,
-		ManifestBranch:         opts.ManifestBranch,
-		ManifestName:           opts.ManifestName,
-		Groups:                 opts.Groups,
-		Platform:               opts.Platform,
-		Mirror:                 opts.Mirror,
-		Archive:                opts.Archive,
-		Worktree:               opts.Worktree,
-		Reference:              opts.Reference,
-		NoSmartCache:           opts.NoSmartCache,
-		Dissociate:             opts.Dissociate,
-		Depth:                  opts.Depth,
-		PartialClone:           opts.PartialClone,
-		PartialCloneExclude:    opts.PartialCloneExclude,
-		CloneFilter:            opts.CloneFilter,
-		UseSuperproject:        opts.UseSuperproject,
-		CloneBundle:            opts.CloneBundle,
-		GitLFS:                 opts.GitLFS,
-		RepoURL:                opts.RepoURL,
-		RepoRev:                opts.RepoRev,
-		NoRepoVerify:           opts.NoRepoVerify,
-		StandaloneManifest:     opts.StandaloneManifest,
-		Submodules:             opts.Submodules,
-		CurrentBranch:          opts.CurrentBranch,
-		Tags:                   opts.Tags,
+		ManifestURL:         opts.ManifestURL,
+		ManifestBranch:      opts.ManifestBranch,
+		ManifestName:        opts.ManifestName,
+		Groups:              opts.Groups,
+		Platform:            opts.Platform,
+		Mirror:              opts.Mirror,
+		Archive:             opts.Archive,
+		Worktree:            opts.Worktree,
+		Reference:           opts.Reference,
+		NoSmartCache:        opts.NoSmartCache,
+		Dissociate:          opts.Dissociate,
+		Depth:               opts.Depth,
+		PartialClone:        opts.PartialClone,
+		PartialCloneExclude: opts.PartialCloneExclude,
+		CloneFilter:         opts.CloneFilter,
+		UseSuperproject:     opts.UseSuperproject,
+		CloneBundle:         opts.CloneBundle,
+		GitLFS:              opts.GitLFS,
+		RepoURL:             opts.RepoURL,
+		RepoRev:             opts.RepoRev,
+		NoRepoVerify:        opts.NoRepoVerify,
+		StandaloneManifest:  opts.StandaloneManifest,
+		Submodules:          opts.Submodules,
+		CurrentBranch:       opts.CurrentBranch,
+		Tags:                opts.Tags,
 	}
 
 	// 处理配置名称提示
@@ -441,15 +441,15 @@ func runInit(opts *InitOptions) error {
 		}
 	} else {
 		// 只检查Git是否安装，不强制要求配置用户信息
-		log.Debug("检�?Git 是否已安�?)
+		log.Debug("检查 Git 是否已安装")
 		gitRunner := git.NewRunner()
 		if _, err := gitRunner.Run("--version"); err != nil {
-			log.Error("Git 未安�? %v", err)
+			log.Error("Git 未安装 %v", err)
 			return fmt.Errorf("git not found: %w", err)
 		}
 	}
-	
-	// 配置 Git 运行�?
+
+	// 配置 Git 运行�?
 	gitRunner := git.NewRunner()
 	if opts.Debug {
 		gitRunner.SetVerbose(true)
@@ -477,9 +477,9 @@ func runInit(opts *InitOptions) error {
 	}
 
 	// 初始化Git配置和hooks
-	log.Debug("初始�?repo 目录结构�?Git hooks")
+	log.Debug("初始化repo 目录结构和Git hooks")
 	if err := initRepoStructure(currentDir); err != nil {
-		log.Error("初始�?repo 结构失败: %v", err)
+		log.Error("初始化repo 结构失败: %v", err)
 		return fmt.Errorf("failed to initialize repo structure: %w", err)
 	}
 	log.Info("repo 目录结构创建成功")
@@ -503,30 +503,30 @@ func runInit(opts *InitOptions) error {
 		log.Error("解析清单文件失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-	log.Info("清单文件解析成功，包�?%d 个项�?, len(manifestObj.Projects))
-	
+	log.Info("清单文件解析成功，包含 %d 个项目", len(manifestObj.Projects))
+
 	groups := strings.Split(cfg.Groups, ",")
 	// 按group过滤项目
 	if cfg.Groups != "" {
-		log.Info("根据组过滤项�? %v", groups)
-		
+		log.Info("根据组过滤项目 %v", groups)
+
 		filteredProjects := make([]manifest.Project, 0)
 		for _, p := range manifestObj.Projects {
 			if p.Groups == "" || containsAnyGroup(p.Groups, groups) {
 				filteredProjects = append(filteredProjects, p)
-				log.Debug("包含项目: %s (�? %s)", p.Name, p.Groups)
+				log.Debug("包含项目: %s (组 %s)", p.Name, p.Groups)
 			} else {
-				log.Debug("排除项目: %s (�? %s)", p.Name, p.Groups)
+				log.Debug("排除项目: %s (组 %s)", p.Name, p.Groups)
 			}
 		}
-		
+
 		log.Info("过滤后的项目数量: %d (原始数量: %d)", len(filteredProjects), len(manifestObj.Projects))
-		
+
 		manifestObj.Projects = filteredProjects
-		
-		// 更新清单对象后重新保�?
+
+		// 更新清单对象后重新保�?
 		mergedPath := filepath.Join(".repo", "manifest.xml")
-		log.Debug("保存过滤后的清单�? %s", mergedPath)
+		log.Debug("保存过滤后的清单到 %s", mergedPath)
 		mergedData, err := manifestObj.ToXML()
 		if err != nil {
 			log.Error("转换过滤后的清单为XML失败: %v", err)
@@ -536,75 +536,75 @@ func runInit(opts *InitOptions) error {
 			log.Error("写入过滤后的清单文件失败: %v", err)
 			return fmt.Errorf("写入过滤后的清单文件失败: %w", err)
 		}
-		
-		log.Info("已将过滤后的清单保存�? %s", mergedPath)
+
+		log.Info("已将过滤后的清单保存到 %s", mergedPath)
 	}
 
 	// 处理include标签
 	if len(manifestObj.Includes) > 0 && !opts.ThisManifestOnly {
 		log.Info("处理 %d 个包含的清单文件", len(manifestObj.Includes))
-		
-		// 创建清单合并�?
+
+		// 创建清单合并�?
 		merger := manifest.NewMerger(parser, filepath.Join(".repo", "manifests"))
-		
+
 		// 加载所有包含的清单
 		includedManifests := []*manifest.Manifest{manifestObj}
-		
+
 		for _, include := range manifestObj.Includes {
 			includePath := filepath.Join(".repo", "manifests", include.Name)
-			log.Debug("加载包含的清�? %s", include.Name)
-			
+			log.Debug("加载包含的清单 %s", include.Name)
+
 			// 检查包含的清单文件是否存在
 			if _, err := os.Stat(includePath); os.IsNotExist(err) {
 				log.Error("包含的清单文件不存在: %s", includePath)
 				return fmt.Errorf("包含的清单文件不存在: %s", includePath)
 			}
-			
+
 			includeManifest, err := parser.ParseFromFile(includePath, groups)
 			if err != nil {
-				log.Error("解析包含的清单文�?%s 失败: %v", include.Name, err)
-				return fmt.Errorf("解析包含的清单文�?%s 失败: %w", include.Name, err)
+				log.Error("解析包含的清单文件%s 失败: %v", include.Name, err)
+				return fmt.Errorf("解析包含的清单文件%s 失败: %w", include.Name, err)
 			}
-			
+
 			if includeManifest == nil {
-				log.Error("包含的清单文�?%s 解析结果为空", include.Name)
-				return fmt.Errorf("包含的清单文�?%s 解析结果为空", include.Name)
+				log.Error("包含的清单文件 %s 解析结果为空", include.Name)
+				return fmt.Errorf("包含的清单文件 %s 解析结果为空", include.Name)
 			}
-			
-			log.Debug("包含的清�?%s 包含 %d 个项�?, include.Name, len(includeManifest.Projects))
-			
+
+			log.Debug("包含的清单 %s 包含 %d 个项目", include.Name, len(includeManifest.Projects))
+
 			includedManifests = append(includedManifests, includeManifest)
 		}
-		
+
 		// 合并清单
-		log.Info("合并 %d 个清单文�?, len(includedManifests))
-		
+		log.Info("合并 %d 个清单文件", len(includedManifests))
+
 		mergedManifest, err := merger.Merge(includedManifests)
 		if err != nil {
 			log.Error("合并清单失败: %v", err)
 			return fmt.Errorf("合并清单失败: %w", err)
 		}
-		
+
 		// 更新清单对象
 		manifestObj = mergedManifest
-		
-		log.Info("合并后的清单包含 %d 个项�?, len(manifestObj.Projects))
-		
+
+		log.Info("合并后的清单包含 %d 个项目", len(manifestObj.Projects))
+
 		// 保存合并后的清单
 		mergedPath := filepath.Join(".repo", "manifest.xml")
-		log.Debug("保存合并后的清单�? %s", mergedPath)
+		log.Debug("保存合并后的清单到 %s", mergedPath)
 		mergedData, err := manifestObj.ToXML()
 		if err != nil {
 			log.Error("转换合并后的清单为XML失败: %v", err)
 			return fmt.Errorf("转换合并后的清单为XML失败: %w", err)
 		}
-		
+
 		if err := os.WriteFile(mergedPath, []byte(mergedData), 0644); err != nil {
 			log.Error("写入合并后的清单文件失败: %v", err)
 			return fmt.Errorf("写入合并后的清单文件失败: %w", err)
 		}
-		
-		log.Info("已将合并后的清单保存�? %s", mergedPath)
+
+		log.Info("已将合并后的清单保存到 %s", mergedPath)
 	}
 
 	// 保存配置
@@ -618,7 +618,7 @@ func runInit(opts *InitOptions) error {
 	if opts.OuterManifest {
 		// 实现加载外部清单的逻辑
 		log.Info("加载外部清单...")
-		
+
 		// 查找外部清单
 		outerManifestPath := filepath.Join("..", ".repo", "manifest.xml")
 		if _, err := os.Stat(outerManifestPath); err == nil {
@@ -629,7 +629,7 @@ func runInit(opts *InitOptions) error {
 				log.Error("解析外部清单失败: %v", err)
 				return fmt.Errorf("failed to parse outer manifest: %w", err)
 			}
-			
+
 			// 合并外部清单
 			log.Debug("合并外部清单...")
 			merger := manifest.NewMerger(parser, filepath.Join(".repo"))
@@ -638,76 +638,76 @@ func runInit(opts *InitOptions) error {
 				log.Error("合并外部清单失败: %v", err)
 				return fmt.Errorf("failed to merge with outer manifest: %w", err)
 			}
-			
+
 			// 更新清单对象
 			manifestObj = mergedManifest
-			
+
 			// 保存合并后的清单
 			mergedPath := filepath.Join(".repo", "manifest.xml")
-			log.Debug("保存合并后的清单�? %s", mergedPath)
+			log.Debug("保存合并后的清单到 %s", mergedPath)
 			mergedData, err := manifestObj.ToXML()
 			if err != nil {
 				log.Error("转换合并后的清单为XML失败: %v", err)
 				return fmt.Errorf("failed to convert merged manifest to XML: %w", err)
 			}
-			
+
 			if err := os.WriteFile(mergedPath, []byte(mergedData), 0644); err != nil {
 				log.Error("写入合并后的清单文件失败: %v", err)
 				return fmt.Errorf("failed to write merged manifest: %w", err)
 			}
 			log.Info("外部清单合并成功")
 		} else {
-			log.Debug("未找到外部清�? %s", outerManifestPath)
+			log.Debug("未找到外部清单 %s", outerManifestPath)
 		}
 	}
-	
+
 	if opts.ThisManifestOnly {
 		// 实现仅处理当前清单的逻辑
-		log.Info("仅处理当前清�?)
+		log.Info("仅处理当前清单")
 		// 移除所有include标签
 		manifestObj.Includes = nil
 	}
-	
+
 	if opts.AllManifests {
 		// 实现处理所有清单的逻辑
-		log.Info("处理所有清�?)
+		log.Info("处理所有清单")
 		// 确保处理所有include标签
 		if len(manifestObj.Includes) > 0 && !opts.ThisManifestOnly {
 			merger := manifest.NewMerger(parser, filepath.Join(".repo", "manifests"))
 			includedManifests := []*manifest.Manifest{manifestObj}
-			
+
 			for _, include := range manifestObj.Includes {
 				includePath := filepath.Join(".repo", "manifests", include.Name)
-				log.Debug("加载包含的清�? %s", include.Name)
-				
+				log.Debug("加载包含的清单 %s", include.Name)
+
 				includeManifest, err := parser.ParseFromFile(includePath, groups)
 				if err != nil {
-					log.Error("解析包含的清单文�?%s 失败: %v", include.Name, err)
+					log.Error("解析包含的清单文件%s 失败: %v", include.Name, err)
 					return fmt.Errorf("failed to parse included manifest %s: %w", include.Name, err)
 				}
-				
+
 				includedManifests = append(includedManifests, includeManifest)
 			}
-			
+
 			// 合并清单
-			log.Debug("合并所有清�?..")
+			log.Debug("合并所有清单..")
 			mergedManifest, err := merger.Merge(includedManifests)
 			if err != nil {
 				log.Error("合并清单失败: %v", err)
 				return fmt.Errorf("failed to merge manifests: %w", err)
 			}
-			
+
 			// 更新清单对象
 			manifestObj = mergedManifest
-			log.Info("所有清单合并成�?)
+			log.Info("所有清单合并成功")
 		}
 	}
 
-	log.Info("Repo 初始化完�?)
+	log.Info("Repo 初始化完成")
 	return nil
 }
 
-// initRepoStructure 初始化repo目录结构和配�?
+// initRepoStructure 初始化repo目录结构和配置
 func initRepoStructure(repoDir string) error {
 	// 创建.repo目录结构
 	dirs := []string{
@@ -717,66 +717,67 @@ func initRepoStructure(repoDir string) error {
 		".repo/projects",
 		".repo/hooks",
 	}
-	
+
 	for _, dir := range dirs {
 		if err := os.MkdirAll(filepath.Join(repoDir, dir), 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
-	
+
 	// 初始化Git hooks
 	if err := hook.InitHooks(repoDir); err != nil {
 		return fmt.Errorf("failed to initialize hooks: %w", err)
 	}
-	
+
 	// 创建repo.git配置文件
 	if err := hook.CreateRepoGitConfig(repoDir); err != nil {
 		return fmt.Errorf("failed to create repo.git config: %w", err)
 	}
-	
+
 	// 创建repo.gitconfig配置文件
 	if err := hook.CreateRepoGitconfig(repoDir); err != nil {
 		return fmt.Errorf("failed to create repo.gitconfig: %w", err)
 	}
-	
+
 	// 记录钩子目录路径，用于后续同步到各个项目
 	// hooksDir := filepath.Join(repoDir, ".repo", "hooks")
 	// fmt.Printf("已初始化钩子脚本目录: %s\n", hooksDir)
-	
+
 	return nil
 }
-// containsAnyGroup 检查项目组是否包含任一指定�?
+
+// containsAnyGroup 检查项目组是否包含任一指定组
 func containsAnyGroup(projectGroups string, checkGroups []string) bool {
-	// 如果没有指定过滤组，则包含所有项�?
+	// 如果没有指定过滤组，则包含所有项目
 	if len(checkGroups) == 0 {
 		return true
 	}
-	
-	// 如果项目没有指定组，则默认包�?
+
+	// 如果项目没有指定组，则默认包含
 	if projectGroups == "" {
 		return true
 	}
-	
-	// 如果传入的是"all"，则包含所有项�?
+
+	// 如果传入的是"all"，则包含所有项目
 	for _, cg := range checkGroups {
 		if cg == "all" {
 			return true
 		}
 	}
-	
+
 	projectGroupList := strings.Split(projectGroups, ",")
 	for _, pg := range projectGroupList {
-		pg = strings.TrimSpace(pg) // 去除可能的空�?
+		pg = strings.TrimSpace(pg) // 去除可能的空格
 		if pg == "" {
 			continue // 跳过空组
 		}
-		
+
 		for _, cg := range checkGroups {
-			cg = strings.TrimSpace(cg) // 去除可能的空�?
+			cg = strings.TrimSpace(cg) // 去除可能的空格
 			if cg == "" {
 				continue // 跳过空组
 			}
-			
+
 			if pg == cg {
 				return true
 			}

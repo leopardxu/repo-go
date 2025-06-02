@@ -62,9 +62,9 @@ func StartCmd() *cobra.Command {
 		Long:  `Create a new branch for development based on the current manifest.`,
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// 创建日志记录�?
+			// 创建日志记录器
 			log := logger.NewDefaultLogger()
-			
+
 			// 根据选项设置日志级别
 			if opts.Quiet {
 				log.SetLevel(logger.LogLevelError)
@@ -73,7 +73,7 @@ func StartCmd() *cobra.Command {
 			} else {
 				log.SetLevel(logger.LogLevelInfo)
 			}
-			
+
 			// 加载配置
 			cfg, err := config.Load()
 			if err != nil {
@@ -81,7 +81,7 @@ func StartCmd() *cobra.Command {
 				return fmt.Errorf("failed to load config: %w", err)
 			}
 			opts.Config = cfg
-			
+
 			return runStart(opts, args, log)
 		},
 	}
@@ -103,11 +103,11 @@ func StartCmd() *cobra.Command {
 func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 	// 创建统计对象
 	stats := &startStats{}
-	
+
 	if opts.HEAD {
 		opts.Rev = "HEAD"
 	}
-	
+
 	// 获取分支名称
 	branchName := args[0]
 	if opts.Branch != "" {
@@ -117,7 +117,7 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 	// 获取项目列表
 	projectNames := args[1:]
 
-	log.Info("开始创建分�?'%s'", branchName)
+	log.Info("开始创建分支'%s'", branchName)
 
 	// 加载清单
 	log.Debug("正在加载清单文件: %s", opts.Config.ManifestName)
@@ -127,37 +127,37 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 		log.Error("解析清单失败: %v", err)
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
-	log.Debug("成功加载清单，包�?%d 个项�?, len(manifest.Projects))
+	log.Debug("成功加载清单，包含 %d 个项目", len(manifest.Projects))
 
-	// 创建项目管理�?
+	// 创建项目管理器
 	log.Debug("正在初始化项目管理器...")
 	manager := project.NewManagerFromManifest(manifest, opts.Config)
 
 	// 获取要处理的项目
 	var projects []*project.Project
 	if opts.All || len(projectNames) == 0 {
-		// 如果指定�?-all或没有指定项目，则处理所有项�?
-		log.Debug("获取所有项�?..")
+		// 如果指定�?-all或没有指定项目，则处理所有项�?
+		log.Debug("获取所有项�?..")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
-		log.Debug("共获取到 %d 个项�?, len(projects))
+		log.Debug("共获取到 %d 个项目", len(projects))
 	} else {
-		// 否则，只处理指定的项�?
+		// 否则，只处理指定的项目
 		log.Debug("根据名称获取项目: %v", projectNames)
 		projects, err = manager.GetProjectsByNames(projectNames)
 		if err != nil {
 			log.Error("根据名称获取项目失败: %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
-		log.Debug("共获取到 %d 个项�?, len(projects))
+		log.Debug("共获取到 %d 个项目", len(projects))
 	}
 
-	// 使用goroutine池并发创建分�?
-	log.Info("开始创建分支，并行任务�? %d...", opts.Jobs)
-	
+	// 使用goroutine池并发创建分支
+	log.Info("开始创建分支，并行任务数 %d...", opts.Jobs)
+
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(projects))
 	resultChan := make(chan string, len(projects))
@@ -166,21 +166,21 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 	for _, p := range projects {
 		p := p // 创建副本避免闭包问题
 		wg.Add(1)
-		
+
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{} // 获取信号�?
-			defer func() { <-sem }() // 释放信号�?
-			
-			log.Debug("在项�?%s 中创建分�?'%s'...", p.Name, branchName)
-			
-			// 确定使用的修订版�?
+			sem <- struct{}{}        // 获取信号�?
+			defer func() { <-sem }() // 释放信号�?
+
+			log.Debug("在项�?%s 中创建分�?'%s'...", p.Name, branchName)
+
+			// 确定使用的修订版�?
 			revision := opts.Rev
 			if revision == "" {
 				revision = p.Revision
 			}
 			log.Debug("项目 %s 使用修订版本: %s", p.Name, revision)
-			
+
 			// 创建分支
 			if err := p.GitRepo.CreateBranch(branchName, revision); err != nil {
 				log.Error("项目 %s 创建分支失败: %v", p.Name, err)
@@ -188,14 +188,14 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 				stats.increment(false)
 				return
 			}
-			
+
 			resultChan <- fmt.Sprintf("项目 %s: 分支 '%s' 创建成功", p.Name, branchName)
 			stats.increment(true)
 			log.Debug("项目 %s 分支创建完成", p.Name)
 		}()
 	}
 
-	// 启动一�?goroutine 来关闭结果通道
+	// 启动一�?goroutine 来关闭结果通道
 	go func() {
 		wg.Wait()
 		close(errChan)
@@ -214,11 +214,11 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 	}
 
 	// 显示统计信息
-	log.Info("分支创建操作完成，总计: %d，成�? %d，失�? %d", stats.total, stats.success, stats.failed)
+	log.Info("分支创建操作完成，总计: %d，成功 %d，失败 %d", stats.total, stats.success, stats.failed)
 
-	// 如果有错误，返回汇总错�?
+	// 如果有错误，返回汇总错误
 	if len(errs) > 0 {
-		log.Error("�?%d 个项目创建分支失�?, len(errs))
+		log.Error("有 %d 个项目创建分支失败", len(errs))
 		return fmt.Errorf("%d projects failed: %v", len(errs), errors.Join(errs...))
 	}
 

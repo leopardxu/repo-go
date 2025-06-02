@@ -8,7 +8,7 @@ package repo_sync
 // 	// Remove unused imports like "github.com/leopardxu/repo-go/internal/project"
 // )
 
-// contains 检查字符串切片是否包含指定字符�?
+// contains 检查字符串切片是否包含指定字符串
 func contains(slice []string, str string) bool {
 	for _, item := range slice {
 		if item == str {

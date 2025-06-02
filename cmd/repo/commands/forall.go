@@ -98,7 +98,7 @@ func runForall(opts *ForallOptions, projectNames []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// 创建项目管理�?
+	// 创建项目管理器
 	log.Debug("Creating project manager")
 	manager := project.NewManagerFromManifest(manifest, opts.Config)
 
@@ -117,7 +117,7 @@ func runForall(opts *ForallOptions, projectNames []string) error {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		// 过滤指定的项�?
+		// 过滤指定的项目
 		filteredProjects, err := manager.GetProjectsByNames(projectNames)
 		if err != nil {
 			log.Error("Failed to get projects by name: %v", err)
@@ -148,7 +148,7 @@ func runForall(opts *ForallOptions, projectNames []string) error {
 		maxConcurrency = 8
 	}
 
-	// 如果不是并行模式，将并发数设�?
+	// 如果不是并行模式，将并发数设为1
 	if !opts.Parallel {
 		maxConcurrency = 1
 	}
@@ -161,7 +161,7 @@ func runForall(opts *ForallOptions, projectNames []string) error {
 
 	// 并发执行命令
 	for _, p := range projects {
-		if p.Worktree == "" { // 跳过没有工作目录的项�?
+		if p.Worktree == "" { // 跳过没有工作目录的项�?
 			log.Debug("Skipping project %s (no worktree)", p.Name)
 			continue
 		}
@@ -210,7 +210,7 @@ func runForall(opts *ForallOptions, projectNames []string) error {
 	// 输出统计信息
 	log.Info("Command execution complete. Success: %d, Failed: %d", stats.Success, stats.Failed)
 
-	// 如果有失败的项目，返回错�?
+	// 如果有失败的项目，返回错�?
 	if stats.Failed > 0 {
 		return fmt.Errorf("forall command failed in %d projects", stats.Failed)
 	}

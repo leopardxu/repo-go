@@ -13,21 +13,21 @@ import (
 	"github.com/leopardxu/repo-go/internal/logger"
 )
 
-// 包级别的日志记录�?
+// 包级别的日志记录器
 var log logger.Logger = &logger.DefaultLogger{}
 
-// SetLogger 设置日志记录�?
+// SetLogger 设置日志记录器
 func SetLogger(logger logger.Logger) {
 	log = logger
 }
 
 // GitCommandError 表示Git命令执行错误
 type GitCommandError struct {
-	Command string
-	Dir     string
-	Err     error
-	Stdout  string
-	Stderr  string
+	Command  string
+	Dir      string
+	Err      error
+	Stdout   string
+	Stderr   string
 	ExitCode int
 }
 
@@ -42,7 +42,7 @@ func (e *GitCommandError) Unwrap() error {
 	return e.Err
 }
 
-// defaultRunner 是默认的Git命令运行器实�?
+// defaultRunner 是默认的Git命令运行器实�?
 type defaultRunner struct {
 	Verbose     bool
 	Quiet       bool
@@ -67,7 +67,7 @@ func (r *defaultRunner) SetQuiet(quiet bool) {
 	r.Quiet = quiet
 }
 
-// SetMaxRetries 设置最大重试次�?
+// SetMaxRetries 设置最大重试次�?
 func (r *defaultRunner) SetMaxRetries(retries int) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
@@ -81,17 +81,17 @@ func (r *defaultRunner) SetRetryDelay(delay time.Duration) {
 	r.RetryDelay = delay
 }
 
-// SetConcurrency 设置并发�?
+// SetConcurrency 设置并发�?
 func (r *defaultRunner) SetConcurrency(concurrency int) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	
+
 	// 如果已经初始化了信号量，先关闭它
 	if r.semaphore != nil {
 		close(r.semaphore)
 	}
-	
-	// 设置新的并发�?
+
+	// 设置新的并发�?
 	r.concurrency = concurrency
 	if concurrency > 0 {
 		r.semaphore = make(chan struct{}, concurrency)
@@ -110,19 +110,19 @@ func (r *defaultRunner) RunInDir(dir string, args ...string) ([]byte, error) {
 	return r.runGitCommand(dir, 0, args...)
 }
 
-// RunWithTimeout 在指定目录执行Git命令并设置超�?
+// RunWithTimeout 在指定目录执行Git命令并设置超�?
 func (r *defaultRunner) RunWithTimeout(timeout time.Duration, args ...string) ([]byte, error) {
 	return r.runGitCommand("", timeout, args...)
 }
 
-// RunInDirWithTimeout 在指定目录执行Git命令并设置超�?
+// RunInDirWithTimeout 在指定目录执行Git命令并设置超�?
 func (r *defaultRunner) RunInDirWithTimeout(dir string, timeout time.Duration, args ...string) ([]byte, error) {
 	return r.runGitCommand(dir, timeout, args...)
 }
 
-// runGitCommand 是执�?git 命令的内部辅助函�?
+// runGitCommand 是执�?git 命令的内部辅助函�?
 func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ...string) ([]byte, error) {
-	// 获取并发控制信号�?
+	// 获取并发控制信号�?
 	r.mutex.RLock()
 	semaphore := r.semaphore
 	maxRetries := r.MaxRetries
@@ -130,8 +130,8 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 	verbose := r.Verbose
 	quiet := r.Quiet
 	r.mutex.RUnlock()
-	
-	// 如果设置了并发控�?
+
+	// 如果设置了并发控�?
 	if semaphore != nil {
 		semaphore <- struct{}{}
 		defer func() { <-semaphore }()
@@ -141,23 +141,23 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 	cmdStr := fmt.Sprintf("git %s", strings.Join(cmdArgs, " "))
 
 	if verbose {
-		log.Info("执行: %s 在目�?'%s'", cmdStr, dir)
+		log.Info("执行: %s 在目�?'%s'", cmdStr, dir)
 	} else {
-		log.Debug("执行: %s 在目�?'%s'", cmdStr, dir)
+		log.Debug("执行: %s 在目�?'%s'", cmdStr, dir)
 	}
 
-	// 执行命令，支持重�?
+	// 执行命令，支持重�?
 	var lastErr error
 	var stdoutBytes []byte
 	var stderrBytes []byte
 	var exitCode int
-	
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
 			log.Debug("重试Git命令 (尝试 %d/%d): %s", attempt, maxRetries, cmdStr)
 			time.Sleep(retryDelay)
 		}
-		
+
 		// 准备命令
 		ctx := context.Background()
 		var cancel context.CancelFunc
@@ -181,29 +181,29 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 		err := cmd.Run()
 		stdoutBytes = stdout.Bytes()
 		stderrBytes = stderr.Bytes()
-		
+
 		// 处理输出
 		if verbose && len(stdoutBytes) > 0 {
 			log.Debug("标准输出: %s", string(stdoutBytes))
 		}
-		
+
 		if len(stderrBytes) > 0 && !quiet {
 			// 只有在非静默模式下才记录stderr
 			if err != nil {
 				log.Warn("标准错误: %s", string(stderrBytes))
 			} else if verbose {
-				// 如果命令成功但有stderr输出，且处于详细模式，则记录为调试信�?
+				// 如果命令成功但有stderr输出，且处于详细模式，则记录为调试信�?
 				log.Debug("标准错误: %s", string(stderrBytes))
 			}
 		}
 
 		// 处理错误
 		if err != nil {
-			exitCode = 1 // 默认错误�?
+			exitCode = 1 // 默认错误�?
 			if exitErr, ok := err.(*exec.ExitError); ok {
 				exitCode = exitErr.ExitCode()
 			}
-			
+
 			// 构建错误信息
 			lastErr = &GitCommandError{
 				Command:  cmdStr,
@@ -213,11 +213,11 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 				Stderr:   string(stderrBytes),
 				ExitCode: exitCode,
 			}
-			
-			// 检查是否应该重�?
+
+			// 检查是否应该重�?
 			if !shouldRetry(exitCode, string(stderrBytes)) || attempt >= maxRetries {
 				if attempt > 0 {
-					log.Warn("Git命令失败，已重试 %d �? %s", attempt, cmdStr)
+					log.Warn("Git命令失败，已重试 %d �? %s", attempt, cmdStr)
 				}
 				break
 			}
@@ -237,32 +237,32 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 func shouldRetry(exitCode int, stderr string) bool {
 	// 网络错误通常应该重试
 	if strings.Contains(stderr, "Could not resolve host") ||
-	   strings.Contains(stderr, "Failed to connect") ||
-	   strings.Contains(stderr, "Connection timed out") ||
-	   strings.Contains(stderr, "Connection reset by peer") ||
-	   strings.Contains(stderr, "Operation timed out") ||
-	   strings.Contains(stderr, "Temporary failure in name resolution") {
+		strings.Contains(stderr, "Failed to connect") ||
+		strings.Contains(stderr, "Connection timed out") ||
+		strings.Contains(stderr, "Connection reset by peer") ||
+		strings.Contains(stderr, "Operation timed out") ||
+		strings.Contains(stderr, "Temporary failure in name resolution") {
 		return true
 	}
-	
+
 	// 锁定错误通常应该重试
 	if strings.Contains(stderr, "Unable to create") && strings.Contains(stderr, "File exists") ||
-	   strings.Contains(stderr, "Unable to lock") ||
-	   strings.Contains(stderr, "already exists") && strings.Contains(stderr, "lock") {
+		strings.Contains(stderr, "Unable to lock") ||
+		strings.Contains(stderr, "already exists") && strings.Contains(stderr, "lock") {
 		return true
 	}
-	
+
 	// 其他可能需要重试的情况
 	if strings.Contains(stderr, "index.lock") ||
-	   strings.Contains(stderr, "fatal: the remote end hung up unexpectedly") {
+		strings.Contains(stderr, "fatal: the remote end hung up unexpectedly") {
 		return true
 	}
-	
-	// 默认不重�?
+
+	// 默认不重�?
 	return false
 }
 
-// NewRunner 创建一个新�?Git 命令运行�?
+// NewRunner 创建一个新�?Git 命令运行�?
 func NewRunner() Runner {
 	return &defaultRunner{
 		MaxRetries:  3,
@@ -272,7 +272,7 @@ func NewRunner() Runner {
 	}
 }
 
-// NewCommandRunnerWithConfig 根据配置创建Git命令运行�?
+// NewCommandRunnerWithConfig 根据配置创建Git命令运行�?
 func NewCommandRunnerWithConfig(cfg *config.Config) (Runner, error) {
 	runner := &defaultRunner{
 		MaxRetries:  3,
@@ -280,16 +280,16 @@ func NewCommandRunnerWithConfig(cfg *config.Config) (Runner, error) {
 		concurrency: 5,
 		semaphore:   make(chan struct{}, 5),
 	}
-	
+
 	if cfg != nil {
 		runner.Verbose = cfg.Verbose
 		runner.Quiet = cfg.Quiet
 	}
-	
+
 	return runner, nil
 }
 
-// Runner 定义了运行Git命令的接�?
+// Runner 定义了运行Git命令的接�?
 type Runner interface {
 	Run(args ...string) ([]byte, error)
 	RunInDir(dir string, args ...string) ([]byte, error)
@@ -302,5 +302,5 @@ type Runner interface {
 	SetConcurrency(concurrency int)
 }
 
-// CommandRunner 是Runner的别名，保持向后兼容�?
+// CommandRunner 是Runner的别名，保持向后兼容�?
 type CommandRunner = Runner

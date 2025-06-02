@@ -14,11 +14,11 @@ import (
 
 // CherryPickOptions holds the options for the cherry-pick command
 type CherryPickOptions struct {
-	All            bool
-	Jobs           int
-	Quiet          bool
-	Verbose        bool
-	Config         *config.Config
+	All     bool
+	Jobs    int
+	Quiet   bool
+	Verbose bool
+	Config  *config.Config
 	CommonManifestOptions
 }
 
@@ -78,7 +78,7 @@ func runCherryPick(opts *CherryPickOptions, args []string) error {
 	manager := project.NewManagerFromManifest(manifestObj, cfg)
 	var projects []*project.Project
 	if opts.All || len(projectNames) == 0 {
-		log.Debug("获取所有项�?)
+		log.Debug("获取所有项目")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
 			log.Error("获取项目列表失败: %v", err)
@@ -95,7 +95,7 @@ func runCherryPick(opts *CherryPickOptions, args []string) error {
 
 	log.Info("开始在 %d 个项目中应用 cherry-pick", len(projects))
 
-	// 使用 repo_sync 包中�?Engine 进行 cherry-pick 操作
+	// 使用 repo_sync 包中�?Engine 进行 cherry-pick 操作
 	syncOpts := &repo_sync.Options{
 		Jobs:    opts.Jobs,
 		Quiet:   opts.Quiet,

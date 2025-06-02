@@ -2,8 +2,8 @@ package commands
 
 import (
 	"fmt"
-	"regexp"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -33,7 +33,7 @@ type ListOptions struct {
 	Config      *config.Config
 }
 
-// listStats 用于统计list命令的执行结�?
+// listStats 用于统计list命令的执行结果
 type listStats struct {
 	mu      sync.Mutex
 	success int
@@ -47,7 +47,7 @@ func ListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list [-f] [<project>...]",
 		Short: "List projects and their associated directories",
-		Long:  `List all projects; pass '.' to list the project for the cwd.
+		Long: `List all projects; pass '.' to list the project for the cwd.
 
 By default, only projects that currently exist in the checkout are shown. If you
 want to list all projects (using the specified filter settings), use the --all
@@ -91,7 +91,7 @@ func runList(opts *ListOptions, args []string) error {
 		log.SetLevel(logger.LogLevelInfo)
 	}
 
-	log.Info("开始列出项�?)
+	log.Info("开始列出项目")
 
 	// 加载配置
 	log.Debug("正在加载配置...")
@@ -111,8 +111,8 @@ func runList(opts *ListOptions, args []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// 创建项目管理�?
-	log.Debug("正在创建项目管理�?..")
+	// 创建项目管理器
+	log.Debug("正在创建项目管理器...")
 	manager := project.NewManagerFromManifest(manifestObj, cfg)
 
 	// 获取要处理的项目
@@ -125,7 +125,7 @@ func runList(opts *ListOptions, args []string) error {
 	}
 
 	if len(args) == 0 {
-		log.Debug("获取所有项�?)
+		log.Debug("获取所有项目")
 		projects, err = manager.GetProjectsInGroups(groupsArg)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
@@ -143,7 +143,7 @@ func runList(opts *ListOptions, args []string) error {
 		}
 	}
 
-	log.Info("找到 %d 个项�?, len(projects))
+	log.Info("找到 %d 个项目", len(projects))
 
 	// 过滤函数
 	filterProjects := func(projects []*project.Project, filterFunc func(*project.Project) bool) []*project.Project {
@@ -162,10 +162,10 @@ func runList(opts *ListOptions, args []string) error {
 		projects = filterProjects(projects, func(p *project.Project) bool {
 			return strings.HasPrefix(p.Path, opts.PathPrefix)
 		})
-		log.Debug("过滤后剩�?%d 个项�?, len(projects))
+		log.Debug("过滤后剩余 %d 个项目", len(projects))
 	}
 
-	// 正则表达式过�?
+	// 正则表达式过�?
 	if opts.Regex != "" {
 		log.Debug("按正则表达式过滤: %s", opts.Regex)
 		regex, err := regexp.Compile(opts.Regex)
@@ -176,7 +176,7 @@ func runList(opts *ListOptions, args []string) error {
 		projects = filterProjects(projects, func(p *project.Project) bool {
 			return regex.MatchString(p.Name) || regex.MatchString(p.Path)
 		})
-		log.Debug("过滤后剩�?%d 个项�?, len(projects))
+		log.Debug("过滤后剩余 %d 个项目", len(projects))
 	}
 
 	// 设置并发控制
@@ -190,15 +190,15 @@ func runList(opts *ListOptions, args []string) error {
 	var wg sync.WaitGroup
 	stats := &listStats{}
 
-	log.Debug("开始处理项目信�?..")
+	log.Debug("开始处理项目信�?..")
 
 	// 并发输出项目信息
 	for _, p := range projects {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(p *project.Project) {
-			defer func() { 
-				<-sem 
+			defer func() {
+				<-sem
 				wg.Done()
 			}()
 
@@ -236,7 +236,7 @@ func runList(opts *ListOptions, args []string) error {
 
 			// 输出项目信息
 			fmt.Println(output)
-			
+
 			// 更新统计信息
 			stats.mu.Lock()
 			stats.success++
@@ -245,11 +245,11 @@ func runList(opts *ListOptions, args []string) error {
 	}
 
 	// 等待所有goroutine完成
-	log.Debug("等待所有处理完�?..")
+	log.Debug("等待所有处理完�?..")
 	wg.Wait()
 
 	// 输出统计信息
-	log.Info("列出完成，共处理 %d 个项�?, stats.success)
+	log.Info("列出完成，共处理 %d 个项目", stats.success)
 
 	return nil
 }

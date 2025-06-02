@@ -72,7 +72,7 @@ func runDiff(opts *DiffOptions, projectNames []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	log.Debug("获取项目管理�?)
+	log.Debug("获取项目管理器")
 	manager := project.NewManagerFromManifest(mf, cfg)
 	log.Debug("获取项目列表")
 	projects, err := getProjects(manager, projectNames)
@@ -81,7 +81,7 @@ func runDiff(opts *DiffOptions, projectNames []string) error {
 		return fmt.Errorf("failed to get projects: %w", err)
 	}
 
-	log.Info("开始对 %d 个项目执�?diff 操作", len(projects))
+	log.Info("开始对 %d 个项目执�?diff 操作", len(projects))
 
 	maxConcurrency := 8
 	sem := make(chan struct{}, maxConcurrency)
@@ -95,7 +95,7 @@ func runDiff(opts *DiffOptions, projectNames []string) error {
 		go func(proj *project.Project) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			log.Debug("对项�?%s 执行 diff 操作", proj.Name)
+			log.Debug("对项�?%s 执行 diff 操作", proj.Name)
 			outBytes, err := proj.GitRepo.RunCommand("diff")
 			out := string(outBytes)
 			results <- diffResult{Name: proj.Name, Output: out, Err: err}
@@ -123,7 +123,7 @@ func runDiff(opts *DiffOptions, projectNames []string) error {
 		if res.Output != "" {
 			log.Info("--- %s ---\n%s", res.Name, res.Output)
 		} else if !opts.Quiet {
-			log.Info("--- %s ---\n(无变�?", res.Name)
+			log.Info("--- %s ---\n(无变�?", res.Name)
 		}
 	}
 

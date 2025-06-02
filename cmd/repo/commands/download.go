@@ -69,8 +69,8 @@ func getDownloadProjects(manager *project.Manager, projectNames []string) ([]*pr
 
 // downloadResult represents the result of a download operation
 type downloadResult struct {
-	Name   string
-	Err    error
+	Name string
+	Err  error
 }
 
 // downloadStats tracks download statistics
@@ -109,7 +109,7 @@ func runDownload(opts *DownloadOptions, projectNames []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// 创建项目管理�?
+	// 创建项目管理器
 	log.Debug("Creating project manager")
 	manager := project.NewManagerFromManifest(mf, cfg)
 
@@ -173,7 +173,7 @@ func runDownload(opts *DownloadOptions, projectNames []string) error {
 	// 输出统计信息
 	log.Info("Download complete. Success: %d, Failed: %d", stats.Success, stats.Failed)
 
-	// 如果有失败的项目，返回错�?
+	// 如果有失败的项目，返回错�?
 	if stats.Failed > 0 {
 		return fmt.Errorf("%d projects failed to download", stats.Failed)
 	}

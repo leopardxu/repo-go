@@ -13,9 +13,9 @@ import (
 )
 
 // CheckoutOptions holds the options for the checkout command
-// 优化参数结构体，增加�?start/branch 命令一致的参数
+// 优化参数结构体，增加与start/branch 命令一致的参数
 // 支持 --all, --jobs, --quiet, --verbose
-// 支持 --branch 指定分支�?
+// 支持 --branch 指定分支名
 // 支持 --detach, --force-sync, --force-overwrite
 // 支持 Manifest 相关参数
 type CheckoutOptions struct {
@@ -84,7 +84,7 @@ func runCheckout(opts *CheckoutOptions, args []string) error {
 	projectNames := args[1:]
 	cfg := opts.Config
 
-	log.Info("正在检出分�?'%s'", branchName)
+	log.Info("正在检出分�?'%s'", branchName)
 
 	parser := manifest.NewParser()
 	manifestObj, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
@@ -96,7 +96,7 @@ func runCheckout(opts *CheckoutOptions, args []string) error {
 	manager := project.NewManagerFromManifest(manifestObj, cfg)
 	var projects []*project.Project
 	if opts.All || len(projectNames) == 0 {
-		log.Debug("获取所有项�?)
+		log.Debug("获取所有项目")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
 			log.Error("获取项目列表失败: %v", err)
@@ -111,9 +111,9 @@ func runCheckout(opts *CheckoutOptions, args []string) error {
 		}
 	}
 
-	log.Info("开始检�?%d 个项�?, len(projects))
+	log.Info("开始检出 %d 个项目", len(projects))
 
-	// 使用 repo_sync 包中�?Engine 进行检出操�?
+	// 使用 repo_sync 包中的 Engine 进行检出操作
 	syncOpts := &repo_sync.Options{
 		Detach:         opts.Detach,
 		ForceSync:      opts.ForceSync,
@@ -127,18 +127,18 @@ func runCheckout(opts *CheckoutOptions, args []string) error {
 	engine := repo_sync.NewEngine(syncOpts, nil, log)
 	// 设置分支名称
 	engine.SetBranchName(branchName)
-	// 执行检出操�?
+	// 执行检出操作
 	err = engine.CheckoutBranch(projects)
 	if err != nil {
-		log.Error("检出分支失�? %v", err)
+		log.Error("检出分支失�? %v", err)
 		return err
 	}
 
-	// 获取检出结�?
+	// 获取检出结�?
 	success, failed := engine.GetCheckoutStats()
 
 	if !opts.Quiet {
-		log.Info("检出分�?'%s' 完成: %d 成功, %d 失败", branchName, success, failed)
+		log.Info("检出分�?'%s' 完成: %d 成功, %d 失败", branchName, success, failed)
 	}
 
 	if failed > 0 {
