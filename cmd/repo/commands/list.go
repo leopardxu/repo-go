@@ -165,7 +165,7 @@ func runList(opts *ListOptions, args []string) error {
 		log.Debug("过滤后剩余 %d 个项目", len(projects))
 	}
 
-	// 正则表达式过�?
+	// 正则表达式过
 	if opts.Regex != "" {
 		log.Debug("按正则表达式过滤: %s", opts.Regex)
 		regex, err := regexp.Compile(opts.Regex)
@@ -190,7 +190,7 @@ func runList(opts *ListOptions, args []string) error {
 	var wg sync.WaitGroup
 	stats := &listStats{}
 
-	log.Debug("开始处理项目信�?..")
+	log.Debug("开始处理项目信..")
 
 	// 并发输出项目信息
 	for _, p := range projects {
@@ -245,7 +245,7 @@ func runList(opts *ListOptions, args []string) error {
 	}
 
 	// 等待所有goroutine完成
-	log.Debug("等待所有处理完�?..")
+	log.Debug("等待所有处理完..")
 	wg.Wait()
 
 	// 输出统计信息

@@ -95,7 +95,7 @@ func runCherryPick(opts *CherryPickOptions, args []string) error {
 
 	log.Info("开始在 %d 个项目中应用 cherry-pick", len(projects))
 
-	// 使用 repo_sync 包中�?Engine 进行 cherry-pick 操作
+	// 使用 repo_sync 包中Engine 进行 cherry-pick 操作
 	syncOpts := &repo_sync.Options{
 		Jobs:    opts.Jobs,
 		Quiet:   opts.Quiet,

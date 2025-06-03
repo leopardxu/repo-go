@@ -145,7 +145,7 @@ func (m *Manager) GetProjectsByNames(names []string) ([]*Project, error) {
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("未找到项�? %s", name)
+			return nil, fmt.Errorf("未找到项 %s", name)
 		}
 	}
 
@@ -163,7 +163,7 @@ func (m *Manager) GetProject(name string) *Project {
 		}
 	}
 
-	logger.Debug("未找到项�? %s", name)
+	logger.Debug("未找到项 %s", name)
 	return nil
 }
 
@@ -258,7 +258,7 @@ func (m *Manager) ResolveRemoteURL(remoteURL string) string {
 	// 如果URL是相对路径，基于manifestURL解析
 	baseURL := m.extractBaseURL(m.ManifestURL)
 	if baseURL == "" {
-		logger.Warn("无法�?%s 提取基础URL", m.ManifestURL)
+		logger.Warn("无法%s 提取基础URL", m.ManifestURL)
 		return remoteURL
 	}
 
@@ -274,7 +274,7 @@ func (m *Manager) ResolveRemoteURL(remoteURL string) string {
 
 // extractBaseURL 提取基础URL
 func (m *Manager) extractBaseURL(url string) string {
-	logger.Debug("�?%s 提取基础URL", url)
+	logger.Debug("%s 提取基础URL", url)
 
 	// 处理不同格式的URL
 
@@ -544,7 +544,7 @@ func (m *Manager) ForEachProject(fn func(*Project) error, concurrency int) error
 		go func(proj *Project) {
 			defer wg.Done()
 
-			// 获取信号�?			semaphore <- struct{}{}
+			// 获取信号			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
 			if err := fn(proj); err != nil {
@@ -575,7 +575,7 @@ func (m *Manager) ForEachProject(fn func(*Project) error, concurrency int) error
 
 // SyncProjects 同步所有项目，支持并发
 func (m *Manager) SyncProjects(opts SyncOptions, concurrency int) error {
-	logger.Info("开始同�?%d 个项目，并发�? %d", len(m.Projects), concurrency)
+	logger.Info("开始同%d 个项目，并发 %d", len(m.Projects), concurrency)
 
 	// 使用 ForEachProject 并发执行同步
 	err := m.ForEachProject(func(p *Project) error {
@@ -583,7 +583,7 @@ func (m *Manager) SyncProjects(opts SyncOptions, concurrency int) error {
 	}, concurrency)
 
 	if err != nil {
-		logger.Error("项目同步过程中发生错�? %v", err)
+		logger.Error("项目同步过程中发生错 %v", err)
 		return err
 	}
 

@@ -22,7 +22,7 @@ func (e *Engine) handleSmartSync() error {
 
 	manifestServer := e.manifest.ManifestServer
 	if !e.options.Quiet {
-		fmt.Printf("使用清单服务�?%s\n", manifestServer)
+		fmt.Printf("使用清单服务%s\n", manifestServer)
 	}
 
 	// 处理认证
@@ -80,7 +80,7 @@ func (e *Engine) handleSmartSync() error {
 			manifestServer, url.QueryEscape(e.options.SmartTag))
 	}
 
-	// 发送请求，带重试机�?
+	// 发送请求，带重试机
 	var resp *http.Response
 	var err error
 	maxRetries := 3
@@ -94,18 +94,18 @@ func (e *Engine) handleSmartSync() error {
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("连接到清单服务器时出�?尝试%d�?: %w", maxRetries, err)
+		return fmt.Errorf("连接到清单服务器时出尝试%d: %w", maxRetries, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("清单服务器返回状�?%d", resp.StatusCode)
+		return fmt.Errorf("清单服务器返回状%d", resp.StatusCode)
 	}
 
 	// 读取响应
 	manifestStr, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("从服务器读取清单时出�? %w", err)
+		return fmt.Errorf("从服务器读取清单时出 %w", err)
 	}
 
 	// 使用内存缓存处理清单
@@ -119,7 +119,7 @@ func (e *Engine) handleSmartSync() error {
 	// 可选：写入临时文件用于调试
 	if e.options.Debug {
 		if err := os.WriteFile(smartSyncManifestPath, manifestStr, 0644); err != nil {
-			return fmt.Errorf("将清单写�?%s 时出�? %w", smartSyncManifestPath, err)
+			return fmt.Errorf("将清单写%s 时出 %w", smartSyncManifestPath, err)
 		}
 	}
 

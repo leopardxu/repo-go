@@ -96,22 +96,22 @@ func (e *Engine) SyncAll() error {
 		}
 
 		// 打印错误摘要
-		fmt.Printf("\n同步过程中发生了 %d 个错�?\n", len(e.errResults))
+		fmt.Printf("\n同步过程中发生了 %d 个错误\n", len(e.errResults))
 
-		// 先打印错误类型统�?
+		// 先打印错误类型统计
 		fmt.Println("错误类型统计:")
 		for errType, count := range errorTypes {
 			fmt.Printf("  %s: %d 个\n", errType, count)
 		}
 
-		// 再打印详细错误信�?
+		// 再打印详细错误信息
 		fmt.Println("\n详细错误信息:")
 		for i, errMsg := range e.errResults {
 			fmt.Printf("错误 %d: %s\n", i+1, errMsg)
 
 			// 对于exit status 128错误，提供额外的诊断信息
 			if strings.Contains(errMsg, "exit status 128") {
-				fmt.Println("  可能的原�?")
+				fmt.Println("  可能的原因:")
 				if strings.Contains(errMsg, "does not appear to be a git repository") {
 					fmt.Println("    - 远程仓库路径不正确或不是有效的Git仓库")
 				} else if strings.Contains(errMsg, "repository not found") || strings.Contains(errMsg, "not found") {
@@ -154,7 +154,7 @@ func (e *Engine) loadManifestSilently() error {
 		groups = e.options.Groups
 	} else if e.config != nil && e.config.Groups != "" {
 		groups = strings.Split(e.config.Groups, ",")
-		// 去除空白�?
+		// 去除空白
 		validGroups := make([]string, 0, len(groups))
 		for _, g := range groups {
 			g = strings.TrimSpace(g)
@@ -174,7 +174,7 @@ func (e *Engine) loadManifestSilently() error {
 		return fmt.Errorf("加载清单文件失败: %w", err)
 	}
 
-	// 检查清单是否有�?
+	// 检查清单是否有
 	if m == nil || len(m.Projects) == 0 {
 		return fmt.Errorf("清单文件无效或不包含任何项目")
 	}
@@ -183,14 +183,14 @@ func (e *Engine) loadManifestSilently() error {
 	return nil
 }
 
-// syncProjectImpl 同步单个项目的实�?
+// syncProjectImpl 同步单个项目的实
 func (e *Engine) syncProjectImpl(p *project.Project) error {
 	// 检查并设置remote信息
 	if p.References != "" {
 		// 解析references配置
 		refParts := strings.Split(p.References, ":")
 		if len(refParts) != 2 {
-			return fmt.Errorf("项目 %s 的references格式无效，应�?remote:refs'格式", p.Name)
+			return fmt.Errorf("项目 %s 的references格式无效，应remote:refs'格式", p.Name)
 		}
 
 		// 设置remote和refs
@@ -206,15 +206,15 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 		p.Remote = e.manifest.Default.Remote
 	}
 
-	// analyzeGitError 分析Git错误并提供详细信�?
-	// 检查项目目录是否存�?
+	// analyzeGitError 分析Git错误并提供详细信
+	// 检查项目目录是否存
 	worktreeExists := false
 	if _, err := os.Stat(p.Worktree); err == nil {
 		worktreeExists = true
 		// 检查是否已经是一个有效的git仓库
 		gitDirPath := filepath.Join(p.Worktree, ".git")
 		if _, err := os.Stat(gitDirPath); err == nil {
-			// 目录已存在且是一个git仓库，跳过克隆步�?
+			// 目录已存在且是一个git仓库，跳过克隆步
 			if !e.options.Quiet && e.options.Verbose {
 				fmt.Printf("项目 %s 目录已存在且是一个git仓库，跳过克隆步骤\n", p.Name)
 			}
@@ -255,7 +255,7 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 			strings.HasPrefix(p.RemoteURL, "../")
 
 		if !validProtocol {
-			return fmt.Errorf("克隆项目 %s 失败: 远程URL格式无效 %s (支持的协�? http, https, git@, ssh://, file://, /, ./, ../)", p.Name, p.RemoteURL)
+			return fmt.Errorf("克隆项目 %s 失败: 远程URL格式无效 %s (支持的协 http, https, git@, ssh://, file://, /, ./, ../)", p.Name, p.RemoteURL)
 		}
 
 		// 规范化URL格式
@@ -282,7 +282,7 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 			}
 		}
 
-		// 使用 Engine �?cloneProject 方法来确保调�?resolveRemoteURL
+		// 使用 Engine cloneProject 方法来确保调resolveRemoteURL
 		cloneErr := e.cloneProject(p)
 		if cloneErr == nil {
 			// 克隆成功，跳过后续重试逻辑
@@ -296,32 +296,32 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 		// 增强的克隆重试逻辑
 		maxRetries := e.options.RetryFetches
 		if maxRetries <= 0 {
-			maxRetries = 3 // 默认重试3�?
+			maxRetries = 3 // 默认重试3
 		}
 
-		// 使用指数退避策�?
+		// 使用指数退避策
 		baseDelay := 2 * time.Second
 
 		for i := 0; i < maxRetries; i++ {
-			// 检查上下文是否已取�?
+			// 检查上下文是否已取
 			select {
 			case <-e.ctx.Done():
 				return fmt.Errorf("克隆项目 %s 取消: %w", p.Name, e.ctx.Err())
 			default:
 			}
 
-			// 使用 Engine �?cloneProject 方法来确保调�?resolveRemoteURL
+			// 使用 Engine cloneProject 方法来确保调resolveRemoteURL
 			cloneErr = e.cloneProject(p)
 
 			if cloneErr == nil {
 				break
 			}
 
-			// 分析错误类型，决定是否重�?
+			// 分析错误类型，决定是否重
 			shouldRetry := false
-			retryDelay := time.Duration(1<<uint(i)) * baseDelay // 指数退�?
+			retryDelay := time.Duration(1<<uint(i)) * baseDelay // 指数退
 
-			// 检查是否为网络错误或临时错�?
+			// 检查是否为网络错误或临时错
 			if strings.Contains(cloneErr.Error(), "fatal: unable to access") ||
 				strings.Contains(cloneErr.Error(), "Could not resolve host") ||
 				strings.Contains(cloneErr.Error(), "timed out") ||
@@ -329,12 +329,12 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 				strings.Contains(cloneErr.Error(), "temporarily unavailable") {
 				shouldRetry = true
 			} else if strings.Contains(cloneErr.Error(), "exit status 128") {
-				// 对于exit status 128错误，需要进一步分�?
+				// 对于exit status 128错误，需要进一步分
 				if strings.Contains(cloneErr.Error(), "already exists") {
 					// 目录已存在，检查是否是git仓库
 					gitDirPath := filepath.Join(p.Worktree, ".git")
 					if _, err := os.Stat(gitDirPath); err == nil {
-						// 目录已存在且是一个git仓库，认为克隆成�?
+						// 目录已存在且是一个git仓库，认为克隆成
 						if !e.options.Quiet {
 							fmt.Printf("项目目录 %s 已存在且是一个git仓库，视为克隆成功\n", p.Worktree)
 						}
@@ -353,20 +353,20 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 							os.MkdirAll(filepath.Dir(p.Worktree), 0755)
 							shouldRetry = true
 						} else {
-							// 移除失败，不再重�?
+							// 移除失败，不再重
 							shouldRetry = false
 						}
 					} else {
-						// 没有设置ForceSync，不再重�?
+						// 没有设置ForceSync，不再重
 						shouldRetry = false
 					}
 				} else if strings.Contains(cloneErr.Error(), "does not appear to be a git repository") ||
 					strings.Contains(cloneErr.Error(), "repository not found") ||
 					strings.Contains(cloneErr.Error(), "authentication failed") {
-					// 这些是不太可能通过重试解决的错�?
+					// 这些是不太可能通过重试解决的错
 					shouldRetry = false
 				} else {
-					// 其他exit status 128错误可能是临时的，尝试重�?
+					// 其他exit status 128错误可能是临时的，尝试重
 					shouldRetry = true
 				}
 			}
@@ -382,10 +382,10 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 
 			if !e.options.Quiet {
 				if e.options.Verbose {
-					fmt.Printf("克隆项目 %s �?%d 次尝试失�? %v\n原因: %s\n将在 %s 后重�?..\n",
+					fmt.Printf("克隆项目 %s %d 次尝试失 %v\n原因: %s\n将在 %s 后重..\n",
 						p.Name, i+1, cloneErr, analyzeGitError(cloneErr.Error()), retryDelay)
 				} else {
-					fmt.Printf("克隆项目 %s �?%d 次尝试失败，将在 %s 后重�?..\n",
+					fmt.Printf("克隆项目 %s %d 次尝试失败，将在 %s 后重..\n",
 						p.Name, i+1, retryDelay)
 				}
 			}
@@ -394,10 +394,10 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 		}
 
 		if cloneErr != nil {
-			// 再次检查目录是否存在且是git仓库（可能在重试过程中被其他进程创建�?
+			// 再次检查目录是否存在且是git仓库（可能在重试过程中被其他进程创建
 			gitDirPath := filepath.Join(p.Worktree, ".git")
 			if _, err := os.Stat(gitDirPath); err == nil {
-				// 目录已存在且是一个git仓库，认为克隆成�?
+				// 目录已存在且是一个git仓库，认为克隆成
 				if !e.options.Quiet {
 					fmt.Printf("项目目录 %s 已存在且是一个git仓库，视为克隆成功\n", p.Worktree)
 				}
@@ -408,12 +408,12 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 				return nil
 			}
 
-			// 记录详细的错误信�?
+			// 记录详细的错误信
 			var errorMsg string
 			errorDetails := analyzeGitError(cloneErr.Error())
 
 			if e.options.Verbose {
-				// 详细模式下记录完整错误信�?
+				// 详细模式下记录完整错误信
 				errorMsg = fmt.Sprintf("克隆项目 %s 失败: %v\n远程URL: %s\n分支/修订版本: %s\n错误详情: %s\n重试次数: %d",
 					p.Name, cloneErr, p.RemoteURL, p.Revision, errorDetails, maxRetries)
 			}
@@ -444,10 +444,10 @@ SKIP_CLONE:
 		var fetchErr error
 		maxRetries := e.options.RetryFetches
 		if maxRetries <= 0 {
-			maxRetries = 3 // 默认重试3�?
+			maxRetries = 3 // 默认重试3
 		}
 
-		// 使用指数退避策�?
+		// 使用指数退避策
 		baseDelay := 2 * time.Second
 
 		for i := 0; i < maxRetries; i++ {
@@ -460,7 +460,7 @@ SKIP_CLONE:
 			if p.RemoteName == "" {
 				p.RemoteName = "origin" // 使用默认远程名称
 				if !e.options.Quiet && e.options.Verbose {
-					fmt.Printf("项目 %s 的远程名称未设置，使用默认名�?'origin'\n", p.Name)
+					fmt.Printf("项目 %s 的远程名称未设置，使用默认名'origin'\n", p.Name)
 				}
 			}
 
@@ -474,11 +474,11 @@ SKIP_CLONE:
 				break
 			}
 
-			// 分析错误类型，决定是否重�?
+			// 分析错误类型，决定是否重
 			shouldRetry := false
-			retryDelay := time.Duration(1<<uint(i)) * baseDelay // 指数退�?
+			retryDelay := time.Duration(1<<uint(i)) * baseDelay // 指数退
 
-			// 检查是否为网络错误或临时错�?
+			// 检查是否为网络错误或临时错
 			if strings.Contains(fetchErr.Error(), "fatal: unable to access") ||
 				strings.Contains(fetchErr.Error(), "Could not resolve host") ||
 				strings.Contains(fetchErr.Error(), "timed out") ||
@@ -486,14 +486,14 @@ SKIP_CLONE:
 				strings.Contains(fetchErr.Error(), "temporarily unavailable") {
 				shouldRetry = true
 			} else if strings.Contains(fetchErr.Error(), "exit status 128") {
-				// 对于exit status 128错误，需要进一步分�?
+				// 对于exit status 128错误，需要进一步分
 				if strings.Contains(fetchErr.Error(), "does not appear to be a git repository") ||
 					strings.Contains(fetchErr.Error(), "repository not found") ||
 					strings.Contains(fetchErr.Error(), "authentication failed") {
-					// 这些是不太可能通过重试解决的错�?
+					// 这些是不太可能通过重试解决的错
 					shouldRetry = false
 				} else {
-					// 其他exit status 128错误可能是临时的，尝试重�?
+					// 其他exit status 128错误可能是临时的，尝试重
 					shouldRetry = true
 				}
 			}
@@ -509,10 +509,10 @@ SKIP_CLONE:
 
 			if !e.options.Quiet {
 				if e.options.Verbose {
-					fmt.Printf("获取项目 %s 更新�?%d 次尝试失�? %v\n原因: %s\n将在 %s 后重�?..\n",
+					fmt.Printf("获取项目 %s 更新%d 次尝试失 %v\n原因: %s\n将在 %s 后重..\n",
 						p.Name, i+1, fetchErr, analyzeGitError(fetchErr.Error()), retryDelay)
 				} else {
-					fmt.Printf("获取项目 %s 更新�?%d 次尝试失败，将在 %s 后重�?..\n",
+					fmt.Printf("获取项目 %s 更新%d 次尝试失败，将在 %s 后重..\n",
 						p.Name, i+1, retryDelay)
 				}
 			}
@@ -521,16 +521,16 @@ SKIP_CLONE:
 		}
 
 		if fetchErr != nil {
-			// 记录详细的错误信�?
+			// 记录详细的错误信
 			var errorMsg string
 			errorDetails := analyzeGitError(fetchErr.Error())
 
 			if e.options.Verbose {
-				// 详细模式下记录完整错误信�?
+				// 详细模式下记录完整错误信
 				errorMsg = fmt.Sprintf("获取项目 %s 更新失败: %v\n远程名称: %s\n远程URL: %s\n错误详情: %s\n重试次数: %d",
 					p.Name, fetchErr, p.RemoteName, p.RemoteURL, errorDetails, maxRetries)
 			} else {
-				// 非详细模式下只记录简短错误信�?
+				// 非详细模式下只记录简短错误信
 				errorMsg = fmt.Sprintf("获取项目 %s 更新失败: %v", p.Name, fetchErr)
 			}
 
@@ -543,39 +543,39 @@ SKIP_CLONE:
 		}
 	}
 
-	// 如果不是只网络操作，更新工作�?
+	// 如果不是只网络操作，更新工作
 	if !e.options.NetworkOnly {
 		// 检查是否有本地修改
 		clean, err := p.GitRepo.IsClean()
 		if err != nil {
-			return fmt.Errorf("检查项�?%s 工作区状态失�? %w", p.Name, err)
+			return fmt.Errorf("检查项%s 工作区状态失 %w", p.Name, err)
 		}
 
 		// 如果有本地修改且不强制同步，报错
 		if !clean && !e.options.ForceSync {
-			return fmt.Errorf("项目 %s 工作区不干净，使�?--force-sync 覆盖本地修改", p.Name)
+			return fmt.Errorf("项目 %s 工作区不干净，使--force-sync 覆盖本地修改", p.Name)
 		}
 
-		// 检出指定版�?
+		// 检出指定版
 		if !e.options.Quiet && e.options.Verbose {
-			fmt.Printf("正在检出项�?%s 的版�?%s\n", p.Name, p.Revision)
+			fmt.Printf("正在检出项%s 的版%s\n", p.Name, p.Revision)
 		}
 
 		// 增强的checkout重试逻辑
 		var checkoutErr error
-		maxRetries := e.options.RetryFetches // 复用fetch的重试次�?
+		maxRetries := e.options.RetryFetches // 复用fetch的重试次
 		if maxRetries <= 0 {
-			maxRetries = 3 // 默认重试3�?
+			maxRetries = 3 // 默认重试3
 		}
 
-		// 使用指数退避策�?
+		// 使用指数退避策
 		baseDelay := 2 * time.Second
 
 		// 检查revision是否有效
 		if p.Revision == "" {
 			p.Revision = "HEAD" // 使用默认分支
 			if !e.options.Quiet && e.options.Verbose {
-				fmt.Printf("项目 %s 的修订版本未设置，使用默认�?'HEAD'\n", p.Name)
+				fmt.Printf("项目 %s 的修订版本未设置，使用默认'HEAD'\n", p.Name)
 			}
 		}
 
@@ -586,46 +586,46 @@ SKIP_CLONE:
 				break
 			}
 
-			// 分析错误类型，决定是否重�?
+			// 分析错误类型，决定是否重
 			shouldRetry := false
-			retryDelay := time.Duration(1<<uint(i)) * baseDelay // 指数退�?
+			retryDelay := time.Duration(1<<uint(i)) * baseDelay // 指数退
 
 			// 检查是否为可重试的错误
 			if strings.Contains(checkoutErr.Error(), "exit status 128") {
-				// 对于exit status 128错误，需要进一步分�?
+				// 对于exit status 128错误，需要进一步分
 				if strings.Contains(checkoutErr.Error(), "did not match any file(s) known to git") ||
 					strings.Contains(checkoutErr.Error(), "unknown revision") ||
 					strings.Contains(checkoutErr.Error(), "reference is not a tree") {
-					// 这些是不太可能通过重试解决的错�?
+					// 这些是不太可能通过重试解决的错
 					shouldRetry = false
 				} else if strings.Contains(checkoutErr.Error(), "local changes") ||
 					strings.Contains(checkoutErr.Error(), "would be overwritten") {
-					// 本地修改冲突，如果设置了ForceSync，可以尝试强制检�?
+					// 本地修改冲突，如果设置了ForceSync，可以尝试强制检
 					if e.options.ForceSync && i == 0 { // 只在第一次尝试时执行
 						if !e.options.Quiet {
-							fmt.Printf("检出项�?%s 时发现本地修改，尝试强制检�?..\n", p.Name)
+							fmt.Printf("检出项%s 时发现本地修改，尝试强制检..\n", p.Name)
 						}
 						// 先尝试重置工作区
 						_, resetErr := p.GitRepo.Runner.RunInDir(p.Worktree, "reset", "--hard")
 						if resetErr == nil {
-							// 重置成功，继续尝试检�?
+							// 重置成功，继续尝试检
 							shouldRetry = true
 						} else {
-							// 重置失败，不再重�?
+							// 重置失败，不再重
 							shouldRetry = false
 						}
 					} else {
-						// 没有设置ForceSync，不再重�?
+						// 没有设置ForceSync，不再重
 						shouldRetry = false
 					}
 				} else {
-					// 其他exit status 128错误可能是临时的，尝试重�?
+					// 其他exit status 128错误可能是临时的，尝试重
 					shouldRetry = true
 				}
 			} else if strings.Contains(checkoutErr.Error(), "timeout") ||
 				strings.Contains(checkoutErr.Error(), "timed out") ||
 				strings.Contains(checkoutErr.Error(), "temporarily unavailable") {
-				// 临时错误，可以重�?
+				// 临时错误，可以重
 				shouldRetry = true
 			}
 
@@ -640,10 +640,10 @@ SKIP_CLONE:
 
 			if !e.options.Quiet {
 				if e.options.Verbose {
-					fmt.Printf("检出项�?%s 的版�?%s �?%d 次尝试失�? %v\n原因: %s\n将在 %s 后重�?..\n",
+					fmt.Printf("检出项%s 的版%s %d 次尝试失 %v\n原因: %s\n将在 %s 后重..\n",
 						p.Name, p.Revision, i+1, checkoutErr, analyzeGitError(checkoutErr.Error()), retryDelay)
 				} else {
-					fmt.Printf("检出项�?%s 的版�?%s �?%d 次尝试失败，将在 %s 后重�?..\n",
+					fmt.Printf("检出项%s 的版%s %d 次尝试失败，将在 %s 后重..\n",
 						p.Name, p.Revision, i+1, retryDelay)
 				}
 			}
@@ -652,17 +652,17 @@ SKIP_CLONE:
 		}
 
 		if checkoutErr != nil {
-			// 记录详细的错误信�?
+			// 记录详细的错误信
 			var errorMsg string
 			errorDetails := analyzeGitError(checkoutErr.Error())
 
 			if e.options.Verbose {
-				// 详细模式下记录完整错误信�?
-				errorMsg = fmt.Sprintf("检出项�?%s 的版�?%s 失败: %v\n错误详情: %s\n重试次数: %d",
+				// 详细模式下记录完整错误信
+				errorMsg = fmt.Sprintf("检出项%s 的版%s 失败: %v\n错误详情: %s\n重试次数: %d",
 					p.Name, p.Revision, checkoutErr, errorDetails, maxRetries)
 			} else {
-				// 非详细模式下只记录简短错误信�?
-				errorMsg = fmt.Sprintf("检出项�?%s 失败: %v", p.Name, checkoutErr)
+				// 非详细模式下只记录简短错误信
+				errorMsg = fmt.Sprintf("检出项%s 失败: %v", p.Name, checkoutErr)
 			}
 
 			// 添加到错误结果列表（使用互斥锁保护）
@@ -670,7 +670,7 @@ SKIP_CLONE:
 			e.errResults = append(e.errResults, errorMsg)
 			e.fetchTimesLock.Unlock()
 
-			return fmt.Errorf("检出项�?%s 的版�?%s 失败: %w", p.Name, p.Revision, checkoutErr)
+			return fmt.Errorf("检出项%s 的版%s 失败: %w", p.Name, p.Revision, checkoutErr)
 		}
 	}
 

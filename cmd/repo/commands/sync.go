@@ -218,11 +218,11 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 
 	var projects []*project.Project
 	if len(args) == 0 {
-		// 如果没有指定项目，则处理所有项�?
-		log.Debug("获取所有项�?..")
+		// 如果没有指定项目，则处理所有项
+		log.Debug("获取所有项..")
 		// 直接使用 groupsSlice 过滤项目，确保只获取指定组的项目
 		if len(groupsSlice) > 0 {
-			log.Debug("根据组过滤获取项�? %v", groupsSlice)
+			log.Debug("根据组过滤获取项 %v", groupsSlice)
 			projects, err = manager.GetProjectsInGroups(groupsSlice)
 		} else {
 			log.Debug("获取所有项目，不进行组过滤")
@@ -288,7 +288,7 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		FetchSubmodules:        opts.FetchSubmodules,
 		OptimizedFetch:         opts.OptimizedFetch,
 		RetryFetches:           opts.RetryFetches,
-		Groups:                 groupsSlice, // 传递已处理的分组信息，确保只克隆指定组的仓�?
+		Groups:                 groupsSlice, // 传递已处理的分组信息，确保只克隆指定组的仓
 		FailFast:               opts.FailFast,
 		NoManifestUpdate:       opts.NoManifestUpdate,
 		UseSuperproject:        opts.UseSuperproject && !opts.NoUseSuperproject,
@@ -298,19 +298,19 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		ManifestServerPassword: opts.ManifestServerPassword,
 		GitLFS:                 opts.GitLFS,        // 添加Git LFS支持选项
 		DefaultRemote:          opts.DefaultRemote, // 添加默认远程仓库选项
-		Config:                 opts.Config,        // 添加Config字段，传递配置信�?
+		Config:                 opts.Config,        // 添加Config字段，传递配置信
 	}, manifestObj, log)
 
 	// 设置要同步的项目
 	engine.SetProjects(projects)
 
 	// 执行同步
-	log.Info("开始同步项目，并行任务�? %d...", opts.Jobs)
+	log.Info("开始同步项目，并行任务 %d...", opts.Jobs)
 	err = engine.Sync()
 
 	// 处理同步结果
 	if err != nil {
-		log.Error("同步操作完成，但有错�? %v", err)
+		log.Error("同步操作完成，但有错 %v", err)
 		stats.failed = len(projects) // 更新统计信息
 		return err
 	}
@@ -328,7 +328,7 @@ func filterProjectsByGroups(projects []*project.Project, groups []string) []*pro
 		return projects
 	}
 
-	fmt.Printf("根据以下组过滤项�? %v\n", groups)
+	fmt.Printf("根据以下组过滤项 %v\n", groups)
 	fmt.Printf("过滤前的项目数量: %d\n", len(projects))
 
 	var filtered []*project.Project

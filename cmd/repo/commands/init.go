@@ -375,7 +375,7 @@ func validateOptions(opts *InitOptions) error {
 
 // runInit 执行init命令
 func runInit(opts *InitOptions) error {
-	// 创建日志记录�?
+	// 创建日志记录
 	log := logger.NewDefaultLogger()
 	if opts.Debug {
 		log.SetLevel(logger.LogLevelDebug)
@@ -449,7 +449,7 @@ func runInit(opts *InitOptions) error {
 		}
 	}
 
-	// 配置 Git 运行�?
+	// 配置 Git 运行
 	gitRunner := git.NewRunner()
 	if opts.Debug {
 		gitRunner.SetVerbose(true)
@@ -524,7 +524,7 @@ func runInit(opts *InitOptions) error {
 
 		manifestObj.Projects = filteredProjects
 
-		// 更新清单对象后重新保�?
+		// 更新清单对象后重新保
 		mergedPath := filepath.Join(".repo", "manifest.xml")
 		log.Debug("保存过滤后的清单到 %s", mergedPath)
 		mergedData, err := manifestObj.ToXML()
@@ -544,7 +544,7 @@ func runInit(opts *InitOptions) error {
 	if len(manifestObj.Includes) > 0 && !opts.ThisManifestOnly {
 		log.Info("处理 %d 个包含的清单文件", len(manifestObj.Includes))
 
-		// 创建清单合并�?
+		// 创建清单合并
 		merger := manifest.NewMerger(parser, filepath.Join(".repo", "manifests"))
 
 		// 加载所有包含的清单

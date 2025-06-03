@@ -111,7 +111,7 @@ func UploadCmd() *cobra.Command {
 
 // runUpload 执行upload命令
 func runUpload(opts *UploadOptions, args []string) error {
-	// 创建日志记录�?
+	// 创建日志记录
 	log := logger.NewDefaultLogger()
 	if opts.Verbose {
 		log.SetLevel(logger.LogLevelDebug)
@@ -141,7 +141,7 @@ func runUpload(opts *UploadOptions, args []string) error {
 		return fmt.Errorf("解析清单失败: %w", err)
 	}
 
-	// 创建项目管理�?
+	// 创建项目管理
 	manager := project.NewManagerFromManifest(manifest, opts.Config)
 
 	// 获取要处理的项目
@@ -155,7 +155,7 @@ func runUpload(opts *UploadOptions, args []string) error {
 			return fmt.Errorf("获取所有项目失败: %w", err)
 		}
 	} else {
-		// 否则，只处理指定的项�?
+		// 否则，只处理指定的项
 		log.Debug("将处理指定的项目: %v", args)
 		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
@@ -241,7 +241,7 @@ func runUpload(opts *UploadOptions, args []string) error {
 	sem := make(chan struct{}, opts.Jobs)
 	var wg sync.WaitGroup
 
-	log.Info("开始并行处理项目，并发�? %d", opts.Jobs)
+	log.Info("开始并行处理项目，并发 %d", opts.Jobs)
 
 	// 并发上传每个项目
 	for _, p := range projects {
@@ -254,11 +254,11 @@ func runUpload(opts *UploadOptions, args []string) error {
 
 			log.Debug("处理项目: %s", p.Name)
 
-			// 如果指定�?-current-branch，检查当前分�?
+			// 如果指定-current-branch，检查当前分
 			if opts.CurrentBranch {
 				currentBranch, err := p.GitRepo.CurrentBranch()
 				if err != nil {
-					errMsg := fmt.Sprintf("获取项目 %s 的当前分支失�? %v", p.Name, err)
+					errMsg := fmt.Sprintf("获取项目 %s 的当前分支失 %v", p.Name, err)
 					log.Error(errMsg)
 					errChan <- fmt.Errorf(errMsg)
 					stats.increment(false)
@@ -267,8 +267,8 @@ func runUpload(opts *UploadOptions, args []string) error {
 
 				// 如果当前分支是清单中指定的分支，跳过
 				if currentBranch == p.Revision {
-					log.Info("跳过项目 %s (当前分支是清单分�?", p.Name)
-					stats.increment(true) // 视为成功，因为这是预期行�?
+					log.Info("跳过项目 %s (当前分支是清单分", p.Name)
+					stats.increment(true) // 视为成功，因为这是预期行
 					return
 				}
 			}
@@ -276,7 +276,7 @@ func runUpload(opts *UploadOptions, args []string) error {
 			// 检查是否有更改
 			hasChanges, err := p.GitRepo.HasChangesToPush("origin")
 			if err != nil {
-				errMsg := fmt.Sprintf("检查项�?%s 是否有变更失�? %v", p.Name, err)
+				errMsg := fmt.Sprintf("检查项%s 是否有变更失 %v", p.Name, err)
 				log.Error(errMsg)
 				errChan <- fmt.Errorf(errMsg)
 				stats.increment(false)
@@ -284,8 +284,8 @@ func runUpload(opts *UploadOptions, args []string) error {
 			}
 
 			if !hasChanges && !opts.Force {
-				log.Info("跳过项目 %s (没有变更需要上�?", p.Name)
-				stats.increment(true) // 视为成功，因为这是预期行�?
+				log.Info("跳过项目 %s (没有变更需要上", p.Name)
+				stats.increment(true) // 视为成功，因为这是预期行
 				return
 			}
 

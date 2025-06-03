@@ -117,7 +117,7 @@ func runManifest(opts *ManifestOptions, args []string) error {
 		log.Info("清单快照创建成功")
 	}
 
-	// 如果指定了输出文�?
+	// 如果指定了输出文
 	if opts.OutputFile != "" {
 		// 确保输出目录存在
 		outputDir := filepath.Dir(opts.OutputFile)
@@ -128,9 +128,9 @@ func runManifest(opts *ManifestOptions, args []string) error {
 		}
 
 		// 写入输出文件
-		log.Debug("正在写入清单到文�? %s", opts.OutputFile)
+		log.Debug("正在写入清单到文 %s", opts.OutputFile)
 		if err := manifestObj.WriteToFile(opts.OutputFile); err != nil {
-			log.Error("写入清单到文件失�? %v", err)
+			log.Error("写入清单到文件失 %v", err)
 			return fmt.Errorf("failed to write manifest to file: %w", err)
 		}
 
@@ -194,7 +194,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 	sem := make(chan struct{}, maxWorkers)
 	results := make(chan projectUpdate, len(snapshotManifest.Projects))
 
-	log.Info("开始处�?%d 个项�?..", len(snapshotManifest.Projects))
+	log.Info("开始处%d 个项..", len(snapshotManifest.Projects))
 
 	for i, p := range snapshotManifest.Projects {
 		wg.Add(1)
@@ -243,10 +243,10 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 
 			// 根据选项更新修订版本
 			if opts.RevisionAsHEAD {
-				log.Debug("将项�?%s 的修订版本设置为HEAD", projName)
+				log.Debug("将项%s 的修订版本设置为HEAD", projName)
 				snapshotManifest.Projects[update.index].Revision = "HEAD"
 			} else {
-				log.Debug("将项�?%s 的修订版本设置为提交哈希: %s", projName, commitHash)
+				log.Debug("将项%s 的修订版本设置为提交哈希: %s", projName, commitHash)
 				snapshotManifest.Projects[update.index].Revision = commitHash
 			}
 
@@ -256,7 +256,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 				upstreamRevision, exists := snapshotManifest.Projects[update.index].GetCustomAttr("upstream-revision")
 				if exists {
 					delete(snapshotManifest.Projects[update.index].CustomAttrs, "upstream-revision")
-					log.Debug("从项�?%s 中移除上游修订版�? %s", projName, upstreamRevision)
+					log.Debug("从项%s 中移除上游修订版 %s", projName, upstreamRevision)
 				}
 			}
 
@@ -266,7 +266,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 				destBranch, exists := snapshotManifest.Projects[update.index].GetCustomAttr("dest-branch")
 				if exists {
 					delete(snapshotManifest.Projects[update.index].CustomAttrs, "dest-branch")
-					log.Debug("从项�?%s 中移除目标分�? %s", projName, destBranch)
+					log.Debug("从项%s 中移除目标分 %s", projName, destBranch)
 				}
 			}
 
@@ -289,7 +289,7 @@ func createSnapshotManifest(m *manifest.Manifest, cfg *config.Config, opts *Mani
 	}
 
 	// 等待所有goroutine完成
-	log.Debug("等待所有项目处理完�?..")
+	log.Debug("等待所有项目处理完..")
 	wg.Wait()
 	close(results)
 

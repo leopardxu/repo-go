@@ -161,7 +161,7 @@ func runForall(opts *ForallOptions, projectNames []string) error {
 
 	// 并发执行命令
 	for _, p := range projects {
-		if p.Worktree == "" { // 跳过没有工作目录的项�?
+		if p.Worktree == "" { // 跳过没有工作目录的项
 			log.Debug("Skipping project %s (no worktree)", p.Name)
 			continue
 		}
@@ -210,7 +210,7 @@ func runForall(opts *ForallOptions, projectNames []string) error {
 	// 输出统计信息
 	log.Info("Command execution complete. Success: %d, Failed: %d", stats.Success, stats.Failed)
 
-	// 如果有失败的项目，返回错�?
+	// 如果有失败的项目，返回错
 	if stats.Failed > 0 {
 		return fmt.Errorf("forall command failed in %d projects", stats.Failed)
 	}

@@ -28,7 +28,7 @@ func New(workers int) *WorkerPool {
 	return pool
 }
 
-// start 启动工作�?
+// start 启动工作
 func (p *WorkerPool) start() {
 	for i := 0; i < p.workers; i++ {
 		go func() {
@@ -56,12 +56,12 @@ func (p *WorkerPool) Submit(task func()) {
 	}
 }
 
-// Wait 等待所有任务完�?
+// Wait 等待所有任务完
 func (p *WorkerPool) Wait() {
 	p.wg.Wait()
 }
 
-// Stop 停止工作�?
+// Stop 停止工作
 func (p *WorkerPool) Stop() {
 	p.once.Do(func() {
 		close(p.quit)

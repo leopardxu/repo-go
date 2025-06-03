@@ -35,7 +35,7 @@ type Project struct {
 	LastFetch  time.Time // 最后一次获取的时间
 	Remote     string    // 远程仓库名称
 	References string    // 引用配置(remote:refs格式)
-	NeedGC     bool      // 是否需要垃圾回�?
+	NeedGC     bool      // 是否需要垃圾回
 
 	// 添加锁，保护并发访问
 	mu sync.RWMutex
@@ -43,13 +43,13 @@ type Project struct {
 
 // LinkFile 表示链接文件
 type LinkFile struct {
-	Src  string // 源文件路�?
+	Src  string // 源文件路
 	Dest string // 目标文件路径
 }
 
 // CopyFile 表示复制文件
 type CopyFile struct {
-	Src  string // 源文件路�?
+	Src  string // 源文件路
 	Dest string // 目标文件路径
 }
 
@@ -71,7 +71,7 @@ func NewProject(name, path, remoteName, remoteURL, revision string, groups []str
 		Gitdir:     filepath.Join(path, ".git"), // 设置Git目录
 		RevisionId: revision,                    // 设置修订ID
 		Remote:     remoteName,                  // 设置远程仓库名称
-		NeedGC:     false,                       // 默认不需要垃圾回�?
+		NeedGC:     false,                       // 默认不需要垃圾回
 	}
 }
 
@@ -94,7 +94,7 @@ func (p *Project) IsInGroup(group string) bool {
 }
 
 // IsInAnyGroup 检查项目是否在任意指定组中
-// 注意：当指定多个组时，项目必须至少属于其中一个组才会被包�?
+// 注意：当指定多个组时，项目必须至少属于其中一个组才会被包
 func (p *Project) IsInAnyGroup(groups []string) bool {
 	if len(groups) == 0 {
 		return true
@@ -103,10 +103,10 @@ func (p *Project) IsInAnyGroup(groups []string) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	// 检查项目是否属于任意一个指定的�?
+	// 检查项目是否属于任意一个指定的
 	for _, group := range groups {
 		if group == "" {
-			continue // 跳过空组�?
+			continue // 跳过空组
 		}
 
 		for _, projectGroup := range p.Groups {
@@ -127,8 +127,8 @@ func (p *Project) Sync(opts SyncOptions) error {
 	// 检查项目目录是否存在
 	exists, err := p.GitRepo.Exists()
 	if err != nil {
-		logger.Error("项目 [%s] 检查失�? %v", p.Name, err)
-		return fmt.Errorf("检查项目是否存在失�? %w", err)
+		logger.Error("项目 [%s] 检查失 %v", p.Name, err)
+		return fmt.Errorf("检查项目是否存在失 %w", err)
 	}
 
 	// 如果不存在，克隆仓库
@@ -145,7 +145,7 @@ func (p *Project) Sync(opts SyncOptions) error {
 			logger.Info("克隆 [%s] <- %s", p.Name, cloneURL)
 		}
 
-		// 创建父目�?
+		// 创建父目
 		parentDir := filepath.Dir(p.Path)
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
 			logger.Error("项目 [%s] 创建目录失败: %v", p.Name, err)
@@ -187,7 +187,7 @@ func (p *Project) Sync(opts SyncOptions) error {
 			return fmt.Errorf("获取更新失败: %w", err)
 		}
 
-		// 设置需要垃圾回收标�?
+		// 设置需要垃圾回收标
 		p.mu.Lock()
 		p.NeedGC = true
 		p.mu.Unlock()
@@ -203,20 +203,20 @@ func (p *Project) Sync(opts SyncOptions) error {
 		// 检查是否有本地修改
 		clean, err := p.GitRepo.IsClean()
 		if err != nil {
-			logger.Error("项目 [%s] 工作区检查失�? %v", p.Name, err)
+			logger.Error("项目 [%s] 工作区检查失 %v", p.Name, err)
 			return fmt.Errorf("检查工作区是否干净失败: %w", err)
 		}
 
 		// 如果有本地修改且不强制同步，报错
 		if !clean && !opts.Force {
-			logger.Warn("项目 [%s] 工作区不干净，需要使�?--force-sync 覆盖", p.Name)
-			return fmt.Errorf("工作区不干净，使�?--force-sync 覆盖本地修改")
+			logger.Warn("项目 [%s] 工作区不干净，需要使--force-sync 覆盖", p.Name)
+			return fmt.Errorf("工作区不干净，使--force-sync 覆盖本地修改")
 		}
 
-		// 检出指定版�?
+		// 检出指定版
 		if err := p.GitRepo.Checkout(p.Revision); err != nil {
-			logger.Error("项目 [%s] 检�?%s 失败: %v", p.Name, p.Revision, err)
-			return fmt.Errorf("检出修订版本失�? %w", err)
+			logger.Error("项目 [%s] 检%s 失败: %v", p.Name, p.Revision, err)
+			return fmt.Errorf("检出修订版本失 %w", err)
 		}
 
 		if !opts.Quiet {
@@ -229,7 +229,7 @@ func (p *Project) Sync(opts SyncOptions) error {
 
 // GC 执行垃圾回收
 func (p *Project) GC() error {
-	// 检查是否需要垃圾回�?
+	// 检查是否需要垃圾回
 	p.mu.RLock()
 	needGC := p.NeedGC
 	p.mu.RUnlock()
@@ -272,13 +272,13 @@ func (p *Project) SyncNetworkHalf(quiet bool, currentBranch bool, forceSync bool
 	// 如果不存在，克隆仓库
 	if !exists {
 		if !quiet {
-			logger.Info("克隆项目 %s �?%s", p.Name, p.RemoteURL)
+			logger.Info("克隆项目 %s %s", p.Name, p.RemoteURL)
 		}
 
-		// 创建父目�?
+		// 创建父目
 		parentDir := filepath.Dir(p.Path)
 		if err := os.MkdirAll(parentDir, 0755); err != nil {
-			logger.Error("为项�?%s 创建目录 %s 失败: %v", p.Name, parentDir, err)
+			logger.Error("为项%s 创建目录 %s 失败: %v", p.Name, parentDir, err)
 			return false
 		}
 
@@ -323,7 +323,7 @@ func (p *Project) SyncNetworkHalf(quiet bool, currentBranch bool, forceSync bool
 		fetchOpts.Depth = retryFetches
 	}
 
-	// 执行获取，支持重�?
+	// 执行获取，支持重
 	var fetchErr error
 	for i := 0; i <= retryFetches; i++ {
 		fetchErr = p.GitRepo.Fetch(p.RemoteName, fetchOpts)
@@ -333,7 +333,7 @@ func (p *Project) SyncNetworkHalf(quiet bool, currentBranch bool, forceSync bool
 
 		if i < retryFetches {
 			logger.Warn("获取项目 %s 更新失败，将重试 (%d/%d): %v", p.Name, i+1, retryFetches, fetchErr)
-			time.Sleep(time.Second * time.Duration(i+1)) // 指数退�?
+			time.Sleep(time.Second * time.Duration(i+1)) // 指数退
 		}
 	}
 
@@ -367,16 +367,16 @@ func (p *Project) SyncLocalHalf(detach bool, forceSync bool, forceOverwrite bool
 	currentBranch, err := p.GitRepo.CurrentBranch()
 	if err != nil {
 		logger.Warn("获取项目 %s 当前分支失败: %v", p.Name, err)
-		// 继续执行，不影响检出操�?
+		// 继续执行，不影响检出操
 	}
 
-	// 如果当前分支与目标分支不同，或者强制检�?
+	// 如果当前分支与目标分支不同，或者强制检
 	if currentBranch != p.Revision || forceSync || forceOverwrite {
-		logger.Debug("检出项�?%s 的修订版�?%s", p.Name, p.Revision)
+		logger.Debug("检出项%s 的修订版%s", p.Name, p.Revision)
 
-		// 检出指定版�?
+		// 检出指定版
 		if err := p.GitRepo.Checkout(p.Revision); err != nil {
-			logger.Error("检出项�?%s 的修订版�?%s 失败: %v", p.Name, p.Revision, err)
+			logger.Error("检出项%s 的修订版%s 失败: %v", p.Name, p.Revision, err)
 			return false
 		}
 	} else {
@@ -400,7 +400,7 @@ func (p *Project) GetStatus() (string, error) {
 	return string(status), nil
 }
 
-// DeleteWorktree 删除工作�?
+// DeleteWorktree 删除工作
 func (p *Project) DeleteWorktree(quiet bool, forceRemoveDirty bool) error {
 	logger.Debug("准备删除项目 %s 的工作树", p.Name)
 
@@ -424,7 +424,7 @@ func (p *Project) DeleteWorktree(quiet bool, forceRemoveDirty bool) error {
 		}
 	}
 
-	// 删除工作�?
+	// 删除工作
 	if !quiet {
 		logger.Info("删除项目 %s 的工作树 %s", p.Name, p.Worktree)
 	}

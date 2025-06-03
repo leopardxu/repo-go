@@ -78,14 +78,14 @@ func (m *Manifest) GetCustomAttr(name string) (string, bool) {
 }
 
 // Remote 表示远程Git服务器
-// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属�?
+// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属
 type Remote struct {
 	Name        string            `xml:"name,attr"`
 	Fetch       string            `xml:"fetch,attr"`
 	Review      string            `xml:"review,attr,omitempty"`
 	Revision    string            `xml:"revision,attr,omitempty"`
 	Alias       string            `xml:"alias,attr,omitempty"`
-	CustomAttrs map[string]string `xml:"-"` // 存储自定义属�?
+	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -95,12 +95,12 @@ func (r *Remote) GetCustomAttr(name string) (string, bool) {
 }
 
 // Default 表示默认设置
-// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属�?
+// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属
 type Default struct {
 	Remote      string            `xml:"remote,attr"`
 	Revision    string            `xml:"revision,attr"`
 	Sync        string            `xml:"sync,attr,omitempty"`
-	CustomAttrs map[string]string `xml:"-"` // 存储自定义属�?
+	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -110,7 +110,7 @@ func (d *Default) GetCustomAttr(name string) (string, bool) {
 }
 
 // Project 表示一个Git项目
-// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属�?
+// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属
 type Project struct {
 	Name        string            `xml:"name,attr"`
 	Path        string            `xml:"path,attr,omitempty"`
@@ -123,11 +123,11 @@ type Project struct {
 	Copyfiles   []Copyfile        `xml:"copyfile"`
 	Linkfiles   []Linkfile        `xml:"linkfile"`
 	References  string            `xml:"references,attr,omitempty"`
-	CustomAttrs map[string]string `xml:"-"` // 存储自定义属�?
+	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
 
-	// 添加�?engine.go 兼容的字�?
+	// 添加engine.go 兼容的字
 	LastFetch time.Time // 最后一次获取的时间
-	NeedGC    bool      // 是否需要垃圾回�?
+	NeedGC    bool      // 是否需要垃圾回
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -144,11 +144,11 @@ func (p *Project) GetBranch() (string, error) {
 	return p.Revision, nil
 }
 
-// Include 表示包含的清单文�?
-// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属�?
+// Include 表示包含的清单文
+// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属
 type Include struct {
 	Name        string            `xml:"name,attr"`
-	CustomAttrs map[string]string `xml:"-"` // 存储自定义属�?
+	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
 	manifest    *Manifest
 }
 
@@ -175,10 +175,10 @@ func (i *Include) GetCustomAttr(name string) (string, bool) {
 }
 
 // RemoveProject 表示要移除的项目
-// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属�?
+// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属
 type RemoveProject struct {
 	Name        string            `xml:"name,attr"`
-	CustomAttrs map[string]string `xml:"-"` // 存储自定义属�?
+	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -188,11 +188,11 @@ func (r *RemoveProject) GetCustomAttr(name string) (string, bool) {
 }
 
 // Copyfile 表示要复制的文件
-// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属�?
+// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属
 type Copyfile struct {
 	Src         string            `xml:"src,attr"`
 	Dest        string            `xml:"dest,attr"`
-	CustomAttrs map[string]string `xml:"-"` // 存储自定义属�?
+	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -202,11 +202,11 @@ func (c *Copyfile) GetCustomAttr(name string) (string, bool) {
 }
 
 // Linkfile 表示要链接的文件
-// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属�?
+// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属
 type Linkfile struct {
 	Src         string            `xml:"src,attr"`
 	Dest        string            `xml:"dest,attr"`
-	CustomAttrs map[string]string `xml:"-"` // 存储自定义属�?
+	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -234,7 +234,7 @@ func (m *Manifest) GetRemoteURL(remoteName string) (string, error) {
 	return "", fmt.Errorf("remote %s not found", remoteName)
 }
 
-// GetOuterManifest 获取最外层的清�?
+// GetOuterManifest 获取最外层的清
 func (m *Manifest) GetOuterManifest() *Manifest {
 	if m.Includes == nil || len(m.Includes) == 0 {
 		return m
@@ -242,7 +242,7 @@ func (m *Manifest) GetOuterManifest() *Manifest {
 	return m.Includes[0].GetOuterManifest()
 }
 
-// GetInnerManifest 获取最内层的清�?
+// GetInnerManifest 获取最内层的清
 func (m *Manifest) GetInnerManifest() *Manifest {
 	if m.Includes == nil || len(m.Includes) == 0 {
 		return m
@@ -271,7 +271,7 @@ type Parser struct {
 	cacheEnabled bool
 }
 
-// NewParser 创建清单解析�?
+// NewParser 创建清单解析
 // 这是一个包级别函数，供外部调用
 func NewParser() *Parser {
 	return &Parser{
@@ -316,13 +316,13 @@ func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, err
 			// 检查文件是否被修改
 			fileInfo, err := os.Stat(successPath)
 			if err == nil && !fileInfo.ModTime().After(cachedModTime) {
-				// 文件未被修改，使用缓�?
-				logger.Debug("使用缓存的清单文�? %s", successPath)
+				// 文件未被修改，使用缓
+				logger.Debug("使用缓存的清单文件 %s", successPath)
 
-				// 创建副本以避免修改缓�?
+				// 创建副本以避免修改缓
 				manifestCopy := *cachedManifest
 
-				// 应用组过�?
+				// 应用组过
 				if len(groups) > 0 && !containsAll(groups) {
 					return p.filterProjectsByGroups(&manifestCopy, groups)
 				}
@@ -339,7 +339,7 @@ func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, err
 	}
 
 	// 记录文件信息
-	logger.Info("成功从以下位置加载清�? %s", successPath)
+	logger.Info("成功从以下位置加载清单 %s", successPath)
 	if len(data) == 0 {
 		logger.Warn("清单文件为空: %s", successPath)
 	} else if !p.silentMode {
@@ -370,7 +370,7 @@ func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, err
 			fileModTimeMux.Unlock()
 			manifestCacheMux.Unlock()
 
-			logger.Debug("已缓存清单文�? %s", successPath)
+			logger.Debug("已缓存清单文件 %s", successPath)
 		}
 	}
 
@@ -391,7 +391,7 @@ func (p *Parser) findManifestFile(filename string) (string, error) {
 		topDir = cwd // 如果找不到顶层目录，使用当前目录
 	}
 
-	// 构建可能的路径列�?
+	// 构建可能的路径列
 	paths := []string{}
 
 	// 1. 首先尝试直接使用manifest.xml（优先级最高）
@@ -402,9 +402,9 @@ func (p *Parser) findManifestFile(filename string) (string, error) {
 	// 2. 原始路径
 	paths = append(paths, filename)
 
-	// 3. 如果是相对路�?
+	// 3. 如果是相对路
 	if !filepath.IsAbs(filename) {
-		// 2.1 添加.repo前缀（如果还没有�?
+		// 2.1 添加.repo前缀（如果还没有
 		if !strings.HasPrefix(filename, ".repo") {
 			paths = append(paths, filepath.Join(".repo", filename))
 			// 添加基于当前工作目录和顶层目录的绝对路径
@@ -417,7 +417,7 @@ func (p *Parser) findManifestFile(filename string) (string, error) {
 		paths = append(paths, filepath.Join(cwd, ".repo", "manifests", filename))
 		paths = append(paths, filepath.Join(topDir, ".repo", "manifests", filename))
 
-		// 2.3 只使用文件名，在.repo/manifests/目录下查�?
+		// 2.3 只使用文件名，在.repo/manifests/目录下查
 		paths = append(paths, filepath.Join(".repo", "manifests", filepath.Base(filename)))
 		paths = append(paths, filepath.Join(cwd, ".repo", "manifests", filepath.Base(filename)))
 		paths = append(paths, filepath.Join(topDir, ".repo", "manifests", filepath.Base(filename)))
@@ -439,11 +439,11 @@ func (p *Parser) findManifestFile(filename string) (string, error) {
 		paths = append(paths, filepath.Join(topDir, ".repo", "manifests", base))
 	}
 
-	// 去除重复的路�?
+	// 去除重复的路
 	uniquePaths := make([]string, 0, len(paths))
 	pathMap := make(map[string]bool)
 	for _, path := range paths {
-		// 规范化路�?
+		// 规范化路
 		normalizedPath := filepath.Clean(path)
 		if !pathMap[normalizedPath] {
 			pathMap[normalizedPath] = true
@@ -453,7 +453,7 @@ func (p *Parser) findManifestFile(filename string) (string, error) {
 	paths = uniquePaths
 
 	// 记录查找路径
-	logger.Debug("正在查找清单文件，尝试以下路�?")
+	logger.Debug("正在查找清单文件，尝试以下路")
 	for _, path := range paths {
 		logger.Debug("  - %s", path)
 	}
@@ -465,42 +465,42 @@ func (p *Parser) findManifestFile(filename string) (string, error) {
 		}
 	}
 
-	// 检�?repo目录是否存在
+	// 检repo目录是否存在
 	repoPath := filepath.Join(cwd, ".repo")
 	if !fileExists(repoPath) {
 		return "", &ManifestError{Op: "find", Err: fmt.Errorf(".repo目录不存在，请先运行 'repo init' 命令")}
 	}
 
-	// 检�?repo/manifest.xml是否存在
+	// 检repo/manifest.xml是否存在
 	manifestPath := filepath.Join(repoPath, "manifest.xml")
 	if !fileExists(manifestPath) {
-		return "", &ManifestError{Op: "find", Err: fmt.Errorf(".repo目录中未找到manifest.xml文件，请先运�?'repo init' 命令")}
+		return "", &ManifestError{Op: "find", Err: fmt.Errorf(".repo目录中未找到manifest.xml文件，请先运'repo init' 命令")}
 	}
 
-	return "", &ManifestError{Op: "find", Err: fmt.Errorf("无法从任何可能的位置找到清单文件 (已尝�?%d 个路�?", len(paths))}
+	return "", &ManifestError{Op: "find", Err: fmt.Errorf("无法从任何可能的位置找到清单文件 (已尝%d 个路", len(paths))}
 }
 
-// fileExists 检查文件是否存�?
+// fileExists 检查文件是否存
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
 
-// filterProjectsByGroups 根据组过滤项�?
+// filterProjectsByGroups 根据组过滤项
 func (p *Parser) filterProjectsByGroups(manifest *Manifest, groups []string) (*Manifest, error) {
 	if len(groups) == 0 || containsAll(groups) {
 		return manifest, nil
 	}
 
-	logger.Info("根据以下组过滤项�? %v", groups)
+	logger.Info("根据以下组过滤项 %v", groups)
 
 	filteredProjects := make([]Project, 0)
 	for _, proj := range manifest.Projects {
 		if shouldIncludeProject(proj, groups) {
 			filteredProjects = append(filteredProjects, proj)
-			logger.Debug("包含项目: %s (�? %s)", proj.Name, proj.Groups)
+			logger.Debug("包含项目: %s ( %s)", proj.Name, proj.Groups)
 		} else {
-			logger.Debug("排除项目: %s (�? %s)", proj.Name, proj.Groups)
+			logger.Debug("排除项目: %s ( %s)", proj.Name, proj.Groups)
 		}
 	}
 
@@ -510,7 +510,7 @@ func (p *Parser) filterProjectsByGroups(manifest *Manifest, groups []string) (*M
 	return manifest, nil
 }
 
-// ParseFromBytes 从字节数据解析清�?
+// ParseFromBytes 从字节数据解析清
 func (p *Parser) ParseFromBytes(data []byte, groups []string) (*Manifest, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("manifest data is empty")
@@ -530,12 +530,12 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 	manifest.CustomAttrs = make(map[string]string)
 	manifest.Default.CustomAttrs = make(map[string]string)
 
-	// 初始化新添加的字�?
+	// 初始化新添加的字
 	manifest.IsArchive = false        // 默认不是归档
 	manifest.CloneFilter = ""         // 默认无克隆过滤器
-	manifest.PartialCloneExclude = "" // 默认无部分克隆排�?
+	manifest.PartialCloneExclude = "" // 默认无部分克隆排
 
-	// 尝试从自定义属性中获取�?
+	// 尝试从自定义属性中获取
 	if isArchive, ok := manifest.GetCustomAttr("is-archive"); ok {
 		manifest.IsArchive = isArchive == "true"
 	}
@@ -581,7 +581,7 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 		}
 		if !remoteExists {
 			// 如果找不到远程仓库，记录警告但不中断处理
-			logger.Warn("警告: 项目 %s 引用了不存在的远程仓�?%s，这可能导致同步失败",
+			logger.Warn("警告: 项目 %s 引用了不存在的远程仓%s，这可能导致同步失败",
 				manifest.Projects[i].Name, manifest.Projects[i].Remote)
 		} else {
 			// 记录远程仓库的Fetch属性，用于后续构建完整URL
@@ -614,17 +614,17 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 		manifest.RemoveProjects[i].CustomAttrs = make(map[string]string)
 	}
 
-	// 解析自定义属�?
+	// 解析自定义属
 	if err := parseCustomAttributes(data, &manifest); err != nil {
 		return nil, &ManifestError{Op: "parse_custom_attrs", Err: err}
 	}
 
-	// 处理包含的清单文�?
+	// 处理包含的清单文
 	if err := p.processIncludes(&manifest, groups); err != nil {
 		return nil, &ManifestError{Op: "process_includes", Err: err}
 	}
 
-	// 对项目列表进行去重处�?
+	// 对项目列表进行去重处
 	deduplicatedProjects := make([]Project, 0)
 	projectMap := make(map[string]bool) // 用于跟踪项目名称
 	pathMap := make(map[string]bool)    // 用于跟踪项目路径
@@ -640,16 +640,16 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 			continue
 		}
 
-		// 标记项目名称和路径为已处�?
+		// 标记项目名称和路径为已处
 		projectMap[key] = true
 		pathMap[pathKey] = true
 
-		// 添加到去重后的列�?
+		// 添加到去重后的列
 		deduplicatedProjects = append(deduplicatedProjects, proj)
 	}
 
 	// 更新项目列表
-	logger.Info("项目去重: 原始数量 %d, 去重后数�?%d", len(manifest.Projects), len(deduplicatedProjects))
+	logger.Info("项目去重: 原始数量 %d, 去重后数%d", len(manifest.Projects), len(deduplicatedProjects))
 	manifest.Projects = deduplicatedProjects
 
 	// 根据groups过滤项目
@@ -660,7 +660,7 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 	return &manifest, nil
 }
 
-// parseCustomAttributes 解析XML中的自定义属�?
+// parseCustomAttributes 解析XML中的自定义属
 func parseCustomAttributes(data []byte, manifest *Manifest) error {
 	// 创建一个临时结构来解析XML
 	type xmlNode struct {
@@ -669,27 +669,27 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 		Nodes   []xmlNode  `xml:",any"`
 	}
 
-	// 解析XML到临时结�?
+	// 解析XML到临时结
 	var root xmlNode
 	if err := xml.Unmarshal(data, &root); err != nil {
 		return fmt.Errorf("解析XML失败: %w", err)
 	}
 
-	// 处理根节点的属�?
+	// 处理根节点的属
 	for _, attr := range root.Attrs {
-		// 跳过已知属�?
+		// 跳过已知属
 		if isStandardManifestAttr(attr.Name.Local) {
 			continue
 		}
-		// 存储自定义属�?
+		// 存储自定义属
 		manifest.CustomAttrs[attr.Name.Local] = attr.Value
 	}
 
-	// 处理子节�?
+	// 处理子节
 	for _, node := range root.Nodes {
 		switch node.XMLName.Local {
 		case "remote":
-			// 查找匹配的远程仓�?
+			// 查找匹配的远程仓
 			var name string
 			for _, attr := range node.Attrs {
 				if attr.Name.Local == "name" {
@@ -697,7 +697,7 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 					break
 				}
 			}
-			// 找到匹配的远程仓库并添加自定义属�?
+			// 找到匹配的远程仓库并添加自定义属
 			for i, remote := range manifest.Remotes {
 				if remote.Name == name {
 					for _, attr := range node.Attrs {
@@ -709,14 +709,14 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 				}
 			}
 		case "default":
-			// 处理默认设置的自定义属�?
+			// 处理默认设置的自定义属
 			for _, attr := range node.Attrs {
 				if !isKnownDefaultAttr(attr.Name.Local) {
 					manifest.Default.CustomAttrs[attr.Name.Local] = attr.Value
 				}
 			}
 		case "project":
-			// 查找匹配的项�?
+			// 查找匹配的项
 			var name string
 			for _, attr := range node.Attrs {
 				if attr.Name.Local == "name" {
@@ -724,7 +724,7 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 					break
 				}
 			}
-			// 找到匹配的项目并添加自定义属�?
+			// 找到匹配的项目并添加自定义属
 			for i, project := range manifest.Projects {
 				if project.Name == name {
 					for _, attr := range node.Attrs {
@@ -732,7 +732,7 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 							manifest.Projects[i].CustomAttrs[attr.Name.Local] = attr.Value
 						}
 					}
-					// 处理项目的子节点（copyfile和linkfile�?
+					// 处理项目的子节点（copyfile和linkfile
 					for _, subNode := range node.Nodes {
 						switch subNode.XMLName.Local {
 						case "copyfile":
@@ -745,7 +745,7 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 									dest = attr.Value
 								}
 							}
-							// 找到匹配的copyfile并添加自定义属�?
+							// 找到匹配的copyfile并添加自定义属
 							for j, copyfile := range manifest.Projects[i].Copyfiles {
 								if copyfile.Src == src && copyfile.Dest == dest {
 									for _, attr := range subNode.Attrs {
@@ -766,7 +766,7 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 									dest = attr.Value
 								}
 							}
-							// 找到匹配的linkfile并添加自定义属�?
+							// 找到匹配的linkfile并添加自定义属
 							for j, linkfile := range manifest.Projects[i].Linkfiles {
 								if linkfile.Src == src && linkfile.Dest == dest {
 									for _, attr := range subNode.Attrs {
@@ -791,7 +791,7 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 					break
 				}
 			}
-			// 找到匹配的include并添加自定义属�?
+			// 找到匹配的include并添加自定义属
 			for i, include := range manifest.Includes {
 				if include.Name == name {
 					for _, attr := range node.Attrs {
@@ -811,7 +811,7 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 					break
 				}
 			}
-			// 找到匹配的remove-project并添加自定义属�?
+			// 找到匹配的remove-project并添加自定义属
 			for i, removeProject := range manifest.RemoveProjects {
 				if removeProject.Name == name {
 					for _, attr := range node.Attrs {
@@ -828,22 +828,22 @@ func parseCustomAttributes(data []byte, manifest *Manifest) error {
 	return nil
 }
 
-// findTopLevelRepoDir 查找包含.repo目录的顶层目�?
+// findTopLevelRepoDir 查找包含.repo目录的顶层目
 func findTopLevelRepoDir(startDir string) string {
 	currentDir := startDir
 
-	// 最多向上查�?0层目�?
+	// 最多向上查0层目
 	for i := 0; i < 10; i++ {
-		// 检查当前目录是否包�?repo目录
+		// 检查当前目录是否包repo目录
 		repoDir := filepath.Join(currentDir, ".repo")
 		if fileExists(repoDir) {
 			return currentDir
 		}
 
-		// 获取父目�?
+		// 获取父目
 		parentDir := filepath.Dir(currentDir)
 
-		// 如果已经到达根目录，则停止查�?
+		// 如果已经到达根目录，则停止查
 		if parentDir == currentDir {
 			break
 		}
@@ -855,10 +855,10 @@ func findTopLevelRepoDir(startDir string) string {
 }
 
 // 此函数已在文件前面定义，这里删除重复声明
-// filterProjectsByGroups 根据组过滤项�?
-// 已删除重复声�?
+// filterProjectsByGroups 根据组过滤项
+// 已删除重复声
 
-// processIncludes 处理包含的清单文�?
+// processIncludes 处理包含的清单文
 func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 	// 获取当前工作目录
 	cwd, err := os.Getwd()
@@ -875,12 +875,12 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 	// 处理所有包含的清单文件
 	for i, include := range manifest.Includes {
 		includeName := include.Name
-		logger.Debug("处理包含的清单文�? %s", includeName)
+		logger.Debug("处理包含的清单文 %s", includeName)
 
-		// 构建可能的路�?
+		// 构建可能的路
 		paths := []string{}
 
-		// 尝试�?repo/manifests/目录下查�?
+		// 尝试repo/manifests/目录下查
 		paths = append(paths, filepath.Join(".repo", "manifests", includeName))
 		paths = append(paths, filepath.Join(cwd, ".repo", "manifests", includeName))
 		paths = append(paths, filepath.Join(topDir, ".repo", "manifests", includeName))
@@ -890,7 +890,7 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 		paths = append(paths, filepath.Join(cwd, includeName))
 		paths = append(paths, filepath.Join(topDir, includeName))
 
-		// 去除重复的路�?
+		// 去除重复的路
 		uniquePaths := make([]string, 0, len(paths))
 		pathMap := make(map[string]bool)
 		for _, path := range paths {
@@ -919,7 +919,7 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 			return fmt.Errorf("failed to read included manifest file %s: %w", includeName, readErr)
 		}
 
-		// 解析包含的清单文�?
+		// 解析包含的清单文
 		includedManifest, err := p.Parse(data, groups)
 		if err != nil {
 			return fmt.Errorf("failed to parse included manifest %s: %w", includeName, err)
@@ -930,7 +930,7 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 
 		// 合并远程仓库列表
 		for _, remote := range includedManifest.Remotes {
-			// 检查是否已存在相同名称的远程仓�?
+			// 检查是否已存在相同名称的远程仓
 			var exists bool
 			for _, existingRemote := range manifest.Remotes {
 				if existingRemote.Name == remote.Name {
@@ -983,14 +983,14 @@ func (m *Manifest) CreateRepoStructure() error {
 	return nil
 }
 
-// GitRunner �?Config 结构体在这里定义，但实际的克隆逻辑在clone.go中实�?
+// GitRunner Config 结构体在这里定义，但实际的克隆逻辑在clone.go中实
 
 // GitRunner 接口定义
 type GitRunner interface {
 	Run(args ...string) ([]byte, error)
 }
 
-// Config 配置结构�?
+// Config 配置结构
 type Config struct {
 	ManifestURL    string
 	ManifestBranch string
@@ -1001,16 +1001,16 @@ type Config struct {
 }
 
 // 此函数已在文件前面定义，这里删除重复声明
-// parseCustomAttributes 解析XML中的自定义属�?
-// 已删除重复声�?
+// parseCustomAttributes 解析XML中的自定义属
+// 已删除重复声
 
 // 此函数已在文件前面定义，这里删除重复声明
-// findTopLevelRepoDir 查找包含.repo目录的顶层目�?
-// 已删除重复声�?
+// findTopLevelRepoDir 查找包含.repo目录的顶层目
+// 已删除重复声
 
 // 以下是用于检查属性是否为标准属性的辅助函数
 func isStandardManifestAttr(name string) bool {
-	// Manifest没有标准属�?
+	// Manifest没有标准属
 	return false
 }
 
@@ -1104,9 +1104,9 @@ func isKnownRemoveProjectAttr(name string) bool {
 	return isStandardRemoveProjectAttr(name)
 }
 
-// 这些函数已在前面定义，这里删除重复声�?
+// 这些函数已在前面定义，这里删除重复声
 
-// WriteToFile 将清单写入文�?
+// WriteToFile 将清单写入文
 func (m *Manifest) WriteToFile(filename string) error {
 	xml, err := m.ToXML()
 	if err != nil {
@@ -1116,12 +1116,12 @@ func (m *Manifest) WriteToFile(filename string) error {
 	return os.WriteFile(filename, []byte(xml), 0644)
 }
 
-// ToXML 将清单转换为XML字符�?
+// ToXML 将清单转换为XML字符
 func (m *Manifest) ToXML() (string, error) {
 	// 实现XML序列化逻辑
 	// 这里是一个简单的实现，实际应用中可能需要更复杂的逻辑
 
-	// 创建XML�?
+	// 创建XML
 	xml := `<?xml version="1.0" encoding="UTF-8"?>
 <manifest>
 `
@@ -1129,17 +1129,17 @@ func (m *Manifest) ToXML() (string, error) {
 	defaultRemote := m.Default.Remote
 	defaultRevision := m.Default.Revision
 
-	// 如果默认的Remote和Revision都为空，则尝试从default.xml中获�?
+	// 如果默认的Remote和Revision都为空，则尝试从default.xml中获
 	if defaultRemote == "" || defaultRevision == "" {
 		parser := NewParser()
 		// 尝试加载 .repo/manifests/default.xml
-		// 注意：这里假�?default.xml 总是位于 .repo/manifests/ 目录�?
+		// 注意：这里假default.xml 总是位于 .repo/manifests/ 目录
 		// 您可能需要根据实际情况调整路径查找逻辑
 		defaultManifestPath := filepath.Join(".repo", "manifests", "default.xml")
 
-		// 检�?default.xml 是否存在
+		// 检default.xml 是否存在
 		if _, err := os.Stat(defaultManifestPath); err == nil {
-			defaultManifest, err := parser.ParseFromFile(defaultManifestPath, nil) // 使用nil作为groups，表示不进行组过�?
+			defaultManifest, err := parser.ParseFromFile(defaultManifestPath, nil) // 使用nil作为groups，表示不进行组过
 			if err == nil && defaultManifest != nil && defaultManifest.Default.Remote != "" && defaultManifest.Default.Revision != "" {
 				logger.Debug("从default.xml获取默认设置: remote=%s, revision=%s", defaultManifest.Default.Remote, defaultManifest.Default.Revision)
 				defaultRemote = defaultManifest.Default.Remote
@@ -1161,7 +1161,7 @@ func (m *Manifest) ToXML() (string, error) {
 
 	// 添加默认设置
 	xml += fmt.Sprintf(`  <default remote="%s" revision="%s"`, defaultRemote, defaultRevision)
-	// 添加默认设置的自定义属�?
+	// 添加默认设置的自定义属
 	for k, v := range m.Default.CustomAttrs {
 		xml += fmt.Sprintf(` %s="%s"`, k, v)
 	}
@@ -1179,17 +1179,17 @@ func (m *Manifest) ToXML() (string, error) {
 		if r.Alias != "" {
 			xml += fmt.Sprintf(` alias="%s"`, r.Alias)
 		}
-		// 添加远程仓库的自定义属�?
+		// 添加远程仓库的自定义属
 		for k, v := range r.CustomAttrs {
 			xml += fmt.Sprintf(` %s="%s"`, k, v)
 		}
 		xml += " />\n"
 	}
 
-	// 添加包含的清单文�?
+	// 添加包含的清单文
 	for _, i := range m.Includes {
 		xml += fmt.Sprintf(`  <include name="%s"`, i.Name)
-		// 添加包含清单的自定义属�?
+		// 添加包含清单的自定义属
 		for k, v := range i.CustomAttrs {
 			xml += fmt.Sprintf(` %s="%s"`, k, v)
 		}
@@ -1221,29 +1221,29 @@ func (m *Manifest) ToXML() (string, error) {
 			xml += fmt.Sprintf(` clone-depth="%d"`, p.CloneDepth)
 		}
 
-		// 添加项目的自定义属�?
+		// 添加项目的自定义属
 		for k, v := range p.CustomAttrs {
 			xml += fmt.Sprintf(` %s="%s"`, k, v)
 		}
 
-		// 检查是否有copyfile或linkfile子元�?
+		// 检查是否有copyfile或linkfile子元
 		if len(p.Copyfiles) > 0 || len(p.Linkfiles) > 0 {
 			xml += ">\n"
 
-			// 添加copyfile子元�?
+			// 添加copyfile子元
 			for _, c := range p.Copyfiles {
 				xml += fmt.Sprintf(`    <copyfile src="%s" dest="%s"`, c.Src, c.Dest)
-				// 添加copyfile的自定义属�?
+				// 添加copyfile的自定义属
 				for k, v := range c.CustomAttrs {
 					xml += fmt.Sprintf(` %s="%s"`, k, v)
 				}
 				xml += " />\n"
 			}
 
-			// 添加linkfile子元�?
+			// 添加linkfile子元
 			for _, l := range p.Linkfiles {
 				xml += fmt.Sprintf(`    <linkfile src="%s" dest="%s"`, l.Src, l.Dest)
-				// 添加linkfile的自定义属�?
+				// 添加linkfile的自定义属
 				for k, v := range l.CustomAttrs {
 					xml += fmt.Sprintf(` %s="%s"`, k, v)
 				}
@@ -1259,7 +1259,7 @@ func (m *Manifest) ToXML() (string, error) {
 	// 添加移除项目
 	for _, r := range m.RemoveProjects {
 		xml += fmt.Sprintf(`  <remove-project name="%s"`, r.Name)
-		// 添加移除项目的自定义属�?
+		// 添加移除项目的自定义属
 		for k, v := range r.CustomAttrs {
 			xml += fmt.Sprintf(` %s="%s"`, k, v)
 		}
@@ -1277,10 +1277,10 @@ func (m *Manifest) ParseFromBytes(data []byte, groups []string) error {
 		return fmt.Errorf("manifest data is empty")
 	}
 
-	// 创建临时解析�?
+	// 创建临时解析
 	parser := NewParser()
 
-	// 使用解析器解析数�?
+	// 使用解析器解析数
 	parsedManifest, err := parser.Parse(data, groups)
 	if err != nil {
 		return fmt.Errorf("failed to parse manifest data: %w", err)
@@ -1319,7 +1319,7 @@ func containsAll(groups []string) bool {
 	return false
 }
 
-// shouldIncludeProject 检查项目是否应该包含在指定的组�?
+// shouldIncludeProject 检查项目是否应该包含在指定的组
 func shouldIncludeProject(project Project, groups []string) bool {
 	// 如果项目没有指定组，则默认为"default"
 	if project.Groups == "" {
@@ -1329,7 +1329,7 @@ func shouldIncludeProject(project Project, groups []string) bool {
 	// 解析项目的组
 	projectGroups := strings.Split(project.Groups, ",")
 
-	// 检查是否包�?all"�?
+	// 检查是否包all"
 	for _, group := range groups {
 		if group == "all" {
 			return true

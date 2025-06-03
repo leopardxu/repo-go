@@ -104,9 +104,9 @@ func (r *ConsoleReporter) UpdateWithSpeed(current int, message string, itemsPerS
 	r.current = current
 	r.lastMessage = message
 
-	// 如果是静默模式，只记录日�?
+	// 如果是静默模式，只记录日
 	if r.mode == ModeSilent {
-		// �?0个项目或者间隔超�?秒记录一次日�?
+		// 0个项目或者间隔超秒记录一次日
 		if current%10 == 0 || time.Since(r.lastUpdate) > 5*time.Second {
 			logger.Debug("进度: %d/%d (%0.1f%%) %s",
 				current, r.total, float64(current)/float64(r.total)*100, message)
@@ -115,14 +115,14 @@ func (r *ConsoleReporter) UpdateWithSpeed(current int, message string, itemsPerS
 		return
 	}
 
-	// 详细模式，每个项目单独一�?
+	// 详细模式，每个项目单独一
 	if r.mode == ModeVerbose {
 		fmt.Fprintf(r.output, "[%d/%d] %s\n", current, r.total, message)
 		return
 	}
 
 	// 标准模式，显示进度条
-	// 计算进度百分�?
+	// 计算进度百分
 	percent := float64(current) / float64(r.total) * 100
 
 	// 计算预估剩余时间
@@ -132,7 +132,7 @@ func (r *ConsoleReporter) UpdateWithSpeed(current int, message string, itemsPerS
 		eta = time.Duration(float64(elapsed) / float64(current) * float64(r.total-current))
 	}
 
-	// 构建进度�?
+	// 构建进度
 	progressWidth := 20
 	completedWidth := int(float64(progressWidth) * float64(current) / float64(r.total))
 	progressBar := "["
@@ -216,7 +216,7 @@ func NewWithMode(total int, mode DisplayMode) Reporter {
 	return reporter
 }
 
-// FormatBytes 格式化字节大�?
+// FormatBytes 格式化字节大
 func FormatBytes(bytes int64) string {
 	const unit = 1024
 	if bytes < unit {

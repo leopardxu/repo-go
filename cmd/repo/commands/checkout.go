@@ -84,7 +84,7 @@ func runCheckout(opts *CheckoutOptions, args []string) error {
 	projectNames := args[1:]
 	cfg := opts.Config
 
-	log.Info("正在检出分�?'%s'", branchName)
+	log.Info("正在检出分'%s'", branchName)
 
 	parser := manifest.NewParser()
 	manifestObj, err := parser.ParseFromFile(cfg.ManifestName, strings.Split(cfg.Groups, ","))
@@ -130,15 +130,15 @@ func runCheckout(opts *CheckoutOptions, args []string) error {
 	// 执行检出操作
 	err = engine.CheckoutBranch(projects)
 	if err != nil {
-		log.Error("检出分支失�? %v", err)
+		log.Error("检出分支失 %v", err)
 		return err
 	}
 
-	// 获取检出结�?
+	// 获取检出结
 	success, failed := engine.GetCheckoutStats()
 
 	if !opts.Quiet {
-		log.Info("检出分�?'%s' 完成: %d 成功, %d 失败", branchName, success, failed)
+		log.Info("检出分'%s' 完成: %d 成功, %d 失败", branchName, success, failed)
 	}
 
 	if failed > 0 {

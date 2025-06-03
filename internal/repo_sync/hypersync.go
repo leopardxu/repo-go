@@ -58,21 +58,21 @@ func (e *Engine) getHyperSyncProjects() ([]*project.Project, error) {
 	requestURL := fmt.Sprintf("%s/api/GetChangedProjects?branch=%s",
 		manifestServer, url.QueryEscape(branch))
 
-	// 发送请�?
+	// 发送请
 	resp, err := client.Get(requestURL)
 	if err != nil {
-		return nil, fmt.Errorf("连接到清单服务器时出�? %w", err)
+		return nil, fmt.Errorf("连接到清单服务器时出 %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("清单服务器返回状�?%d", resp.StatusCode)
+		return nil, fmt.Errorf("清单服务器返回状%d", resp.StatusCode)
 	}
 
 	// 读取响应
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("从服务器读取响应时出�? %w", err)
+		return nil, fmt.Errorf("从服务器读取响应时出 %w", err)
 	}
 
 	// 解析响应
@@ -81,7 +81,7 @@ func (e *Engine) getHyperSyncProjects() ([]*project.Project, error) {
 		return nil, fmt.Errorf("解析服务器响应时出错: %w", err)
 	}
 
-	// 过滤出已更改的项�?
+	// 过滤出已更改的项
 	var hyperSyncProjects []*project.Project
 	for _, project := range e.projects {
 		if contains(changedProjects, project.Name) {
@@ -90,7 +90,7 @@ func (e *Engine) getHyperSyncProjects() ([]*project.Project, error) {
 	}
 
 	if !e.options.Quiet {
-		fmt.Printf("HyperSync: %d 个项目中�?%d 个已更改\n",
+		fmt.Printf("HyperSync: %d 个项目中%d 个已更改\n",
 			len(hyperSyncProjects), len(e.projects))
 	}
 
@@ -132,21 +132,21 @@ func (e *Engine) getChangedProjectsFromServer() ([]string, error) {
 	requestURL := fmt.Sprintf("%s/api/GetChangedProjects?branch=%s",
 		manifestServer, url.QueryEscape(branch))
 
-	// 发送请�?
+	// 发送请
 	resp, err := client.Get(requestURL)
 	if err != nil {
-		return nil, fmt.Errorf("连接到清单服务器时出�? %w", err)
+		return nil, fmt.Errorf("连接到清单服务器时出 %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("清单服务器返回状�?%d", resp.StatusCode)
+		return nil, fmt.Errorf("清单服务器返回状%d", resp.StatusCode)
 	}
 
 	// 读取响应
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("从服务器读取响应时出�? %w", err)
+		return nil, fmt.Errorf("从服务器读取响应时出 %w", err)
 	}
 
 	// 解析响应

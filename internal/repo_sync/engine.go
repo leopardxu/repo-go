@@ -87,8 +87,8 @@ type Engine struct {
 	log             logger.Logger        // 添加 log 字段
 	branchName      string               // 要检出的分支名称
 	checkoutStats   *checkoutStats       // 检出操作的统计信息
-	commitHash      string               // 要cherry-pick的提交哈�?
-	cherryPickStats *cherryPickStats     // cherry-pick操作的统计信�?
+	commitHash      string               // 要cherry-pick的提交哈希
+	cherryPickStats *cherryPickStats     // cherry-pick操作的统计信息
 }
 
 // NewEngine 创建同步引擎
@@ -102,9 +102,27 @@ func NewEngine(options *Options, manifest *manifest.Manifest, log logger.Logger)
 		progressReport = progress.NewConsoleReporter()
 	}
 
-	// 初始化项目列�?
+	// 初始化项目列表
 	var projects []*project.Project
-	// 项目列表将在后续操作中填�?
+	// 项目列表将在后续操作中填充
+
+	// 获取仓库根目录
+	var repoRoot string
+	if manifest != nil && manifest.Topdir != "" {
+		repoRoot = manifest.Topdir
+	} else {
+		// 如果manifest.Topdir为空，尝试从当前工作目录推断
+		cwd, err := os.Getwd()
+		if err == nil {
+			// 查找顶层仓库目录
+			topDir := project.FindTopLevelRepoDir(cwd)
+			if topDir != "" {
+				repoRoot = topDir
+			} else {
+				repoRoot = cwd // 如果找不到顶层目录，使用当前目录
+			}
+		}
+	}
 
 	return &Engine{
 		projects:       projects,
@@ -113,10 +131,11 @@ func NewEngine(options *Options, manifest *manifest.Manifest, log logger.Logger)
 		logger:         log,
 		progressReport: progressReport,
 		workerPool:     workerpool.New(options.Jobs),
-		errEvent:       make(chan error),           // 初始�?errEvent 字段
-		fetchTimes:     make(map[string]time.Time), // 初始�?fetchTimes 映射
-		ctx:            context.Background(),       // 初始�?ctx 字段
-		log:            log,                        // 初始�?log 字段
+		repoRoot:       repoRoot,                   // 设置仓库根目录
+		errEvent:       make(chan error),           // 初始化errEvent 字段
+		fetchTimes:     make(map[string]time.Time), // 初始化fetchTimes 映射
+		ctx:            context.Background(),       // 初始化ctx 字段
+		log:            log,                        // 初始化log 字段
 	}
 }
 
@@ -150,10 +169,10 @@ func (e *Engine) Sync() error {
 	for _, p := range e.projects {
 		project := p // 创建副本避免闭包问题
 		e.workerPool.Submit(func() {
-			// 检查上下文是否已取�?
+			// 检查上下文是否已取消
 			select {
 			case <-ctx.Done():
-				return // 如果上下文已取消，则不执行任�?
+				return // 如果上下文已取消，则不执行任务
 			default:
 				// 继续执行
 			}
@@ -180,7 +199,7 @@ func (e *Engine) Sync() error {
 					estimatedTotal := elapsed * time.Duration(totalProjects) / time.Duration(current)
 					estimatedRemaining := estimatedTotal - elapsed
 					if estimatedRemaining > 0 {
-						etaStr = fmt.Sprintf("，预计剩余时�? %s", formatDuration(estimatedRemaining))
+						etaStr = fmt.Sprintf("，预计剩余时 %s", formatDuration(estimatedRemaining))
 					}
 				}
 
@@ -201,7 +220,7 @@ func (e *Engine) Sync() error {
 		})
 	}
 
-	// 等待所有任务完�?
+	// 等待所有任务完
 	e.workerPool.Wait()
 
 	if !e.options.Quiet && e.progressReport != nil {
@@ -211,7 +230,7 @@ func (e *Engine) Sync() error {
 	// 计算总耗时
 	totalDuration := time.Since(startTime)
 
-	// 汇总错�?
+	// 汇总错
 	if len(e.errors) > 0 {
 		e.logger.Error("同步完成，有 %d 个项目失败，总耗时: %s",
 			len(e.errors), formatDuration(totalDuration))
@@ -244,7 +263,7 @@ func (e *Engine) syncProject(p *project.Project) error {
 	// 检查项目目录是否存在
 	exists, err := e.projectExists(p)
 	if err != nil {
-		return fmt.Errorf("检查项�?%s 失败: %w", p.Name, err)
+		return fmt.Errorf("检查项%s 失败: %w", p.Name, err)
 	}
 
 	if !exists {
@@ -275,7 +294,7 @@ func (e *Engine) syncProject(p *project.Project) error {
 			}
 		}
 
-		// 更新成功后处�?linkfile �?copyfile
+		// 更新成功后处linkfile copyfile
 		if !e.options.NetworkOnly { // 只有在执行了本地操作后才处理
 			if err := e.processLinkAndCopyFiles(p); err != nil {
 				return &SyncError{
@@ -293,7 +312,7 @@ func (e *Engine) syncProject(p *project.Project) error {
 
 // resolveRemoteURL 解析项目的远程URL
 func (e *Engine) resolveRemoteURL(p *project.Project) string {
-	// 确保使用项目�?RemoteURL 属�?
+	// 确保使用项目RemoteURL 属
 	remoteURL := p.RemoteURL
 
 	if remoteURL == "" {
@@ -310,10 +329,10 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 
 		// 首先尝试从清单中获取远程URL
 		if e.manifest != nil {
-			// 获取项目的远程名�?
+			// 获取项目的远程名
 			remoteName = p.RemoteName
 
-			// 如果项目未指定远程名称，则使用默认远�?
+			// 如果项目未指定远程名称，则使用默认远
 			if remoteName == "" {
 				// 如果设置了DefaultRemote选项，优先使用它
 				if e.options != nil && e.options.DefaultRemote != "" {
@@ -336,14 +355,14 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 				baseURL, err = e.manifest.GetRemoteURL(remoteName)
 				if err == nil && baseURL != "" {
 					if e.options != nil && e.options.Verbose && e.logger != nil {
-						e.logger.Debug("从清单中获取到远�?%s 的URL: %s", remoteName, baseURL)
+						e.logger.Debug("从清单中获取到远%s 的URL: %s", remoteName, baseURL)
 					}
 				} else if e.logger != nil {
 					e.logger.Debug("无法从清单中获取远程 %s 的URL: %v", remoteName, err)
 				}
 			}
 		}
-		// 辅助函数：安全地移除URL最后一个路径段，保留协议和主机名部�?
+		// 辅助函数：安全地移除URL最后一个路径段，保留协议和主机名部
 		trimLastPathSegment := func(url string) string {
 			// 确保URL不以/结尾
 			url = strings.TrimSuffix(url, "/")
@@ -354,7 +373,7 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 			// 分割URL
 			parts := strings.Split(url, "/")
 			if len(parts) <= 3 && hasProtocol {
-				// URL格式�?protocol://host �?protocol://host/，保持不�?
+				// URL格式protocol://host protocol://host/，保持不
 				return url
 			}
 
@@ -364,7 +383,7 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 
 		// 如果无法从清单中获取远程URL或者URL不是有效的协议格式，则回退到从配置中获取的方法
 		if !(strings.HasPrefix(baseURL, "ssh://") || strings.HasPrefix(baseURL, "http://") || strings.HasPrefix(baseURL, "https://")) {
-			// 首先检�?e.config 是否已初始化
+			// 首先检e.config 是否已初始化
 			if e.config != nil && e.config.ManifestURL != "" {
 				cfg = e.config
 				manifestURL = e.config.ManifestURL
@@ -372,11 +391,11 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 					e.logger.Debug("使用已加载的配置，ManifestURL: %s", manifestURL)
 				}
 			} else {
-				// 如果 e.config 为空�?ManifestURL 为空，尝试从文件加载配置
+				// 如果 e.config 为空ManifestURL 为空，尝试从文件加载配置
 				var err error
 				cfg, err = config.Load()
 				if err == nil && cfg != nil {
-					// 更新 Engine 的配�?
+					// 更新 Engine 的配
 					e.config = cfg
 					manifestURL = cfg.ManifestURL
 					if e.options != nil && e.options.Verbose && e.logger != nil {
@@ -385,9 +404,9 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 				} else {
 					// 记录错误日志
 					if e.logger != nil {
-						e.logger.Error("无法从文件加载配�? %v", err)
+						e.logger.Error("无法从文件加载配 %v", err)
 					}
-					// 尝试直接�?.repo/config.json 文件读取
+					// 尝试直接.repo/config.json 文件读取
 					configPath := filepath.Join(".repo", "config.json")
 					if _, statErr := os.Stat(configPath); statErr == nil {
 						data, readErr := os.ReadFile(configPath)
@@ -407,19 +426,19 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 							e.logger.Debug("读取config.json文件失败: %v", readErr)
 						}
 					} else if e.logger != nil {
-						e.logger.Debug("config.json文件不存�? %v", statErr)
+						e.logger.Debug("config.json文件不存 %v", statErr)
 					}
 				}
 			}
 
-			// 如果成功获取到ManifestURL，解析相对路�?
+			// 如果成功获取到ManifestURL，解析相对路
 			if manifestURL != "" {
-				// 如果cfg为空，创建一个临时配置对�?
+				// 如果cfg为空，创建一个临时配置对
 				if cfg == nil {
 					cfg = &config.Config{ManifestURL: manifestURL}
 				}
 
-				// 安全地调�?ExtractBaseURLFromManifestURL 方法
+				// 安全地调ExtractBaseURLFromManifestURL 方法
 				baseURL = trimLastPathSegment(manifestURL)
 				if baseURL != "" {
 					if e.options != nil && e.options.Verbose && e.logger != nil {
@@ -434,12 +453,12 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 			}
 		}
 
-		// 如果成功获取到baseURL，处理相对路�?
+		// 如果成功获取到baseURL，处理相对路
 		if baseURL != "" {
 			// 确保baseURL不以/结尾
 			baseURL = strings.TrimSuffix(baseURL, "/")
 
-			// 处理不同类型的相对路�?
+			// 处理不同类型的相对路
 			if remoteURL == ".." {
 				// 处理remote为空或单独的".."路径
 				// 移除baseURL最后一个路径段
@@ -455,18 +474,18 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 					tempURL = tempURL[3:]
 				}
 
-				// 从baseURL中移除相应数量的路径�?
+				// 从baseURL中移除相应数量的路径
 				tempBaseURL := baseURL
 				for i := 0; i < count; i++ {
 					tempBaseURL = trimLastPathSegment(tempBaseURL)
 				}
 
-				// 获取剩余路径并拼�?
+				// 获取剩余路径并拼
 				if tempURL == "" {
-					// 如果只有../没有后续路径，直接拼接项目名�?
+					// 如果只有../没有后续路径，直接拼接项目名
 					remoteURL = tempBaseURL + "/" + p.Name
 				} else {
-					// 如果有后续路径，拼接后续路径和项目名�?
+					// 如果有后续路径，拼接后续路径和项目名
 					remoteURL = tempBaseURL + "/" + tempURL + p.Name
 				}
 			} else if strings.HasPrefix(remoteURL, "./") {
@@ -474,7 +493,7 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 				// 移除baseURL最后一个路径段
 				baseURL = trimLastPathSegment(baseURL)
 
-				// 获取./后面的路�?
+				// 获取./后面的路
 				relPath := strings.TrimPrefix(remoteURL, "./")
 				if relPath == "" {
 					remoteURL = baseURL + "/" + p.Name
@@ -484,7 +503,7 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 			}
 
 			if e.options != nil && e.options.Verbose && e.logger != nil {
-				e.logger.Debug("将相对路�?%s 转换为远�?URL: %s", p.RemoteURL, remoteURL)
+				e.logger.Debug("将相对路%s 转换为远URL: %s", p.RemoteURL, remoteURL)
 			}
 		}
 	}
@@ -492,20 +511,20 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 	return remoteURL
 }
 
-// fetchProject 执行单个项目的网络同�?
+// fetchProject 执行单个项目的网络同
 func (e *Engine) fetchProject(p *project.Project) error {
 	// 输出详细日志，显示实际使用的远程 URL
 	if e.options.Verbose {
-		e.logger.Debug("正在获取项目 %s，原始远�?URL: %s", p.Name, p.RemoteURL)
+		e.logger.Debug("正在获取项目 %s，原始远URL: %s", p.Name, p.RemoteURL)
 	}
 
 	// 解析远程URL
 	remoteURL := e.resolveRemoteURL(p)
-	// 更新项目�?RemoteURL 为解析后�?URL
+	// 更新项目RemoteURL 为解析后URL
 	p.RemoteURL = remoteURL
 
 	// 执行 Git 操作
-	// 检查远程仓库是否存�?
+	// 检查远程仓库是否存
 	if err := e.ensureRemoteExists(p, remoteURL); err != nil {
 		return &SyncError{
 			ProjectName: p.Name,
@@ -550,11 +569,11 @@ func (e *Engine) fetchProject(p *project.Project) error {
 		lastErr = cmd.Run()
 
 		if lastErr == nil {
-			// 成功获取，跳出重试循�?
+			// 成功获取，跳出重试循
 			break
 		}
 
-		// 如果已经达到最大重试次数，则返回错�?
+		// 如果已经达到最大重试次数，则返回错
 		if retryCount == maxRetries {
 			return &SyncError{
 				ProjectName: p.Name,
@@ -567,7 +586,7 @@ func (e *Engine) fetchProject(p *project.Project) error {
 		}
 	}
 
-	// 如果启用�?LFS，执�?LFS 拉取
+	// 如果启用LFS，执LFS 拉取
 	if e.options.GitLFS {
 		if err := e.pullLFS(p); err != nil {
 			return &SyncError{
@@ -578,7 +597,7 @@ func (e *Engine) fetchProject(p *project.Project) error {
 		}
 	}
 
-	// 处理 linkfile �?copyfile
+	// 处理 linkfile copyfile
 	if err := e.processLinkAndCopyFiles(p); err != nil {
 		return &SyncError{
 			ProjectName: p.Name,
@@ -595,10 +614,10 @@ func (e *Engine) fetchProject(p *project.Project) error {
 func (e *Engine) cloneProject(p *project.Project) error {
 	// 解析远程URL
 	remoteURL := e.resolveRemoteURL(p)
-	// 更新项目�?RemoteURL 为解析后�?URL
+	// 更新项目RemoteURL 为解析后URL
 	p.RemoteURL = remoteURL
 
-	// 创建父目�?
+	// 创建父目
 	if err := os.MkdirAll(filepath.Dir(p.Worktree), 0755); err != nil {
 		return &SyncError{
 			ProjectName: p.Name,
@@ -613,7 +632,7 @@ func (e *Engine) cloneProject(p *project.Project) error {
 
 	// 添加 LFS 支持
 	if e.options.GitLFS {
-		// 确保 git-lfs 已安�?
+		// 确保 git-lfs 已安
 		if _, err := exec.LookPath("git-lfs"); err == nil {
 			args = append(args, "--filter=blob:limit=0")
 		}
@@ -623,7 +642,7 @@ func (e *Engine) cloneProject(p *project.Project) error {
 		args = append(args, "--quiet")
 	}
 
-	// 添加远程URL和目标目�?
+	// 添加远程URL和目标目
 	args = append(args, remoteURL, p.Worktree)
 
 	// 添加重试机制
@@ -655,11 +674,11 @@ func (e *Engine) cloneProject(p *project.Project) error {
 		lastErr = cmd.Run()
 
 		if lastErr == nil {
-			// 成功克隆，跳出重试循�?
+			// 成功克隆，跳出重试循
 			break
 		}
 
-		// 如果已经达到最大重试次数，则返回错�?
+		// 如果已经达到最大重试次数，则返回错
 		if retryCount == maxRetries {
 			return &SyncError{
 				ProjectName: p.Name,
@@ -681,7 +700,7 @@ func (e *Engine) cloneProject(p *project.Project) error {
 		}
 	}
 
-	// 如果启用�?LFS，执�?LFS 拉取
+	// 如果启用LFS，执LFS 拉取
 	if e.options.GitLFS {
 		if err := e.pullLFS(p); err != nil {
 			return &SyncError{
@@ -692,7 +711,7 @@ func (e *Engine) cloneProject(p *project.Project) error {
 		}
 	}
 
-	// 处理 linkfile �?copyfile
+	// 处理 linkfile copyfile
 	if err := e.processLinkAndCopyFiles(p); err != nil {
 		return &SyncError{
 			ProjectName: p.Name,
@@ -705,7 +724,7 @@ func (e *Engine) cloneProject(p *project.Project) error {
 	return nil
 }
 
-// checkoutProject 检出项�?
+// checkoutProject 检出项
 func (e *Engine) checkoutProject(p *project.Project) error {
 	// 执行 checkout 命令
 	args := []string{"-C", p.Worktree, "checkout"}
@@ -721,7 +740,7 @@ func (e *Engine) checkoutProject(p *project.Project) error {
 	args = append(args, p.Revision)
 
 	// 添加重试机制
-	const maxRetries = 2 // 检出操作通常不需要太多重�?
+	const maxRetries = 2 // 检出操作通常不需要太多重
 	var lastErr error
 	var stderr bytes.Buffer
 
@@ -736,13 +755,13 @@ func (e *Engine) checkoutProject(p *project.Project) error {
 			// 清空上一次的错误输出
 			stderr.Reset()
 
-			// 如果检出失败，可能是因为有未提交的更改，尝试强制检�?
+			// 如果检出失败，可能是因为有未提交的更改，尝试强制检
 			if retryCount == maxRetries {
-				e.logger.Info("尝试强制检出项�?%s", p.Name)
+				e.logger.Info("尝试强制检出项%s", p.Name)
 				// 添加 --force 参数
 				forceArgs := make([]string, len(args))
 				copy(forceArgs, args)
-				// �?checkout 后插�?--force
+				// checkout 后插--force
 				forceArgs = append(forceArgs[:3], append([]string{"--force"}, forceArgs[3:]...)...)
 				args = forceArgs
 			}
@@ -758,7 +777,7 @@ func (e *Engine) checkoutProject(p *project.Project) error {
 			break
 		}
 
-		// 如果已经达到最大重试次数，则返回错�?
+		// 如果已经达到最大重试次数，则返回错
 		if retryCount == maxRetries {
 			return &SyncError{
 				ProjectName: p.Name,
@@ -774,7 +793,7 @@ func (e *Engine) checkoutProject(p *project.Project) error {
 	return nil
 }
 
-// projectExists 检查项目目录是否存�?
+// projectExists 检查项目目录是否存
 func (e *Engine) projectExists(p *project.Project) (bool, error) {
 	gitDir := filepath.Join(p.Worktree, ".git")
 	_, err := os.Stat(gitDir)
@@ -809,7 +828,7 @@ func (e *Engine) setupRemote(p *project.Project, remoteURL string) error {
 		p.RemoteName = "origin"
 	}
 
-	// 如果远程仓库不存在，添加�?
+	// 如果远程仓库不存在，添加
 	if !remoteExists {
 		cmd = exec.Command("git", "-C", p.Worktree, "remote", "add", p.RemoteName, remoteURL)
 		if err := cmd.Run(); err != nil {
@@ -845,7 +864,7 @@ func (e *Engine) ensureRemoteExists(p *project.Project, remoteURL string) error 
 			break
 		}
 	}
-	// 如果远程仓库不存在，添加�?
+	// 如果远程仓库不存在，添加
 	if !remoteExists {
 		cmd = exec.Command("git", "-C", p.Worktree, "remote", "add", p.RemoteName, remoteURL)
 		if err := cmd.Run(); err != nil {
@@ -880,15 +899,15 @@ func (e *Engine) pullLFS(p *project.Project) error {
 		return nil
 	}
 
-	// 检查仓库是否使�?LFS
+	// 检查仓库是否使LFS
 	cmd := exec.Command("git", "-C", p.Worktree, "lfs", "ls-files")
 	output, err := cmd.Output()
 	if err != nil {
-		// 可能不是 LFS 仓库，跳�?
+		// 可能不是 LFS 仓库，跳
 		return nil
 	}
 
-	// 如果�?LFS 文件，执行拉�?
+	// 如果LFS 文件，执行拉
 	if len(output) > 0 {
 		cmd = exec.Command("git", "-C", p.Worktree, "lfs", "pull")
 		if err := cmd.Run(); err != nil {
@@ -923,10 +942,10 @@ func (e *Engine) fetchMainParallel(projects []*project.Project) error {
 	return g.Wait()
 }
 
-// checkoutProject 执行单个项目的本地检�?
-// checkoutProjectSimple 简单检出项�?
+// checkoutProject 执行单个项目的本地检
+// checkoutProjectSimple 简单检出项
 func (e *Engine) checkoutProjectSimple(p *project.Project) error {
-	// 检查项目工作目录是否存�?
+	// 检查项目工作目录是否存
 	if _, err := os.Stat(p.Worktree); os.IsNotExist(err) {
 		return fmt.Errorf("project directory %q does not exist", p.Worktree)
 	}
@@ -935,7 +954,7 @@ func (e *Engine) checkoutProjectSimple(p *project.Project) error {
 	return nil
 }
 
-// checkoutParallel 并行执行本地检�?
+// checkoutParallel 并行执行本地检
 func (e *Engine) checkoutParallel(projects []*project.Project, hyperSyncProjects []*project.Project) error {
 	g, ctx := errgroup.WithContext(context.Background())
 	g.SetLimit(e.options.JobsCheckout)
@@ -959,30 +978,30 @@ func (e *Engine) checkoutParallel(projects []*project.Project, hyperSyncProjects
 	return g.Wait()
 }
 
-// processLinkAndCopyFiles 处理项目中的 linkfile �?copyfile
+// processLinkAndCopyFiles 处理项目中的 linkfile copyfile
 func (e *Engine) processLinkAndCopyFiles(p *project.Project) error {
 	if p == nil {
 		return fmt.Errorf("项目对象为空")
 	}
 
-	projectRoot := filepath.Join(e.repoRoot, p.Path) // 获取项目在工作区的实际路�?
+	projectRoot := filepath.Join(e.repoRoot, p.Path) // 获取项目在工作区的实际路径
 	if e.repoRoot == "" {                            // 如果 repoRoot 未设置，尝试从项目工作树推断
-		// 这部分逻辑可能需要根据您的项目结构进行调�?
-		// 一个简单的假设是项目的工作树就是项目路径本身（相对于某个根�?
-		// 或者，如果项目路径是绝对路径，�?repoRoot 可以是其父目录的某个层级
-		// 为简化，这里假设项目路径是相对于当前工作目录�?
+		// 这部分逻辑可能需要根据您的项目结构进行调整
+		// 一个简单的假设是项目的工作树就是项目路径本身（相对于某个根目录）
+		// 或者，如果项目路径是绝对路径，则repoRoot 可以是其父目录的某个层级
+		// 为简化，这里假设项目路径是相对于当前工作目录的
 		cwd, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("无法获取当前工作目录: %w", err)
 		}
 		projectRoot = filepath.Join(cwd, p.Path)
-		// 如果 p.Worktree 已经包含完整路径，可以直接使�?
+		// 如果 p.Worktree 已经包含完整路径，可以直接使用
 		if filepath.IsAbs(p.Worktree) {
 			projectRoot = p.Worktree
 		} else {
-			projectRoot = filepath.Join(cwd, p.Worktree) // 假设 Worktree 是相对路�?
+			projectRoot = filepath.Join(cwd, p.Worktree) // 假设 Worktree 是相对路径
 		}
-		// 更健壮的方式是确�?e.repoRoot �?Engine 初始化时被正确设�?
+		// 更健壮的方式是确保e.repoRoot 在Engine 初始化时被正确设置
 		if e.repoRoot == "" && e.manifest != nil && e.manifest.Topdir != "" {
 			e.repoRoot = e.manifest.Topdir
 			projectRoot = filepath.Join(e.repoRoot, p.Path)
@@ -992,21 +1011,21 @@ func (e *Engine) processLinkAndCopyFiles(p *project.Project) error {
 	// 处理 Copyfile
 	for _, cpFile := range p.Copyfiles {
 		sourcePath := filepath.Join(projectRoot, cpFile.Src) // 源文件在项目内部
-		destPath := filepath.Join(e.repoRoot, cpFile.Dest)   // 目标文件在仓库根目录或其他指定位�?
+		destPath := filepath.Join(e.repoRoot, cpFile.Dest)   // 目标文件在仓库根目录或其他指定位置
 
 		if !filepath.IsAbs(cpFile.Dest) { // 如果Dest是相对路径，则相对于repoRoot
 			destPath = filepath.Join(e.repoRoot, cpFile.Dest)
-		} else { // 如果Dest是绝对路径，则直接使�?
+		} else { // 如果Dest是绝对路径，则直接使用
 			destPath = cpFile.Dest
 		}
 		// 确保源文件相对于项目路径
 		sourcePath = filepath.Join(projectRoot, cpFile.Src)
 
-		e.logger.Info("复制文件: �?%s �?%s", sourcePath, destPath)
+		e.logger.Info("复制文件: 从%s 到%s", sourcePath, destPath)
 
 		input, err := os.ReadFile(sourcePath)
 		if err != nil {
-			return fmt.Errorf("读取源文�?%s 失败: %w", sourcePath, err)
+			return fmt.Errorf("读取源文件%s 失败: %w", sourcePath, err)
 		}
 
 		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
@@ -1020,47 +1039,47 @@ func (e *Engine) processLinkAndCopyFiles(p *project.Project) error {
 
 	// 处理 Linkfile
 	for _, lnFile := range p.Linkfiles {
-		// Linkfile �?Dest 通常是相对于仓库根目录的路径，Src 是相对于项目根目录的路径
-		// targetPath 指向实际的文件或目录（源�?
+		// Linkfile 的Dest 通常是相对于仓库根目录的路径，Src 是相对于项目根目录的路径
+		// targetPath 指向实际的文件或目录（源）
 		targetPath := filepath.Join(projectRoot, lnFile.Src)
 		// linkPath 是要创建的符号链接的路径（目标）
 		linkPath := filepath.Join(e.repoRoot, lnFile.Dest)
 
 		if !filepath.IsAbs(lnFile.Dest) { // 如果Dest是相对路径，则相对于repoRoot
 			linkPath = filepath.Join(e.repoRoot, lnFile.Dest)
-		} else { // 如果Dest是绝对路径，则直接使�?
+		} else { // 如果Dest是绝对路径，则直接使用
 			linkPath = lnFile.Dest
 		}
 		// 确保源文件相对于项目路径
 		targetPath = filepath.Join(projectRoot, lnFile.Src)
 
-		e.logger.Info("创建链接: �?%s 指向 %s", linkPath, targetPath)
+		e.logger.Info("创建链接: 从%s 指向 %s", linkPath, targetPath)
 
 		// 创建链接前，确保目标目录存在
 		if err := os.MkdirAll(filepath.Dir(linkPath), 0755); err != nil {
-			return fmt.Errorf("创建链接的目标目�?%s 失败: %w", filepath.Dir(linkPath), err)
+			return fmt.Errorf("创建链接的目标目录%s 失败: %w", filepath.Dir(linkPath), err)
 		}
 
-		// 如果链接已存在，先删�?
+		// 如果链接已存在，先删除
 		if _, err := os.Lstat(linkPath); err == nil {
 			if err := os.Remove(linkPath); err != nil {
 				return fmt.Errorf("删除已存在的链接 %s 失败: %w", linkPath, err)
 			}
 		}
 
-		// 在Windows上，创建符号链接需要管理员权限，或者开发者模式已开启�?
-		// os.Symlink的target应该是相对于linkPath的相对路径，或者是一个绝对路径�?
-		// 为了简单和跨平台性，我们先尝试将targetPath转换为相对于linkPath父目录的相对路径�?
+		// 在Windows上，创建符号链接需要管理员权限，或者开发者模式已开启
+		// os.Symlink的target应该是相对于linkPath的相对路径，或者是一个绝对路径
+		// 为了简单和跨平台性，我们先尝试将targetPath转换为相对于linkPath父目录的相对路径
 		linkDir := filepath.Dir(linkPath)
 		relTargetPath, err := filepath.Rel(linkDir, targetPath)
 		if err != nil {
 			// 如果无法计算相对路径（例如，它们不在同一个卷上），则直接使用绝对路径
 			relTargetPath = targetPath
-			e.logger.Debug("无法计算相对路径，将为链�?%s 使用绝对目标路径 %s: %v", linkPath, targetPath, err)
+			e.logger.Debug("无法计算相对路径，将为链接%s 使用绝对目标路径 %s: %v", linkPath, targetPath, err)
 		}
 
 		if err := os.Symlink(relTargetPath, linkPath); err != nil {
-			return fmt.Errorf("创建符号链接�?%s �?%s 失败: %w", linkPath, relTargetPath, err)
+			return fmt.Errorf("创建符号链接从%s 到%s 失败: %w", linkPath, relTargetPath, err)
 		}
 	}
 
@@ -1072,9 +1091,9 @@ func (e *Engine) Errors() []string {
 	return e.errResults
 }
 
-// Cleanup 清理资源并释放内�?
+// Cleanup 清理资源并释放内存
 func (e *Engine) Cleanup() {
-	// 停止工作�?
+	// 停止工作池
 	if e.workerPool != nil {
 		e.workerPool.Stop()
 	}
@@ -1120,7 +1139,7 @@ func (e *Engine) updateProjectList() error {
 		}
 		oldProjectPaths = strings.Split(string(data), "\n")
 
-		// 按照反向顺序，先删除子文件夹再删除父文件�?
+		// 按照反向顺序，先删除子文件夹再删除父文件
 		for _, path := range oldProjectPaths {
 			if path == "" {
 				continue
@@ -1135,14 +1154,14 @@ func (e *Engine) updateProjectList() error {
 						Gitdir:   gitdir,
 					}
 					if err := p.DeleteWorktree(e.options.Quiet, e.options.ForceRemoveDirty); err != nil {
-						return fmt.Errorf("删除工作�?%s 失败: %w", path, err)
+						return fmt.Errorf("删除工作%s 失败: %w", path, err)
 					}
 				}
 			}
 		}
 	}
 
-	// 排序并写入新的项目列�?
+	// 排序并写入新的项目列
 	sort.Strings(newProjectPaths)
 	if err := os.WriteFile(filePath, []byte(strings.Join(newProjectPaths, "\n")+"\n"), 0644); err != nil {
 		return fmt.Errorf("写入项目列表失败: %w", err)
@@ -1151,7 +1170,7 @@ func (e *Engine) updateProjectList() error {
 	return nil
 }
 
-// updateCopyLinkfileList 更新复制和链接文件列�?
+// updateCopyLinkfileList 更新复制和链接文件列
 func (e *Engine) updateCopyLinkfileList() error {
 	newLinkfilePaths := []string{}
 	newCopyfilePaths := []string{}
@@ -1299,15 +1318,15 @@ func (e *Engine) updateProjectsRevisionId() (string, error) {
 	return manifestPath, nil
 }
 
-// SetSilentMode 设置引擎的静默模�?
+// SetSilentMode 设置引擎的静默模
 func (e *Engine) SetSilentMode(silent bool) {
-	// 根据静默模式设置日志级别或其他相关配�?
+	// 根据静默模式设置日志级别或其他相关配
 	// 这里可以根据实际需求实现具体逻辑
 }
 
 // Run 执行同步操作
 func (e *Engine) Run() error {
-	// 初始化项目列�?
+	// 初始化项目列
 	projects, err := e.getProjects()
 	if err != nil {
 		return fmt.Errorf("获取项目列表失败: %w", err)

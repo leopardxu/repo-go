@@ -92,7 +92,7 @@ func (m *Merger) mergeManifest(dst, src *Manifest) error {
 		for _, rp := range dst.RemoveProjects {
 			if rp.Name == project.Name {
 				skip = true
-				logger.Debug("跳过已标记为移除的项�? %s", project.Name)
+				logger.Debug("跳过已标记为移除的项 %s", project.Name)
 				break
 			}
 		}
@@ -114,7 +114,7 @@ func (m *Merger) mergeManifest(dst, src *Manifest) error {
 			}
 		}
 
-		// 如果不存在，添加到目标清�?
+		// 如果不存在，添加到目标清
 		if !exists {
 			dst.Projects = append(dst.Projects, project)
 			addedProjects++
@@ -140,14 +140,14 @@ func (m *Merger) mergeManifest(dst, src *Manifest) error {
 			}
 		}
 
-		// 如果不存在，添加到目标清�?
+		// 如果不存在，添加到目标清
 		if !exists {
 			dst.RemoveProjects = append(dst.RemoveProjects, removeProject)
 			addedRemoveProjects++
 			logger.Debug("添加移除项目标记: %s", removeProject.Name)
 		}
 
-		// 从项目列表中移除该项�?
+		// 从项目列表中移除该项
 		for i, p := range dst.Projects {
 			if p.Name == removeProject.Name {
 				// 移除项目
@@ -178,17 +178,17 @@ func (m *Merger) ProcessIncludes(manifest *Manifest, groups []string) (*Manifest
 		return manifest, nil
 	}
 
-	logger.Info("处理清单包含�?%d 个子清单", len(manifest.Includes))
+	logger.Info("处理清单包含%d 个子清单", len(manifest.Includes))
 
 	// 收集所有需要合并的清单
 	manifests := []*Manifest{manifest}
 
-	// 处理包含的清单文�?
+	// 处理包含的清单文
 	for i, include := range manifest.Includes {
 		includePath := filepath.Join(m.BaseDir, include.Name)
-		logger.Info("处理包含的清单文�?(%d/%d): %s", i+1, len(manifest.Includes), include.Name)
+		logger.Info("处理包含的清单文(%d/%d): %s", i+1, len(manifest.Includes), include.Name)
 
-		// 检查文件是否存�?
+		// 检查文件是否存
 		if _, err := os.Stat(includePath); os.IsNotExist(err) {
 			logger.Error("包含的清单文件不存在: %s", includePath)
 			return nil, fmt.Errorf("包含的清单文件不存在: %s", includePath)
@@ -196,14 +196,14 @@ func (m *Merger) ProcessIncludes(manifest *Manifest, groups []string) (*Manifest
 
 		// 显示处理的组信息
 		if len(groups) > 0 {
-			logger.Debug("使用组过�? %s", strings.Join(groups, ", "))
+			logger.Debug("使用组过 %s", strings.Join(groups, ", "))
 		}
 
-		// 解析包含的清单文�?
+		// 解析包含的清单文
 		includeManifest, err := m.Parser.ParseFromFile(includePath, groups)
 		if err != nil {
-			logger.Error("解析包含的清单文件失�? %s, 错误: %v", includePath, err)
-			return nil, fmt.Errorf("解析包含的清单文件失�? %w", err)
+			logger.Error("解析包含的清单文件失 %s, 错误: %v", includePath, err)
+			return nil, fmt.Errorf("解析包含的清单文件失 %w", err)
 		}
 
 		// 递归处理包含的清单中的include标签

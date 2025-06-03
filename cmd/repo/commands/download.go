@@ -173,7 +173,7 @@ func runDownload(opts *DownloadOptions, projectNames []string) error {
 	// 输出统计信息
 	log.Info("Download complete. Success: %d, Failed: %d", stats.Success, stats.Failed)
 
-	// 如果有失败的项目，返回错�?
+	// 如果有失败的项目，返回错
 	if stats.Failed > 0 {
 		return fmt.Errorf("%d projects failed to download", stats.Failed)
 	}

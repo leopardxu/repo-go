@@ -92,8 +92,8 @@ func runPrune(opts *PruneOptions, args []string) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 
-	// 创建项目管理�?
-	log.Debug("正在创建项目管理�?..")
+	// 创建项目管理
+	log.Debug("正在创建项目管理..")
 	manager := project.NewManagerFromManifest(manifestObj, cfg)
 
 	var projects []*project.Project
@@ -108,7 +108,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		log.Debug("获取指定的项�? %v", args)
+		log.Debug("获取指定的项 %v", args)
 		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
 			log.Error("获取指定项目失败: %v", err)
@@ -123,7 +123,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 		projectPaths[p.Path] = true
 	}
 
-	// 获取工作目录中的所有目�?
+	// 获取工作目录中的所有目
 	log.Debug("获取工作目录...")
 	workDir, err := os.Getwd()
 	if err != nil {
@@ -157,13 +157,13 @@ func runPrune(opts *PruneOptions, args []string) error {
 			continue
 		}
 
-		// 检查目录是否在清单�?
+		// 检查目录是否在清单
 		if !projectPaths[entry.Name()] {
 			prunedProjects = append(prunedProjects, entry.Name())
 		}
 	}
 
-	// 如果没有要删除的项目，直接返�?
+	// 如果没有要删除的项目，直接返
 	if len(prunedProjects) == 0 {
 		log.Info("没有需要清理的项目")
 		return nil
@@ -185,7 +185,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 	stats := &pruneStats{total: len(prunedProjects)}
 
 	// 并发删除项目
-	log.Debug("开始并发清理项�?..")
+	log.Debug("开始并发清理项..")
 	errChan := make(chan error, len(prunedProjects))
 	var wg sync.WaitGroup
 
@@ -214,7 +214,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 				repo := git.NewRepository(projectPath, git.NewRunner())
 				clean, err := repo.IsClean()
 				if err != nil {
-					log.Error("检查项�?%s 是否干净失败: %v", name, err)
+					log.Error("检查项%s 是否干净失败: %v", name, err)
 					errChan <- fmt.Errorf("failed to check if project %s is clean: %w", name, err)
 
 					// 更新统计信息
@@ -248,7 +248,7 @@ func runPrune(opts *PruneOptions, args []string) error {
 				return
 			}
 
-			log.Info("已清理项�?%s", name)
+			log.Info("已清理项%s", name)
 
 			// 更新统计信息
 			stats.mu.Lock()
@@ -258,11 +258,11 @@ func runPrune(opts *PruneOptions, args []string) error {
 	}
 
 	// 等待所有goroutine完成
-	log.Debug("等待所有清理任务完�?..")
+	log.Debug("等待所有清理任务完..")
 	wg.Wait()
 	close(errChan)
 
-	// 收集所有错�?
+	// 收集所有错
 	var errs []error
 	for err := range errChan {
 		if err != nil {

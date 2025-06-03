@@ -24,7 +24,7 @@ var (
 	configLastModTime time.Time
 )
 
-// SetLogger 设置日志记录�?
+// SetLogger 设置日志记录
 func SetLogger(logger logger.Logger) {
 	log = logger
 }
@@ -51,34 +51,34 @@ func (e *ConfigError) Unwrap() error {
 
 // Config 表示repo配置
 type Config struct {
-	Version             int    `json:"version"`               // 配置版本�?
+	Version             int    `json:"version"`               // 配置版本
 	ManifestURL         string `json:"manifest_url"`          // 清单仓库的URL
-	ManifestBranch      string `json:"manifest_branch"`       // 清单仓库的分�?
-	ManifestName        string `json:"manifest_name"`         // 清单文件的名�?
-	Groups              string `json:"groups"`                // 项目�?
+	ManifestBranch      string `json:"manifest_branch"`       // 清单仓库的分
+	ManifestName        string `json:"manifest_name"`         // 清单文件的名
+	Groups              string `json:"groups"`                // 项目
 	Platform            string `json:"platform"`              // 平台
-	Mirror              bool   `json:"mirror"`                // 是否为镜�?
-	Archive             bool   `json:"archive"`               // 是否为存�?
-	Worktree            bool   `json:"worktree"`              // 是否使用工作�?
+	Mirror              bool   `json:"mirror"`                // 是否为镜
+	Archive             bool   `json:"archive"`               // 是否为存
+	Worktree            bool   `json:"worktree"`              // 是否使用工作
 	Reference           string `json:"reference"`             // 引用
 	NoSmartCache        bool   `json:"no_smart_cache"`        // 是否禁用智能缓存
 	Dissociate          bool   `json:"dissociate"`            // 是否解除关联
 	Depth               int    `json:"depth"`                 // 克隆深度
 	PartialClone        bool   `json:"partial_clone"`         // 是否部分克隆
 	PartialCloneExclude string `json:"partial_clone_exclude"` // 部分克隆排除
-	CloneFilter         string `json:"clone_filter"`          // 克隆过滤�?
+	CloneFilter         string `json:"clone_filter"`          // 克隆过滤
 	UseSuperproject     bool   `json:"use_superproject"`      // 是否使用超级项目
-	CloneBundle         bool   `json:"clone_bundle"`          // 是否使用克隆�?
+	CloneBundle         bool   `json:"clone_bundle"`          // 是否使用克隆
 	GitLFS              bool   `json:"git_lfs"`               // 是否使用Git LFS
 	RepoURL             string `json:"repo_url"`              // Repo URL
 	RepoRev             string `json:"repo_rev"`              // Repo版本
 	NoRepoVerify        bool   `json:"no_repo_verify"`        // 是否禁用Repo验证
-	StandaloneManifest  bool   `json:"standalone_manifest"`   // 是否为独立清�?
-	Submodules          bool   `json:"submodules"`            // 是否包含子模�?
+	StandaloneManifest  bool   `json:"standalone_manifest"`   // 是否为独立清
+	Submodules          bool   `json:"submodules"`            // 是否包含子模
 	CurrentBranch       bool   `json:"current_branch"`        // 是否使用当前分支
 	Tags                bool   `json:"tags"`                  // 是否包含标签
 	ConfigName          string `json:"config_name"`           // 配置名称
-	RepoRoot            string `yaml:"repo_root"`             // 仓库根目�?
+	RepoRoot            string `yaml:"repo_root"`             // 仓库根目
 	DefaultRemoteURL    string `json:"default_remote_url"`    // 默认远程URL
 	Verbose             bool   `json:"verbose"`               // 是否详细输出
 	Quiet               bool   `json:"quiet"`                 // 是否安静模式
@@ -89,10 +89,10 @@ func Load() (*Config, error) {
 	configPath := filepath.Join(".repo", "config.json")
 	log.Debug("加载配置文件: %s", configPath)
 
-	// 检查配置文件是否存�?
+	// 检查配置文件是否存
 	fileInfo, err := os.Stat(configPath)
 	if os.IsNotExist(err) {
-		log.Error("配置文件不存�? %s", configPath)
+		log.Error("配置文件不存 %s", configPath)
 		return nil, &ConfigError{Op: "load", Path: configPath, Err: fmt.Errorf("repo not initialized, run 'repo init' first")}
 	}
 	if err != nil {
@@ -126,7 +126,7 @@ func Load() (*Config, error) {
 		return nil, &ConfigError{Op: "read", Path: configPath, Err: err}
 	}
 
-	log.Debug("成功读取配置文件，大�? %d 字节", len(data))
+	log.Debug("成功读取配置文件，大 %d 字节", len(data))
 
 	// 解析配置
 	var config Config
@@ -177,15 +177,15 @@ func (c *Config) Save() error {
 		log.Warn("配置验证警告: %v", err)
 	}
 
-	// 确保版本号存�?
+	// 确保版本号存
 	if c.Version == 0 {
 		c.Version = 1
 	}
 
-	// 序列化配�?
+	// 序列化配
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
-		log.Error("序列化配置失�? %v", err)
+		log.Error("序列化配置失 %v", err)
 		return &ConfigError{Op: "serialize", Err: err}
 	}
 
@@ -252,7 +252,7 @@ func (c *Config) GetRemoteURL() string {
 		return c.DefaultRemoteURL
 	}
 
-	// 尝试�?repo/manifest.xml解析远程URL
+	// 尝试repo/manifest.xml解析远程URL
 	manifestPath := filepath.Join(".repo", "manifest.xml")
 	if _, err := os.Stat(manifestPath); err == nil {
 		// 读取manifest.xml文件
@@ -286,7 +286,7 @@ func (c *Config) GetRemoteURL() string {
 					}
 				}
 
-				// 如果没有找到默认远程，但有其他远程，使用第一�?
+				// 如果没有找到默认远程，但有其他远程，使用第一
 				if len(manifest.Remotes) > 0 {
 					fetch := manifest.Remotes[0].Fetch
 					// 确保URL以斜杠结尾
@@ -340,7 +340,7 @@ func (c *Config) ExtractBaseURLFromManifestURL(manifestURL string) string {
 
 	// 处理SCP格式: git@example.com:path/to/repo
 	if strings.Contains(manifestURL, "@") && strings.Contains(manifestURL, ":") {
-		// 查找冒号的位�?
+		// 查找冒号的位
 		parts := strings.SplitN(manifestURL, ":", 2)
 		if len(parts) == 2 {
 			// 返回 user@hostname 部分
@@ -350,7 +350,7 @@ func (c *Config) ExtractBaseURLFromManifestURL(manifestURL string) string {
 
 	// 处理HTTP/HTTPS URL
 	if strings.HasPrefix(manifestURL, "http://") || strings.HasPrefix(manifestURL, "https://") {
-		// 查找第三个斜杠后的位�?
+		// 查找第三个斜杠后的位
 		parts := strings.SplitN(manifestURL, "/", 4)
 		if len(parts) >= 3 {
 			// 返回 protocol://hostname 部分
@@ -417,7 +417,7 @@ func resolveRelativePath(basePath, relativePath string) string {
 	baseDir := filepath.Dir(basePath)
 	resolvedPath := filepath.Join(baseDir, relativePath)
 
-	// 规范化路�?
+	// 规范化路
 	resolvedPath = filepath.Clean(resolvedPath)
 
 	log.Debug("解析结果: %s", filepath.ToSlash(resolvedPath))
@@ -428,7 +428,7 @@ func resolveRelativePath(basePath, relativePath string) string {
 func (c *Config) ResolveRelativeURL(relativeURL string) string {
 	log.Debug("解析相对URL: %s", relativeURL)
 
-	// 如果不是相对路径，直接返�?
+	// 如果不是相对路径，直接返
 	if !strings.HasPrefix(relativeURL, "../") {
 		return relativeURL
 	}
@@ -441,7 +441,7 @@ func (c *Config) ResolveRelativeURL(relativeURL string) string {
 			baseURL = c.DefaultRemoteURL
 		}
 
-		// 确保baseURL�?结尾
+		// 确保baseURL结尾
 		if !strings.HasSuffix(baseURL, "/") {
 			baseURL += "/"
 		}
@@ -456,7 +456,7 @@ func (c *Config) ResolveRelativeURL(relativeURL string) string {
 	return relativeURL
 }
 
-// Validate 验证配置的完整性和正确�?
+// Validate 验证配置的完整性和正确
 func (c *Config) Validate() error {
 	var errs []string
 
@@ -469,7 +469,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, "manifest_name is required")
 	}
 
-	// 验证深度�?
+	// 验证深度
 	if c.Depth < 0 {
 		errs = append(errs, "depth must be non-negative")
 	}
@@ -492,83 +492,83 @@ func (c *Config) ApplyEnvironment() {
 
 	// 检查环境变量并覆盖配置
 	if manifestURL := os.Getenv("GOGO_MANIFEST_URL"); manifestURL != "" {
-		log.Debug("从环境变量设�?MANIFEST_URL: %s", manifestURL)
+		log.Debug("从环境变量设MANIFEST_URL: %s", manifestURL)
 		c.ManifestURL = manifestURL
 	}
 
 	if manifestBranch := os.Getenv("GOGO_MANIFEST_BRANCH"); manifestBranch != "" {
-		log.Debug("从环境变量设�?MANIFEST_BRANCH: %s", manifestBranch)
+		log.Debug("从环境变量设MANIFEST_BRANCH: %s", manifestBranch)
 		c.ManifestBranch = manifestBranch
 	}
 
 	if manifestName := os.Getenv("GOGO_MANIFEST_NAME"); manifestName != "" {
-		log.Debug("从环境变量设�?MANIFEST_NAME: %s", manifestName)
+		log.Debug("从环境变量设MANIFEST_NAME: %s", manifestName)
 		c.ManifestName = manifestName
 	}
 
 	if groups := os.Getenv("GOGO_GROUPS"); groups != "" {
-		log.Debug("从环境变量设�?GROUPS: %s", groups)
+		log.Debug("从环境变量设GROUPS: %s", groups)
 		c.Groups = groups
 	}
 
 	if platform := os.Getenv("GOGO_PLATFORM"); platform != "" {
-		log.Debug("从环境变量设�?PLATFORM: %s", platform)
+		log.Debug("从环境变量设PLATFORM: %s", platform)
 		c.Platform = platform
 	}
 
-	// 布尔值环境变�?
+	// 布尔值环境变
 	if mirror := os.Getenv("GOGO_MIRROR"); mirror == "true" {
-		log.Debug("从环境变量设�?MIRROR: true")
+		log.Debug("从环境变量设MIRROR: true")
 		c.Mirror = true
 	} else if mirror == "false" {
-		log.Debug("从环境变量设�?MIRROR: false")
+		log.Debug("从环境变量设MIRROR: false")
 		c.Mirror = false
 	}
 
 	if archive := os.Getenv("GOGO_ARCHIVE"); archive == "true" {
-		log.Debug("从环境变量设�?ARCHIVE: true")
+		log.Debug("从环境变量设ARCHIVE: true")
 		c.Archive = true
 	} else if archive == "false" {
-		log.Debug("从环境变量设�?ARCHIVE: false")
+		log.Debug("从环境变量设ARCHIVE: false")
 		c.Archive = false
 	}
 
-	// 整数值环境变�?
+	// 整数值环境变
 	if depthStr := os.Getenv("GOGO_DEPTH"); depthStr != "" {
 		if depth, err := strconv.Atoi(depthStr); err == nil {
-			log.Debug("从环境变量设�?DEPTH: %d", depth)
+			log.Debug("从环境变量设DEPTH: %d", depth)
 			c.Depth = depth
 		} else {
-			log.Warn("无效的DEPTH环境变量�? %s", depthStr)
+			log.Warn("无效的DEPTH环境变量 %s", depthStr)
 		}
 	}
 
 	// 日志级别环境变量
 	if verbose := os.Getenv("GOGO_VERBOSE"); verbose == "true" {
-		log.Debug("从环境变量设�?VERBOSE: true")
+		log.Debug("从环境变量设VERBOSE: true")
 		c.Verbose = true
 	} else if verbose == "false" {
-		log.Debug("从环境变量设�?VERBOSE: false")
+		log.Debug("从环境变量设VERBOSE: false")
 		c.Verbose = false
 	}
 
 	if quiet := os.Getenv("GOGO_QUIET"); quiet == "true" {
-		log.Debug("从环境变量设�?QUIET: true")
+		log.Debug("从环境变量设QUIET: true")
 		c.Quiet = true
 	} else if quiet == "false" {
-		log.Debug("从环境变量设�?QUIET: false")
+		log.Debug("从环境变量设QUIET: false")
 		c.Quiet = false
 	}
 }
 
-// migrateConfig 根据版本号迁移配�?
+// migrateConfig 根据版本号迁移配
 func migrateConfig(config *Config) error {
-	// 如果没有版本号，假设为版�?
+	// 如果没有版本号，假设为版
 	if config.Version == 0 {
 		config.Version = 1
 	}
 
-	// 根据版本号进行迁�?
+	// 根据版本号进行迁
 	switch config.Version {
 	case 1:
 		// 当前版本，无需迁移

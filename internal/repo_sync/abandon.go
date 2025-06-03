@@ -45,21 +45,21 @@ func (e *Engine) AbandonTopics(projects []*project.Project, topic string) []Aban
 			// 放弃本地分支
 			if !e.options.Quiet {
 				if e.log != nil {
-					e.log.Debug("正在删除项目 %s 的分�?%s", proj.Name, branch)
+					e.log.Debug("正在删除项目 %s 的分%s", proj.Name, branch)
 				}
 			}
 
 			err := proj.DeleteBranch(branch)
 			if err != nil {
 				if e.log != nil {
-					e.log.Error("删除项目 %s 的分�?%s 失败: %v", proj.Name, branch, err)
+					e.log.Error("删除项目 %s 的分%s 失败: %v", proj.Name, branch, err)
 				}
 				resultsChan <- AbandonResult{Project: proj, Branch: branch, Success: false, Error: err}
 				return
 			}
 
 			if !e.options.Quiet && e.log != nil {
-				e.log.Debug("成功删除项目 %s 的分�?%s", proj.Name, branch)
+				e.log.Debug("成功删除项目 %s 的分%s", proj.Name, branch)
 			}
 			resultsChan <- AbandonResult{Project: proj, Branch: branch, Success: true, Error: nil}
 		}(p)
@@ -77,13 +77,13 @@ func (e *Engine) AbandonTopics(projects []*project.Project, topic string) []Aban
 	return results
 }
 
-// PrintAbandonSummary 输出放弃分支的汇总信�?
+// PrintAbandonSummary 输出放弃分支的汇总信
 func PrintAbandonSummary(results []AbandonResult, log logger.Logger) {
 	total := len(results)
 	success := 0
 	failed := 0
 
-	// 按项目名称排序输出结�?
+	// 按项目名称排序输出结
 	for _, r := range results {
 		if r.Success {
 			success++
@@ -102,10 +102,10 @@ func PrintAbandonSummary(results []AbandonResult, log logger.Logger) {
 		}
 	}
 
-	// 输出汇总信�?
+	// 输出汇总信
 	if log != nil {
-		log.Info("\n共处理项�? %d, 成功: %d, 失败: %d", total, success, failed)
+		log.Info("\n共处理项 %d, 成功: %d, 失败: %d", total, success, failed)
 	} else {
-		fmt.Printf("\n共处理项�? %d, 成功: %d, 失败: %d\n", total, success, failed)
+		fmt.Printf("\n共处理项 %d, 成功: %d, 失败: %d\n", total, success, failed)
 	}
 }

@@ -132,12 +132,12 @@ func runStage(opts *StageOptions, args []string, log logger.Logger) error {
 	var projectNames []string
 
 	// 解析参数，区分项目名和文件名
-	log.Debug("解析命令行参�?..")
+	log.Debug("解析命令行参..")
 	if len(args) > 0 {
-		// 检查第一个参数是否是项目�?
+		// 检查第一个参数是否是项目
 		projects, err := manager.GetProjectsByNames([]string{args[0]})
 		if err == nil && len(projects) > 0 {
-			// 第一个参数是项目�?
+			// 第一个参数是项目
 			projectNames = []string{args[0]}
 			if len(args) > 1 {
 				files = args[1:]
@@ -153,8 +153,8 @@ func runStage(opts *StageOptions, args []string, log logger.Logger) error {
 	// 获取要处理的项目
 	var projects []*project.Project
 	if len(projectNames) == 0 {
-		// 如果没有指定项目，则处理所有项�?
-		log.Debug("获取所有项�?..")
+		// 如果没有指定项目，则处理所有项
+		log.Debug("获取所有项..")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
@@ -206,7 +206,7 @@ func runStage(opts *StageOptions, args []string, log logger.Logger) error {
 	}
 
 	// 使用goroutine池并发执行stage
-	log.Info("开始暂存文件，并行任务�? %d...", opts.Jobs)
+	log.Info("开始暂存文件，并行任务 %d...", opts.Jobs)
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(projects))
@@ -219,10 +219,10 @@ func runStage(opts *StageOptions, args []string, log logger.Logger) error {
 
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}        // 获取信号�?
-			defer func() { <-sem }() // 释放信号�?
+			sem <- struct{}{}        // 获取信号
+			defer func() { <-sem }() // 释放信号
 
-			log.Debug("在项�?%s 中执行git add命令...", p.Name)
+			log.Debug("在项%s 中执行git add命令...", p.Name)
 			outputBytes, err := p.GitRepo.RunCommand(stageArgs...)
 			if err != nil {
 				log.Error("项目 %s 暂存失败: %v", p.Name, err)
@@ -242,7 +242,7 @@ func runStage(opts *StageOptions, args []string, log logger.Logger) error {
 		}()
 	}
 
-	// 启动一�?goroutine 来关闭结果通道
+	// 启动一goroutine 来关闭结果通道
 	go func() {
 		wg.Wait()
 		close(errChan)

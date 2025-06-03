@@ -152,27 +152,27 @@ func CloneManifestRepo(gitRunner GitRunner, cfg *Config) error {
 	return nil
 }
 
-// removeExistingLink 安全地移除现有链�?
+// removeExistingLink 安全地移除现有链
 func removeExistingLink(path string) error {
-	// 检查文件是否存�?
+	// 检查文件是否存
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		// 文件不存在，无需删除
 		return nil
 	}
 
-	// 删除现有文件或链�?
+	// 删除现有文件或链
 	return os.Remove(path)
 }
 
 // createSymlink 创建符号链接，处理不同操作系统的差异
 func createSymlink(oldname, newname string) error {
-	// Windows系统下创建符号链接可能需要特殊处�?
+	// Windows系统下创建符号链接可能需要特殊处
 	if runtime.GOOS == "windows" {
 		// 检查目标是否为目录
 		fi, err := os.Stat(oldname)
 		if err == nil && fi.IsDir() {
-			// Windows下创建目录符号链接需要额外权�?
-			logger.Debug("在Windows上创建目录符号链�? %s -> %s", newname, oldname)
+			// Windows下创建目录符号链接需要额外权
+			logger.Debug("在Windows上创建目录符号链 %s -> %s", newname, oldname)
 		}
 	}
 

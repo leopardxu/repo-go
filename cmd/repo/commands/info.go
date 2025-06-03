@@ -275,7 +275,7 @@ func showRemoteBranches(p *project.Project) {
 func showCurrentBranchInfo(p *project.Project) {
 	fmt.Println("Current branch info:")
 
-	// 获取当前分支的最近提�?
+	// 获取当前分支的最近提
 	outputBytes, err := p.GitRepo.RunCommand("log", "-1", "--oneline")
 	if err != nil {
 		fmt.Printf("Error getting current branch info: %v\n", err)
@@ -289,7 +289,7 @@ func showCurrentBranchInfo(p *project.Project) {
 	}
 }
 
-// showAllBranches 显示所有分支信�?
+// showAllBranches 显示所有分支信
 func showAllBranches(p *project.Project) {
 	fmt.Println("All branches:")
 

@@ -151,10 +151,10 @@ func runStatus(opts *StatusOptions, args []string, log logger.Logger) error {
 
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}        // 获取信号�?
-			defer func() { <-sem }() // 释放信号�?
+			sem <- struct{}{}        // 获取信号
+			defer func() { <-sem }() // 释放信号
 
-			log.Debug("正在检查项�?%s 的状�?..", p.Name)
+			log.Debug("正在检查项%s 的状..", p.Name)
 
 			status, err := p.GetStatus()
 			if err != nil {

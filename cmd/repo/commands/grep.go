@@ -212,7 +212,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 					continue
 				}
 			}
-			log.Error("在项�?%s 中执�?grep 失败: %v", res.project.Name, res.err)
+			log.Error("在项%s 中执grep 失败: %v", res.project.Name, res.err)
 			errors = append(errors, fmt.Errorf("error grepping in %s: %v", res.project.Name, res.err))
 			stats.mu.Lock()
 			stats.Failed++
@@ -223,7 +223,7 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 		if len(res.output) > 0 {
 			foundMatches = true
 			lines := strings.Split(strings.TrimSpace(string(res.output)), "\n")
-			log.Debug("项目 %s 中找�?%d 个匹配项", res.project.Name, len(lines))
+			log.Debug("项目 %s 中找%d 个匹配项", res.project.Name, len(lines))
 
 			stats.mu.Lock()
 			stats.Success++
@@ -243,14 +243,14 @@ func runGrep(opts *GrepOptions, projectNames []string) error {
 
 	// 输出错误信息
 	if len(errors) > 0 {
-		log.Error("�?%d 个项目中执行 grep 失败", len(errors))
+		log.Error("%d 个项目中执行 grep 失败", len(errors))
 		for _, err := range errors {
 			log.Error("%v", err)
 		}
 	}
 
 	// 输出统计信息
-	log.Info("搜索完成. 处理项目: %d, 成功: %d, 失败: %d, 找到匹配�? %d",
+	log.Info("搜索完成. 处理项目: %d, 成功: %d, 失败: %d, 找到匹配 %d",
 		validProjects, stats.Success, stats.Failed, stats.Matches)
 
 	if !foundMatches && !opts.Quiet {

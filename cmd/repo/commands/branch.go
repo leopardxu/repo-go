@@ -55,7 +55,7 @@ func BranchCmd() *cobra.Command {
 
 // runBranch executes the branch command logic
 func runBranch(opts *BranchOptions, args []string) error {
-	// 初始化日志系�?
+	// 初始化日志系
 	log := logger.NewDefaultLogger()
 	if opts.Quiet {
 		log.SetLevel(logger.LogLevelError)
@@ -85,7 +85,7 @@ func runBranch(opts *BranchOptions, args []string) error {
 
 	var projects []*project.Project
 	if len(args) == 0 {
-		log.Debug("获取所有项�?..")
+		log.Debug("获取所有项..")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
@@ -200,7 +200,7 @@ func runBranch(opts *BranchOptions, args []string) error {
 
 	// 显示分支信息
 	if !opts.Quiet {
-		log.Info("分支信息汇�?")
+		log.Info("分支信息汇")
 
 		for _, branch := range branchNames {
 			projs := branchInfo[branch]

@@ -138,11 +138,11 @@ func runRebase(opts *RebaseOptions, args []string) error {
 		log.Debug("获取所有项目")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
-			log.Error("获取所有项目失�? %v", err)
+			log.Error("获取所有项目失 %v", err)
 			return fmt.Errorf("failed to get projects: %w", err)
 		}
 	} else {
-		log.Debug("获取指定的项�? %v", args)
+		log.Debug("获取指定的项 %v", args)
 		projects, err = manager.GetProjectsByNames(args)
 		if err != nil {
 			log.Error("获取指定项目失败: %v", err)
@@ -202,11 +202,11 @@ func runRebase(opts *RebaseOptions, args []string) error {
 		}
 
 		// 定义上游分支
-		upstream := "origin" // 默认值，根据需要调�?
-		// 或者根据项目配置动态确�?
+		upstream := "origin" // 默认值，根据需要调
+		// 或者根据项目配置动态确
 		// upstream := project.upstream
 
-		log.Info("将rebase�?%s", upstream)
+		log.Info("将rebase%s", upstream)
 	}
 
 	// 创建统计对象
@@ -239,7 +239,7 @@ func runRebase(opts *RebaseOptions, args []string) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			log.Debug("正在对项�?%s 执行rebase操作...", p.Name)
+			log.Debug("正在对项%s 执行rebase操作...", p.Name)
 			outputBytes, err := p.GitRepo.RunCommand(rebaseArgs...)
 			output := string(outputBytes)
 
@@ -277,7 +277,7 @@ func runRebase(opts *RebaseOptions, args []string) error {
 	var hasError bool
 	var errs []error
 
-	// 收集所有结�?
+	// 收集所有结
 	for res := range results {
 		if res.Err != nil {
 			hasError = true

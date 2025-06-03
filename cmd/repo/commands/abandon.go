@@ -18,8 +18,8 @@ type AbandonOptions struct {
 	CommonManifestOptions
 	Project string
 	DryRun  bool
-	All     bool // 删除所有分�?
-	Jobs    int  // 并行任务�?
+	All     bool // 删除所有分
+	Jobs    int  // 并行任务
 	Verbose bool // 详细输出
 	Quiet   bool // 静默模式
 	Force   bool // 强制删除
@@ -59,7 +59,7 @@ It is equivalent to "git branch -D <branchname>".`,
 
 // runAbandon 执行abandon命令
 func runAbandon(opts *AbandonOptions, args []string) error {
-	// 初始化日志系�?
+	// 初始化日志系
 	log := logger.NewDefaultLogger()
 	if opts.Quiet {
 		log.SetLevel(logger.LogLevelError)
@@ -109,7 +109,7 @@ func runAbandon(opts *AbandonOptions, args []string) error {
 
 	var projects []*project.Project
 	if len(projectNames) == 0 {
-		log.Debug("获取所有项�?..")
+		log.Debug("获取所有项..")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
@@ -138,11 +138,11 @@ func runAbandon(opts *AbandonOptions, args []string) error {
 
 	// 执行放弃分支操作
 	if !opts.Quiet {
-		log.Info("开始处�?%d 个项目的分支放弃操作...", len(projects))
+		log.Info("开始处%d 个项目的分支放弃操作...", len(projects))
 	}
 	results := engine.AbandonTopics(projects, branchName)
 
-	// 输出结果汇�?
+	// 输出结果汇
 	repo_sync.PrintAbandonSummary(results, log)
 	return nil
 }

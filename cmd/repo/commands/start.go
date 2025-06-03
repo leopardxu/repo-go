@@ -136,8 +136,8 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 	// 获取要处理的项目
 	var projects []*project.Project
 	if opts.All || len(projectNames) == 0 {
-		// 如果指定�?-all或没有指定项目，则处理所有项�?
-		log.Debug("获取所有项�?..")
+		// 如果指定-all或没有指定项目，则处理所有项
+		log.Debug("获取所有项..")
 		projects, err = manager.GetProjectsInGroups(nil)
 		if err != nil {
 			log.Error("获取项目失败: %v", err)
@@ -169,12 +169,12 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}        // 获取信号�?
-			defer func() { <-sem }() // 释放信号�?
+			sem <- struct{}{}        // 获取信号
+			defer func() { <-sem }() // 释放信号
 
-			log.Debug("在项�?%s 中创建分�?'%s'...", p.Name, branchName)
+			log.Debug("在项%s 中创建分'%s'...", p.Name, branchName)
 
-			// 确定使用的修订版�?
+			// 确定使用的修订版
 			revision := opts.Rev
 			if revision == "" {
 				revision = p.Revision
@@ -195,7 +195,7 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 		}()
 	}
 
-	// 启动一�?goroutine 来关闭结果通道
+	// 启动一goroutine 来关闭结果通道
 	go func() {
 		wg.Wait()
 		close(errChan)
