@@ -89,6 +89,28 @@ func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
 			git.NewRunner(),
 		)
 
+		// 转换并赋值 Linkfiles 字段
+		if len(p.Linkfiles) > 0 {
+			project.Linkfiles = make([]LinkFile, len(p.Linkfiles))
+			for i, lf := range p.Linkfiles {
+				project.Linkfiles[i] = LinkFile{
+					Src:  lf.Src,
+					Dest: lf.Dest,
+				}
+			}
+		}
+
+		// 转换并赋值 Copyfiles 字段
+		if len(p.Copyfiles) > 0 {
+			project.Copyfiles = make([]CopyFile, len(p.Copyfiles))
+			for i, cf := range p.Copyfiles {
+				project.Copyfiles[i] = CopyFile{
+					Src:  cf.Src,
+					Dest: cf.Dest,
+				}
+			}
+		}
+
 		// 添加项目到管理器
 		manager.AddProject(project)
 	}
