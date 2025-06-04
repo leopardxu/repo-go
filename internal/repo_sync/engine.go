@@ -266,6 +266,15 @@ func (e *Engine) syncProject(p *project.Project) error {
 		return fmt.Errorf("检查项%s 失败: %w", p.Name, err)
 	}
 
+	// 检查是否为镜像模式
+	isMirror := false
+	if e.options.Config != nil && e.options.Config.Mirror {
+		isMirror = true
+		if !e.options.Quiet {
+			e.logger.Debug("项目 %s 使用镜像模式", p.Name)
+		}
+	}
+
 	if !exists {
 		// 克隆项目
 		if !e.options.Quiet {
@@ -288,13 +297,15 @@ func (e *Engine) syncProject(p *project.Project) error {
 		}
 
 		if !e.options.NetworkOnly {
-			// 执行本地操作
-			if err := e.checkoutProject(p); err != nil {
-				return err
+			// 执行本地操作（镜像模式下不需要检出特定分支）
+			if !isMirror {
+				if err := e.checkoutProject(p); err != nil {
+					return err
+				}
 			}
 
-			// 更新成功后处理linkfile copyfile（仅在非NetworkOnly模式下）
-			if !e.options.NetworkOnly {
+			// 更新成功后处理linkfile copyfile（仅在非NetworkOnly模式且非镜像模式下）
+			if !isMirror {
 				e.logger.Info("项目 %s 更新完成，开始处理 linkfile 和 copyfile", p.Name)
 				if err := e.processLinkAndCopyFiles(p); err != nil {
 					e.logger.Error("项目 %s 更新后处理 linkfile 和 copyfile 失败: %v", p.Name, err)
@@ -307,7 +318,7 @@ func (e *Engine) syncProject(p *project.Project) error {
 				}
 				e.logger.Info("成功处理项目 %s 更新后的链接文件和复制文件", p.Name)
 			} else {
-				e.logger.Info("NetworkOnly模式，跳过处理项目 %s 更新后的链接文件和复制文件", p.Name)
+				e.logger.Info("镜像模式，跳过处理项目 %s 的链接文件和复制文件", p.Name)
 			}
 		}
 	}
@@ -541,6 +552,19 @@ func (e *Engine) fetchProject(p *project.Project) error {
 
 	// 执行 fetch 命令
 	args := []string{"-C", p.Worktree, "fetch"}
+
+	// 检查是否为镜像模式
+	isMirror := false
+	if e.options.Config != nil && e.options.Config.Mirror {
+		isMirror = true
+		// 镜像模式下添加 --prune 参数，确保删除远程已经不存在的引用
+		args = append(args, "--prune")
+		if !e.options.Quiet && e.options.Verbose {
+			e.logger.Debug("项目 %s 使用镜像模式获取，添加 --prune 参数", p.Name)
+		}
+	}
+	e.logger.Debug("项目镜像模式 %s ", isMirror)
+
 	if e.options.Tags {
 		args = append(args, "--tags")
 	}
@@ -628,6 +652,16 @@ func (e *Engine) cloneProject(p *project.Project) error {
 	// 构建 clone 命令
 	args := []string{"clone"}
 
+	// 检查是否为镜像模式
+	isMirror := false
+	if e.options.Config != nil && e.options.Config.Mirror {
+		isMirror = true
+		args = append(args, "--mirror")
+		if !e.options.Quiet {
+			e.logger.Info("项目 %s 将以镜像模式克隆", p.Name)
+		}
+	}
+
 	// 添加 LFS 支持
 	if e.options.GitLFS {
 		// 确保 git-lfs 已安装
@@ -641,7 +675,8 @@ func (e *Engine) cloneProject(p *project.Project) error {
 	}
 
 	// 添加分支参数，确保克隆时指定正确的分支
-	if p.Revision != "" {
+	// 注意：镜像模式下不需要指定分支，因为镜像会克隆所有分支
+	if p.Revision != "" && !isMirror {
 		// 处理 revision 格式，移除可能的 refs/heads/ 或 refs/tags/ 前缀
 		revision := p.Revision
 		if strings.HasPrefix(revision, "refs/heads/") {
@@ -732,8 +767,8 @@ func (e *Engine) cloneProject(p *project.Project) error {
 		}
 	}
 
-	// 克隆成功后，确保检出正确的分支
-	if !e.options.NetworkOnly && p.Revision != "" {
+	// 克隆成功后，确保检出正确的分支（仅在非镜像模式下）
+	if !e.options.NetworkOnly && p.Revision != "" && !isMirror {
 		if !e.options.Quiet && e.options.Verbose {
 			e.logger.Info("确保项目 %s 检出到正确的版本: %s", p.Name, p.Revision)
 		}
@@ -749,8 +784,8 @@ func (e *Engine) cloneProject(p *project.Project) error {
 		}
 	}
 
-	// 如果启用LFS，执行LFS 拉取
-	if e.options.GitLFS {
+	// 如果启用LFS，执行LFS 拉取（仅在非镜像模式下）
+	if e.options.GitLFS && !isMirror {
 		if err := e.pullLFS(p); err != nil {
 			return &SyncError{
 				ProjectName: p.Name,
@@ -761,10 +796,10 @@ func (e *Engine) cloneProject(p *project.Project) error {
 	}
 
 	// 记录克隆完成日志
-	e.logger.Debug("项目 %s 克隆完成，现在处理 linkfile 和 copyfile", p.Name)
+	e.logger.Debug("项目 %s 克隆完成", p.Name)
 
-	// 处理 linkfile 和 copyfile（仅在非NetworkOnly模式下）
-	if !e.options.NetworkOnly {
+	// 处理 linkfile 和 copyfile（仅在非NetworkOnly模式且非镜像模式下）
+	if !e.options.NetworkOnly && !isMirror {
 		e.logger.Info("开始处理项目 %s 的链接文件和复制文件", p.Name)
 		if err := e.processLinkAndCopyFiles(p); err != nil {
 			e.logger.Error("项目 %s 处理 linkfile 和 copyfile 失败: %v", p.Name, err)
@@ -776,11 +811,11 @@ func (e *Engine) cloneProject(p *project.Project) error {
 			}
 		}
 		e.logger.Info("成功处理项目 %s 的链接文件和复制文件", p.Name)
+	} else if isMirror {
+		e.logger.Info("镜像模式，跳过处理项目 %s 的链接文件和复制文件", p.Name)
 	} else {
 		e.logger.Info("NetworkOnly模式，跳过处理项目 %s 的链接文件和复制文件", p.Name)
 	}
-
-	e.logger.Debug("项目 %s 的 linkfile 和 copyfile 处理完成", p.Name)
 
 	return nil
 }
@@ -903,6 +938,18 @@ func (e *Engine) setupRemote(p *project.Project, remoteURL string) error {
 		}
 	}
 
+	// 检查是否为镜像模式
+	if e.options.Config != nil && e.options.Config.Mirror {
+		// 为镜像仓库设置mirror=true配置
+		cmd = exec.Command("git", "-C", p.Worktree, "config", "--add", fmt.Sprintf("remote.%s.mirror", p.RemoteName), "true")
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("设置镜像仓库配置失败: %w", err)
+		}
+		if !e.options.Quiet {
+			e.logger.Info("项目 %s 已设置为镜像仓库", p.Name)
+		}
+	}
+
 	return nil
 }
 
@@ -946,6 +993,18 @@ func (e *Engine) ensureRemoteExists(p *project.Project, remoteURL string) error 
 			if err := cmd.Run(); err != nil {
 				return fmt.Errorf("更新远程仓库URL失败: %w", err)
 			}
+		}
+	}
+
+	// 检查是否为镜像模式
+	if e.options.Config != nil && e.options.Config.Mirror {
+		// 为镜像仓库设置mirror=true配置
+		cmd = exec.Command("git", "-C", p.Worktree, "config", "--add", fmt.Sprintf("remote.%s.mirror", p.RemoteName), "true")
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("设置镜像仓库配置失败: %w", err)
+		}
+		if !e.options.Quiet && e.options.Verbose {
+			e.logger.Debug("项目 %s 的远程 %s 已设置为镜像模式", p.Name, p.RemoteName)
 		}
 	}
 
