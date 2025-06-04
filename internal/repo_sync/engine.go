@@ -639,6 +639,14 @@ func (e *Engine) cloneProject(p *project.Project) error {
 	// 更新项目RemoteURL 为解析后URL
 	p.RemoteURL = remoteURL
 
+	// 确保RemoteName有值
+	if p.RemoteName == "" {
+		p.RemoteName = "origin"
+		if e.options.Verbose {
+			e.logger.Debug("项目 %s 未指定远程名称，使用默认值 'origin'", p.Name)
+		}
+	}
+
 	// 创建父目录
 	if err := os.MkdirAll(filepath.Dir(p.Worktree), 0755); err != nil {
 		return &SyncError{
@@ -651,6 +659,12 @@ func (e *Engine) cloneProject(p *project.Project) error {
 
 	// 构建 clone 命令
 	args := []string{"clone"}
+
+	// 添加 --origin 参数，指定远程名称
+	args = append(args, "--origin", p.RemoteName)
+	if e.options.Verbose {
+		e.logger.Debug("项目 %s 克隆时指定远程名称: %s", p.Name, p.RemoteName)
+	}
 
 	// 检查是否为镜像模式
 	isMirror := false
@@ -912,23 +926,43 @@ func (e *Engine) setupRemote(p *project.Project, remoteURL string) error {
 	}
 
 	remotes := strings.Split(strings.TrimSpace(string(output)), "\n")
-	remoteExists := false
-	for _, r := range remotes {
-		if r == p.RemoteName {
-			remoteExists = true
-			break
-		}
-	}
 
+	// 确保RemoteName有值
 	if p.RemoteName == "" {
 		p.RemoteName = "origin"
 	}
 
-	// 如果远程仓库不存在，添加
+	// 检查项目指定的远程是否存在
+	remoteExists := false
+	originExists := false
+	for _, r := range remotes {
+		if r == p.RemoteName {
+			remoteExists = true
+		}
+		if r == "origin" {
+			originExists = true
+		}
+	}
+
+	// 处理两个远程的情况：如果origin存在且不等于项目指定的远程名称，则删除origin
+	if originExists && p.RemoteName != "origin" {
+		if e.options.Verbose {
+			e.logger.Debug("项目 %s 存在默认远程 'origin'，但项目指定的远程名称为 '%s'，将删除 'origin' 远程", p.Name, p.RemoteName)
+		}
+		cmd = exec.Command("git", "-C", p.Worktree, "remote", "remove", "origin")
+		if err := cmd.Run(); err != nil {
+			e.logger.Warn("删除项目 %s 的 'origin' 远程失败: %v", p.Name, err)
+		}
+	}
+
+	// 如果项目指定的远程不存在，添加
 	if !remoteExists {
 		cmd = exec.Command("git", "-C", p.Worktree, "remote", "add", p.RemoteName, remoteURL)
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("添加远程仓库失败: %w", err)
+		}
+		if e.options.Verbose {
+			e.logger.Debug("已为项目 %s 添加远程 '%s': %s", p.Name, p.RemoteName, remoteURL)
 		}
 	} else {
 		// 如果远程仓库已存在，更新URL
@@ -936,17 +970,19 @@ func (e *Engine) setupRemote(p *project.Project, remoteURL string) error {
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("更新远程仓库URL失败: %w", err)
 		}
+		if e.options.Verbose {
+			e.logger.Debug("已更新项目 %s 的远程 '%s' URL: %s", p.Name, p.RemoteName, remoteURL)
+		}
 	}
 
-	// 检查是否为镜像模式
+	// 如果是镜像模式，设置mirror=true
 	if e.options.Config != nil && e.options.Config.Mirror {
-		// 为镜像仓库设置mirror=true配置
 		cmd = exec.Command("git", "-C", p.Worktree, "config", "--add", fmt.Sprintf("remote.%s.mirror", p.RemoteName), "true")
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("设置镜像仓库配置失败: %w", err)
+			return fmt.Errorf("设置远程仓库镜像模式失败: %w", err)
 		}
-		if !e.options.Quiet {
-			e.logger.Info("项目 %s 已设置为镜像仓库", p.Name)
+		if e.options.Verbose {
+			e.logger.Debug("已为项目 %s 的远程 %s 设置镜像模式", p.Name, p.RemoteName)
 		}
 	}
 
@@ -961,22 +997,44 @@ func (e *Engine) ensureRemoteExists(p *project.Project, remoteURL string) error 
 	if err != nil {
 		return fmt.Errorf("获取远程仓库列表失败: %w", err)
 	}
+
+	// 确保RemoteName有值
 	if p.RemoteName == "" {
 		p.RemoteName = "origin"
 	}
+
+	// 检查项目指定的远程是否存在
 	remotes := strings.Split(strings.TrimSpace(string(output)), "\n")
 	remoteExists := false
+	originExists := false
 	for _, r := range remotes {
 		if r == p.RemoteName {
 			remoteExists = true
-			break
+		}
+		if r == "origin" {
+			originExists = true
 		}
 	}
-	// 如果远程仓库不存在，添加
+
+	// 处理两个远程的情况：如果origin存在且不等于项目指定的远程名称，则删除origin
+	if originExists && p.RemoteName != "origin" {
+		if e.options.Verbose {
+			e.logger.Debug("项目 %s 存在默认远程 'origin'，但项目指定的远程名称为 '%s'，将删除 'origin' 远程", p.Name, p.RemoteName)
+		}
+		cmd = exec.Command("git", "-C", p.Worktree, "remote", "remove", "origin")
+		if err := cmd.Run(); err != nil {
+			e.logger.Warn("删除项目 %s 的 'origin' 远程失败: %v", p.Name, err)
+		}
+	}
+
+	// 如果项目指定的远程不存在，添加
 	if !remoteExists {
 		cmd = exec.Command("git", "-C", p.Worktree, "remote", "add", p.RemoteName, remoteURL)
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("添加远程仓库失败: %w", err)
+		}
+		if e.options.Verbose {
+			e.logger.Debug("已为项目 %s 添加远程 '%s': %s", p.Name, p.RemoteName, remoteURL)
 		}
 	} else {
 		// 检查远程URL是否正确
@@ -992,6 +1050,9 @@ func (e *Engine) ensureRemoteExists(p *project.Project, remoteURL string) error 
 			cmd = exec.Command("git", "-C", p.Worktree, "remote", "set-url", p.RemoteName, remoteURL)
 			if err := cmd.Run(); err != nil {
 				return fmt.Errorf("更新远程仓库URL失败: %w", err)
+			}
+			if e.options.Verbose {
+				e.logger.Debug("已更新项目 %s 的远程 '%s' URL: %s", p.Name, p.RemoteName, remoteURL)
 			}
 		}
 	}

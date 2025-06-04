@@ -65,22 +65,8 @@ func setDefaultGitConfig() error {
 		log.Debug("Git邮箱已设置，跳过")
 	}
 
-	// 检查是否已经设置了checkout.defaultRemote
-	hasDefaultRemote, err := hasGitConfig("checkout.defaultRemote")
-	if err != nil {
-		log.Warn("检查Git checkout.defaultRemote配置失败: %v", err)
-	}
-
-	// 如果未设置，则设置默认值为origin
-	if !hasDefaultRemote {
-		log.Info("设置默认Git checkout.defaultRemote: origin")
-		if err := runGitCommand("config", "--global", "checkout.defaultRemote", "origin"); err != nil {
-			log.Error("设置Git checkout.defaultRemote失败: %v", err)
-			return err
-		}
-	} else {
-		log.Debug("Git checkout.defaultRemote已设置，跳过")
-	}
+	// 不再设置全局 checkout.defaultRemote 配置，避免创建多余的远程仓库
+	log.Debug("跳过设置 Git checkout.defaultRemote 配置，避免创建多余的远程仓库")
 
 	// 设置其他默认配置
 	log.Debug("设置Git core.autocrlf=false")
