@@ -11,6 +11,8 @@
 
 # IDE文件
 .idea/
+.trae/
+.repo/
 .vscode/
 *.swp
 *.swo
