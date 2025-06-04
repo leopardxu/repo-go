@@ -640,6 +640,40 @@ func (e *Engine) cloneProject(p *project.Project) error {
 		args = append(args, "--quiet")
 	}
 
+	// 添加分支参数，确保克隆时指定正确的分支
+	if p.Revision != "" {
+		// 处理 revision 格式，移除可能的 refs/heads/ 或 refs/tags/ 前缀
+		revision := p.Revision
+		if strings.HasPrefix(revision, "refs/heads/") {
+			revision = strings.TrimPrefix(revision, "refs/heads/")
+		} else if strings.HasPrefix(revision, "refs/tags/") {
+			revision = strings.TrimPrefix(revision, "refs/tags/")
+		}
+
+		// 判断 revision 是否看起来像提交 ID（通常是 40 位或缩短的十六进制字符串）
+		isCommitID := false
+		if len(revision) >= 7 && len(revision) <= 40 {
+			isCommitID = true
+			for _, c := range revision {
+				if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+					isCommitID = false
+					break
+				}
+			}
+		}
+
+		// 只有当 revision 不是提交 ID 时才使用 --branch 参数
+		// 对于提交 ID，我们将在克隆后执行检出操作
+		if !isCommitID {
+			args = append(args, "--branch", revision)
+			if !e.options.Quiet {
+				e.logger.Info("克隆项目 %s 时指定分支: %s", p.Name, revision)
+			}
+		} else if !e.options.Quiet {
+			e.logger.Info("项目 %s 的 revision 看起来像提交 ID: %s，将在克隆后检出", p.Name, revision)
+		}
+	}
+
 	// 添加远程URL和目标目录
 	args = append(args, remoteURL, p.Worktree)
 
@@ -695,6 +729,23 @@ func (e *Engine) cloneProject(p *project.Project) error {
 			ProjectName: p.Name,
 			Phase:       "setup_remote",
 			Err:         err,
+		}
+	}
+
+	// 克隆成功后，确保检出正确的分支
+	if !e.options.NetworkOnly && p.Revision != "" {
+		if !e.options.Quiet && e.options.Verbose {
+			e.logger.Info("确保项目 %s 检出到正确的版本: %s", p.Name, p.Revision)
+		}
+
+		// 执行检出操作
+		if err := e.checkoutProject(p); err != nil {
+			return &SyncError{
+				ProjectName: p.Name,
+				Phase:       "post_clone_checkout",
+				Err:         err,
+				Timestamp:   time.Now(),
+			}
 		}
 	}
 

@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,7 +117,7 @@ func InitCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.StandaloneManifest, "standalone-manifest", false, "download the manifest as a static file")
 
 	// 清单检出选项
-	cmd.Flags().BoolVar(&opts.CurrentBranch, "current-branch", false, "fetch only current manifest branch")
+	cmd.Flags().BoolVar(&opts.CurrentBranch, "current-branch", true, "fetch only current manifest branch")
 	cmd.Flags().BoolVar(&opts.NoCurrentBranch, "no-current-branch", false, "fetch all manifest branches")
 	cmd.Flags().BoolVar(&opts.Tags, "tags", false, "fetch tags in the manifest")
 	cmd.Flags().BoolVar(&opts.NoTags, "no-tags", false, "don't fetch tags in the manifest")
@@ -245,8 +246,117 @@ func promptForUserInfo() error {
 func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 	// 创建.repo/manifests目录
 	manifestsDir := filepath.Join(".repo", "manifests")
-	if err := os.MkdirAll(manifestsDir, 0755); err != nil {
-		return fmt.Errorf("failed to create manifests directory: %w", err)
+
+	// 检查目录是否已存在
+	if info, err := os.Stat(manifestsDir); err == nil && info.IsDir() {
+		// 目录已存在，检查是否为空
+		files, err := os.ReadDir(manifestsDir)
+		if err != nil {
+			return fmt.Errorf("failed to read manifests directory: %w", err)
+		}
+
+		// 如果目录不为空，需要先清空目录或更新现有仓库
+		if len(files) > 0 {
+			// 检查是否是有效的git仓库
+			gitDirPath := filepath.Join(manifestsDir, ".git")
+			if _, err := os.Stat(gitDirPath); err == nil {
+				// 是有效的git仓库，执行fetch更新
+				currentDir, err := os.Getwd()
+				if err != nil {
+					return fmt.Errorf("failed to get current directory: %w", err)
+				}
+
+				// 切换到manifests目录
+				if err := os.Chdir(manifestsDir); err != nil {
+					return fmt.Errorf("failed to change to manifests directory: %w", err)
+				}
+
+				// 执行git fetch更新
+				_, err = gitRunner.Run("fetch", "--all")
+
+				// 如果指定了分支，切换到该分支
+				if cfg.ManifestBranch != "" {
+					// 先检查分支是否存在
+					output, err := gitRunner.Run("branch", "-a")
+					if err != nil {
+						// 返回原目录
+						if chErr := os.Chdir(currentDir); chErr != nil {
+							return fmt.Errorf("failed to return to original directory: %w", chErr)
+						}
+						return fmt.Errorf("failed to list branches: %w", err)
+					}
+
+					// 检查分支是否存在
+					branchExists := false
+					remoteBranchExists := false
+					remoteBranchName := "remotes/origin/" + cfg.ManifestBranch
+					for _, line := range strings.Split(string(output), "\n") {
+						if strings.Contains(line, " "+cfg.ManifestBranch) || strings.Contains(line, "* "+cfg.ManifestBranch) {
+							branchExists = true
+						}
+						if strings.Contains(line, remoteBranchName) {
+							remoteBranchExists = true
+						}
+						if branchExists && remoteBranchExists {
+							break
+						}
+					}
+
+					if branchExists {
+						// 本地分支存在，切换到该分支
+						_, err = gitRunner.Run("checkout", cfg.ManifestBranch)
+					} else if remoteBranchExists {
+						// 远程分支存在，从远程创建本地分支
+						_, err = gitRunner.Run("checkout", "-b", cfg.ManifestBranch, "origin/"+cfg.ManifestBranch)
+					} else {
+						// 分支不存在，尝试从远程获取
+						_, err = gitRunner.Run("fetch", "origin", cfg.ManifestBranch+":"+cfg.ManifestBranch)
+						if err == nil {
+							_, err = gitRunner.Run("checkout", cfg.ManifestBranch)
+						} else {
+							// 如果远程分支不存在，记录警告但继续使用当前分支
+							log.Printf("警告: 无法获取指定的分支 %s，将使用当前分支", cfg.ManifestBranch)
+							err = nil
+						}
+					}
+
+					if err != nil {
+						// 返回原目录
+						if chErr := os.Chdir(currentDir); chErr != nil {
+							return fmt.Errorf("failed to return to original directory: %w", chErr)
+						}
+						return fmt.Errorf("failed to checkout branch %s: %w", cfg.ManifestBranch, err)
+					}
+				}
+
+				// 返回原目录
+				if chErr := os.Chdir(currentDir); chErr != nil {
+					return fmt.Errorf("failed to return to original directory: %w", chErr)
+				}
+
+				if err != nil {
+					return fmt.Errorf("failed to update manifest repository: %w", err)
+				}
+
+				// 更新成功，直接返回
+				return nil
+			} else {
+				// 不是有效的git仓库，需要清空目录
+				if err := os.RemoveAll(manifestsDir); err != nil {
+					return fmt.Errorf("failed to clean manifests directory: %w", err)
+				}
+
+				// 重新创建目录
+				if err := os.MkdirAll(manifestsDir, 0755); err != nil {
+					return fmt.Errorf("failed to create manifests directory: %w", err)
+				}
+			}
+		}
+	} else if os.IsNotExist(err) {
+		// 目录不存在，创建它
+		if err := os.MkdirAll(manifestsDir, 0755); err != nil {
+			return fmt.Errorf("failed to create manifests directory: %w", err)
+		}
 	}
 
 	// 构建克隆命令
