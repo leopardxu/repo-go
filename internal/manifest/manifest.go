@@ -550,6 +550,19 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 		manifest.Remotes[i].CustomAttrs = make(map[string]string)
 	}
 
+	// 当 default remote 为空且只有一个 remote 时，将该 remote 作为默认值
+	if manifest.Default.Remote == "" && len(manifest.Remotes) == 1 {
+		defaultRemote := manifest.Remotes[0]
+		manifest.Default.Remote = defaultRemote.Name
+		logger.Debug("未指定默认远程仓库，使用唯一的远程仓库 %s 作为默认值", defaultRemote.Name)
+
+		// 如果该 remote 有定义 revision，则将其作为默认的 revision
+		if manifest.Default.Revision == "" && defaultRemote.Revision != "" {
+			manifest.Default.Revision = defaultRemote.Revision
+			logger.Debug("未指定默认修订版本，使用远程仓库 %s 的修订版本 %s 作为默认值", defaultRemote.Name, defaultRemote.Revision)
+		}
+	}
+
 	// 处理项目
 
 	for i := range manifest.Projects {
@@ -1129,35 +1142,9 @@ func (m *Manifest) ToXML() (string, error) {
 	defaultRemote := m.Default.Remote
 	defaultRevision := m.Default.Revision
 
-	// 如果默认的Remote和Revision都为空，则尝试从default.xml中获
-	if defaultRemote == "" || defaultRevision == "" {
-		parser := NewParser()
-		// 尝试加载 .repo/manifests/default.xml
-		// 注意：这里假default.xml 总是位于 .repo/manifests/ 目录
-		// 您可能需要根据实际情况调整路径查找逻辑
-		defaultManifestPath := filepath.Join(".repo", "manifests", "default.xml")
-
-		// 检default.xml 是否存在
-		if _, err := os.Stat(defaultManifestPath); err == nil {
-			defaultManifest, err := parser.ParseFromFile(defaultManifestPath, nil) // 使用nil作为groups，表示不进行组过
-			if err == nil && defaultManifest != nil && defaultManifest.Default.Remote != "" && defaultManifest.Default.Revision != "" {
-				logger.Debug("从default.xml获取默认设置: remote=%s, revision=%s", defaultManifest.Default.Remote, defaultManifest.Default.Revision)
-				defaultRemote = defaultManifest.Default.Remote
-				defaultRevision = defaultManifest.Default.Revision
-			} else if err != nil {
-				logger.Warn("解析default.xml失败: %v", err)
-			} else {
-				logger.Warn("default.xml中未找到有效的默认remote和revision")
-				if defaultManifest.Remotes != nil && len(defaultManifest.Remotes) > 0 {
-					logger.Debug("从default.xml获取默认设置: remote=%s, revision=%s", defaultManifest.Remotes[0].Name, defaultManifest.Remotes[0].Name)
-					defaultRemote = defaultManifest.Remotes[0].Name
-					defaultRevision = defaultManifest.Remotes[0].Revision
-				}
-			}
-		} else {
-			logger.Warn("default.xml 文件不存在于 %s", defaultManifestPath)
-		}
-	}
+	// 由于所有项目都已经有明确的 remote 和 revision 属性，
+	// 不再需要从 default.xml 获取默认值
+	// 如果默认值为空，使用空字符串即可，因为项目已经有了自己的属性
 
 	// 添加默认设置
 	xml += fmt.Sprintf(`  <default remote="%s" revision="%s"`, defaultRemote, defaultRevision)
@@ -1199,15 +1186,21 @@ func (m *Manifest) ToXML() (string, error) {
 	// 添加项目
 	for _, p := range m.Projects {
 		xml += fmt.Sprintf(`  <project name="%s"`, p.Name)
+
+		// 始终包含 path 属性，如果为空则使用项目名称
 		if p.Path != "" {
 			xml += fmt.Sprintf(` path="%s"`, p.Path)
+		} else {
+			xml += fmt.Sprintf(` path="%s"`, p.Name)
 		}
-		if p.Remote != "" {
-			xml += fmt.Sprintf(` remote="%s"`, p.Remote)
-		}
-		if p.Revision != "" {
-			xml += fmt.Sprintf(` revision="%s"`, p.Revision)
-		}
+
+		// 始终包含 remote 属性，无论是项目自己定义的还是从 default 继承的
+		xml += fmt.Sprintf(` remote="%s"`, p.Remote)
+
+		// 始终包含 revision 属性，无论是项目自己定义的还是从 default 继承的
+		xml += fmt.Sprintf(` revision="%s"`, p.Revision)
+
+		// 其他属性按需包含
 		if p.Groups != "" {
 			xml += fmt.Sprintf(` groups="%s"`, p.Groups)
 		}
@@ -1221,9 +1214,12 @@ func (m *Manifest) ToXML() (string, error) {
 			xml += fmt.Sprintf(` clone-depth="%d"`, p.CloneDepth)
 		}
 
-		// 添加项目的自定义属
+		// 添加项目的自定义属性，但排除内部使用的属性
 		for k, v := range p.CustomAttrs {
-			xml += fmt.Sprintf(` %s="%s"`, k, v)
+			// 跳过以 "__" 开头的内部属性
+			if !strings.HasPrefix(k, "__") {
+				xml += fmt.Sprintf(` %s="%s"`, k, v)
+			}
 		}
 
 		// 检查是否有copyfile或linkfile子元
