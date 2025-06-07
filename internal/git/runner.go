@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -131,6 +132,13 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 	quiet := r.Quiet
 	r.mutex.RUnlock()
 
+	// 检查REPO_TRACE环境变量
+	repoTrace := os.Getenv("REPO_TRACE") != ""
+	if repoTrace {
+		// 如果设置了REPO_TRACE，强制启用详细输出
+		verbose = true
+	}
+
 	// 如果设置了并发控
 	if semaphore != nil {
 		semaphore <- struct{}{}
@@ -173,6 +181,11 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 			cmd.Dir = dir
 		}
 
+		// 如果设置了REPO_TRACE，记录环境变量
+		if repoTrace {
+			log.Trace("环境变量: %v", cmd.Env)
+		}
+
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -183,17 +196,29 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 		stderrBytes = stderr.Bytes()
 
 		// 处理输出
-		if verbose && len(stdoutBytes) > 0 {
-			log.Debug("标准输出: %s", string(stdoutBytes))
+		if (verbose || repoTrace) && len(stdoutBytes) > 0 {
+			if repoTrace {
+				log.Trace("标准输出: %s", string(stdoutBytes))
+			} else {
+				log.Debug("标准输出: %s", string(stdoutBytes))
+			}
 		}
 
-		if len(stderrBytes) > 0 && !quiet {
-			// 只有在非静默模式下才记录stderr
+		if len(stderrBytes) > 0 && (!quiet || repoTrace) {
+			// 只有在非静默模式下或启用REPO_TRACE时才记录stderr
 			if err != nil {
-				log.Warn("标准错误: %s", string(stderrBytes))
-			} else if verbose {
-				// 如果命令成功但有stderr输出，且处于详细模式，则记录为调试信
-				log.Debug("标准错误: %s", string(stderrBytes))
+				if repoTrace {
+					log.Trace("标准错误: %s", string(stderrBytes))
+				} else {
+					log.Warn("标准错误: %s", string(stderrBytes))
+				}
+			} else if verbose || repoTrace {
+				// 如果命令成功但有stderr输出，且处于详细模式或启用REPO_TRACE，则记录
+				if repoTrace {
+					log.Trace("标准错误: %s", string(stderrBytes))
+				} else {
+					log.Debug("标准错误: %s", string(stderrBytes))
+				}
 			}
 		}
 

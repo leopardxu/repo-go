@@ -47,18 +47,48 @@ Options:
   --event-log=EVENT_LOG filename of event log to append timeline to
   --git-trace2-event-log=GIT_TRACE2_EVENT_LOG directory to write git trace2 event log to
   --submanifest-path=REL_PATH submanifest path
-
-Available commands:
-  abandon artifact-dl artifact-ls branch branches checkout cherry-pick diff
-  diffmanifests download forall gitc-delete gitc-init grep help info init list
-  manifest overview prune rebase selfupdate smartsync stage start status sync
-  upload version`,
+        `,
 		Version: fmt.Sprintf("%s (commit: %s, built at: %s)",
 			version, commit, date),
 	}
 
+	// 设置PersistentPreRun钩子函数处理全局标志
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		// 处理--trace标志
+		trace, _ := cmd.Flags().GetBool("trace")
+		if trace {
+			// 设置REPO_TRACE环境变量
+			os.Setenv("REPO_TRACE", "1")
+			// 设置日志级别为Trace
+			logger.SetLevel(logger.LogLevelTrace)
+			log.Trace("启用了跟踪模式")
+		}
+
+		// 处理--trace-go标志
+		traceGo, _ := cmd.Flags().GetBool("trace-go")
+		if traceGo {
+			// 设置Go运行时跟踪
+			os.Setenv("GODEBUG", "http2debug=2,gctrace=1")
+			log.Trace("启用了Go运行时跟踪")
+		}
+
+		// 处理--color标志
+		color, _ := cmd.Flags().GetBool("color")
+		if !color {
+			// 禁用颜色输出
+			os.Setenv("NO_COLOR", "1")
+		}
+
+		// 处理--git-trace2-event-log标志
+		eventLog, _ := cmd.Flags().GetString("git-trace2-event-log")
+		if eventLog != "" {
+			// 设置Git Trace2事件日志
+			os.Setenv("GIT_TRACE2_EVENT", eventLog)
+			log.Trace("Git Trace2事件日志已设置为: %s", eventLog)
+		}
+	}
+
 	// 全局选项
-	// 修改这里，删除 -p 短标志，只保留 --paginate 长标志
 	rootCmd.PersistentFlags().Bool("paginate", false, "display command output in the pager")
 	rootCmd.PersistentFlags().Bool("no-pager", false, "disable the pager")
 	rootCmd.PersistentFlags().String("color", "auto", "control color usage: auto, always, never")
@@ -91,12 +121,6 @@ Available commands:
 	rootCmd.AddCommand(commands.RebaseCmd())
 	rootCmd.AddCommand(commands.SmartSyncCmd())
 	rootCmd.AddCommand(commands.StageCmd())
-	// 注释掉未定义的命令
-	// commands.ArtifactDlCmd(),
-	// commands.ArtifactLsCmd(),
-	// commands.GitcInitCmd(),
-	// commands.GitcDeleteCmd(),
-	// commands.OverviewCmd(),
 
 	// 执行命令
 	if err := rootCmd.Execute(); err != nil {

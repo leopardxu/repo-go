@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"github.com/leopardxu/repo-go/internal/logger"
 )
 
 // extractBaseURL 从清单URL中提取基础URL
@@ -47,7 +45,6 @@ func extractBaseURL(url string) string {
 	}
 
 	// 无法解析的情况下返回空字符串
-	logger.Debug("无法从%s 提取基础URL", url)
 	return ""
 }
 
@@ -61,8 +58,7 @@ func CloneManifestRepo(gitRunner GitRunner, cfg *Config) error {
 		return fmt.Errorf("清单仓库URL不能为空")
 	}
 
-	logger.Info("开始克隆清单仓库 %s", cfg.ManifestURL)
-	logger.Debug("清单分支: %s, 清单文件: %s", cfg.ManifestBranch, cfg.ManifestName)
+	// 开始克隆清单仓库
 
 	// 创建.repo目录
 	repoDir := ".repo"
@@ -83,9 +79,7 @@ func CloneManifestRepo(gitRunner GitRunner, cfg *Config) error {
 		baseURL := extractBaseURL(cfg.ManifestURL)
 		if baseURL != "" {
 			// 替换..为baseURL
-			oldURL := manifestURL
 			manifestURL = strings.Replace(manifestURL, "..", baseURL, -1)
-			logger.Debug("URL替换: %s -> %s", oldURL, manifestURL)
 		}
 	}
 
@@ -116,7 +110,6 @@ func CloneManifestRepo(gitRunner GitRunner, cfg *Config) error {
 	args = append(args, manifestURL, manifestsDir)
 
 	// 执行git clone命令
-	logger.Info("克隆清单仓库...")
 	_, err := gitRunner.Run(args...)
 	if err != nil {
 		return fmt.Errorf("克隆清单仓库失败: %w", err)
@@ -139,16 +132,14 @@ func CloneManifestRepo(gitRunner GitRunner, cfg *Config) error {
 
 	// 删除现有链接（如果存在）
 	if err := removeExistingLink(manifestLink); err != nil {
-		logger.Warn("移除现有链接失败: %v", err)
+		// 移除现有链接失败，继续处理
 	}
 
 	// 创建符号链接
-	logger.Info("创建清单符号链接: %s -> %s", manifestLink, relPath)
 	if err := createSymlink(relPath, manifestLink); err != nil {
 		return fmt.Errorf("创建清单符号链接失败: %w", err)
 	}
 
-	logger.Info("清单仓库克隆完成")
 	return nil
 }
 
@@ -172,7 +163,6 @@ func createSymlink(oldname, newname string) error {
 		fi, err := os.Stat(oldname)
 		if err == nil && fi.IsDir() {
 			// Windows下创建目录符号链接需要额外权
-			logger.Debug("在Windows上创建目录符号链 %s -> %s", newname, oldname)
 		}
 	}
 

@@ -147,7 +147,7 @@ func (m *Manager) AddProject(p *Project) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	logger.Info("添加项目: %s (路径: %s, 修订版本: %s)", p.Name, p.Path, p.Revision)
+	// logger.Info("添加项目: %s (路径: %s, 修订版本: %s)", p.Name, p.Path, p.Revision)
 	m.Projects = append(m.Projects, p)
 }
 

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/leopardxu/repo-go/internal/logger"
 )
 
 // 定义错误类型
@@ -316,10 +314,9 @@ func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, err
 			// 检查文件是否被修改
 			fileInfo, err := os.Stat(successPath)
 			if err == nil && !fileInfo.ModTime().After(cachedModTime) {
-				// 文件未被修改，使用缓
-				logger.Debug("使用缓存的清单文件 %s", successPath)
+				// 文件未被修改，使用缓存
 
-				// 创建副本以避免修改缓
+				// 创建副本以避免修改缓存
 				manifestCopy := *cachedManifest
 
 				// 应用组过
@@ -339,15 +336,8 @@ func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, err
 	}
 
 	// 记录文件信息
-	logger.Info("成功从以下位置加载清单 %s", successPath)
 	if len(data) == 0 {
-		logger.Warn("清单文件为空: %s", successPath)
-	} else if !p.silentMode {
-		previewLen := 100
-		if len(data) < previewLen {
-			previewLen = len(data)
-		}
-		logger.Debug("清单内容预览: %s...", data[:previewLen])
+		// 清单文件为空
 	}
 
 	// 解析数据
@@ -369,8 +359,6 @@ func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, err
 			fileModTimeCache[successPath] = fileInfo.ModTime()
 			fileModTimeMux.Unlock()
 			manifestCacheMux.Unlock()
-
-			logger.Debug("已缓存清单文件 %s", successPath)
 		}
 	}
 
@@ -452,11 +440,7 @@ func (p *Parser) findManifestFile(filename string) (string, error) {
 	}
 	paths = uniquePaths
 
-	// 记录查找路径
-	logger.Debug("正在查找清单文件，尝试以下路")
-	for _, path := range paths {
-		logger.Debug("  - %s", path)
-	}
+	// 尝试查找清单文件
 
 	// 尝试读取文件
 	for _, path := range paths {
@@ -492,19 +476,14 @@ func (p *Parser) filterProjectsByGroups(manifest *Manifest, groups []string) (*M
 		return manifest, nil
 	}
 
-	logger.Info("根据以下组过滤项 %v", groups)
-
 	filteredProjects := make([]Project, 0)
 	for _, proj := range manifest.Projects {
 		if shouldIncludeProject(proj, groups) {
 			filteredProjects = append(filteredProjects, proj)
-			logger.Debug("包含项目: %s ( %s)", proj.Name, proj.Groups)
-		} else {
-			logger.Debug("排除项目: %s ( %s)", proj.Name, proj.Groups)
 		}
 	}
 
-	logger.Info("过滤后的项目数量: %d (原始数量: %d)", len(filteredProjects), len(manifest.Projects))
+	// 过滤项目完成
 
 	manifest.Projects = filteredProjects
 	return manifest, nil
@@ -554,12 +533,10 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 	if manifest.Default.Remote == "" && len(manifest.Remotes) == 1 {
 		defaultRemote := manifest.Remotes[0]
 		manifest.Default.Remote = defaultRemote.Name
-		logger.Debug("未指定默认远程仓库，使用唯一的远程仓库 %s 作为默认值", defaultRemote.Name)
 
 		// 如果该 remote 有定义 revision，则将其作为默认的 revision
 		if manifest.Default.Revision == "" && defaultRemote.Revision != "" {
 			manifest.Default.Revision = defaultRemote.Revision
-			logger.Debug("未指定默认修订版本，使用远程仓库 %s 的修订版本 %s 作为默认值", defaultRemote.Name, defaultRemote.Revision)
 		}
 	}
 
@@ -570,17 +547,14 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 		// 如果项目没有指定路径，则使用项目名称作为默认路径
 		if manifest.Projects[i].Path == "" {
 			manifest.Projects[i].Path = manifest.Projects[i].Name
-			logger.Debug("项目 %s 未指定路径，使用名称作为默认路径", manifest.Projects[i].Name)
 		}
 		// 如果项目没有指定远程仓库，则使用默认远程仓库
 		if manifest.Projects[i].Remote == "" {
 			manifest.Projects[i].Remote = manifest.Default.Remote
-			logger.Debug("项目 %s 未指定远程仓库，使用默认远程仓库 %s", manifest.Projects[i].Name, manifest.Default.Remote)
 		}
 		// 如果项目没有指定修订版本，则使用默认修订版本
 		if manifest.Projects[i].Revision == "" {
 			manifest.Projects[i].Revision = manifest.Default.Revision
-			logger.Debug("项目 %s 未指定修订版本，使用默认修订版本 %s", manifest.Projects[i].Name, manifest.Default.Revision)
 		}
 		// 验证远程仓库是否存在
 		remoteExists := false
@@ -593,9 +567,7 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 			}
 		}
 		if !remoteExists {
-			// 如果找不到远程仓库，记录警告但不中断处理
-			logger.Warn("警告: 项目 %s 引用了不存在的远程仓%s，这可能导致同步失败",
-				manifest.Projects[i].Name, manifest.Projects[i].Remote)
+			// 如果找不到远程仓库，不中断处理
 		} else {
 			// 记录远程仓库的Fetch属性，用于后续构建完整URL
 			manifest.Projects[i].CustomAttrs["__remote_fetch"] = remoteObj.Fetch
@@ -609,7 +581,6 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 
 			// 存储完整的远程URL
 			manifest.Projects[i].CustomAttrs["__remote_url"] = remoteURL
-			logger.Debug("项目 %s 的远程URL: %s", manifest.Projects[i].Name, remoteURL)
 		}
 		for j := range manifest.Projects[i].Copyfiles {
 			manifest.Projects[i].Copyfiles[j].CustomAttrs = make(map[string]string)
@@ -649,7 +620,6 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 
 		// 如果项目名称或路径已存在，则跳过
 		if projectMap[key] || pathMap[pathKey] {
-			logger.Debug("跳过重复项目: %s (路径: %s)", key, pathKey)
 			continue
 		}
 
@@ -662,7 +632,6 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 	}
 
 	// 更新项目列表
-	logger.Info("项目去重: 原始数量 %d, 去重后数%d", len(manifest.Projects), len(deduplicatedProjects))
 	manifest.Projects = deduplicatedProjects
 
 	// 根据groups过滤项目
@@ -888,7 +857,6 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 	// 处理所有包含的清单文件
 	for i, include := range manifest.Includes {
 		includeName := include.Name
-		logger.Debug("处理包含的清单文 %s", includeName)
 
 		// 构建可能的路
 		paths := []string{}
