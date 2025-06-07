@@ -26,3 +26,8 @@ repo start my-feature
 # 查看状态
 repo status
 ```
+## download command
+```bash
+#需配置.ssh/config文件,确保如下命令可以执行：
+ssh  gerrit gerrit query status:open
+```

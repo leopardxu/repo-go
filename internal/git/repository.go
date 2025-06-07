@@ -14,7 +14,7 @@ import (
 )
 
 // 使用包级别的日志记录器
-var repoLog logger.Logger = &logger.DefaultLogger{}
+var repoLog logger.Logger = logger.NewDefaultLogger()
 
 // SetRepositoryLogger 设置仓库操作的日志记录器
 func SetRepositoryLogger(logger logger.Logger) {

@@ -14,7 +14,7 @@ import (
 )
 
 // 包级别的日志记录器
-var log logger.Logger = &logger.DefaultLogger{}
+var log logger.Logger = logger.NewDefaultLogger()
 
 // SetLogger 设置日志记录器
 func SetLogger(logger logger.Logger) {
