@@ -676,6 +676,19 @@ func (e *Engine) cloneProject(p *project.Project) error {
 		}
 	}
 
+	// 添加 --reference 参数，指定本地参考仓库路径
+	if e.options.Reference != "" {
+		// 检查参考仓库路径是否存在
+		if _, err := os.Stat(e.options.Reference); err == nil {
+			args = append(args, "--reference", e.options.Reference)
+			if !e.options.Quiet {
+				e.logger.Info("项目 %s 将使用参考仓库: %s", p.Name, e.options.Reference)
+			}
+		} else {
+			e.logger.Warn("指定的参考仓库路径不存在: %s，将不使用参考仓库", e.options.Reference)
+		}
+	}
+
 	// 添加 LFS 支持
 	if e.options.GitLFS {
 		// 确保 git-lfs 已安装

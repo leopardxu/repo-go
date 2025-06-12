@@ -44,4 +44,5 @@ type Options struct {
 	DryRun                 bool           // 添加 DryRun 字段，用于模拟执行但不实际修改
 	Config                 *config.Config // 添加 Config 字段，用于存储配置信息
 	DefaultRemote          string         // 添加 DefaultRemote 字段，用于指定默认远程
+	Reference              string         // 添加 Reference 字段，用于指定本地参考仓库路径
 }

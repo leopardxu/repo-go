@@ -51,6 +51,7 @@ type SyncOptions struct {
 	NoThisManifestOnly     bool
 	GitLFS                 bool   // 是否启用Git LFS支持
 	DefaultRemote          string // 默认远程仓库名称，用于解决分支匹配多个远程的问题
+	Reference              string // 本地参考仓库路径，用于加速克隆
 	Config                 *config.Config
 	CommonManifestOptions
 }
@@ -153,6 +154,7 @@ func SyncCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&opts.ManifestServerPassword, "manifest-server-password", "w", "", "password to authenticate with the manifest server")
 	cmd.Flags().BoolVar(&opts.GitLFS, "git-lfs", true, "启用 Git LFS 支持")
 	cmd.Flags().StringVar(&opts.DefaultRemote, "default-remote", "", "设置默认远程仓库名称，用于解决分支匹配多个远程的问题")
+	cmd.Flags().StringVar(&opts.Reference, "reference", "", "指定本地参考仓库路径，用于加速克隆")
 
 	return cmd
 }
@@ -298,6 +300,7 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		ManifestServerPassword: opts.ManifestServerPassword,
 		GitLFS:                 opts.GitLFS,        // 添加Git LFS支持选项
 		DefaultRemote:          opts.DefaultRemote, // 添加默认远程仓库选项
+		Reference:              opts.Reference,     // 添加本地参考仓库路径选项
 		Config:                 opts.Config,        // 添加Config字段，传递配置信
 	}, manifestObj, log)
 
