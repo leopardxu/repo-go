@@ -824,6 +824,7 @@ func initRepoStructure(repoDir string) error {
 		".repo",
 		".repo/manifests",
 		".repo/project-objects",
+		".repo/repo",
 		".repo/projects",
 		".repo/hooks",
 	}
