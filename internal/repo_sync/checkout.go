@@ -128,7 +128,7 @@ func (e *Engine) CheckoutBranch(projects []*project.Project) error {
 }
 
 // processCheckoutResult 处理检出结果
-func (e *Engine) processCheckoutResult(result CheckoutResult, pm *progress.ConsoleReporter) {
+func (e *Engine) processCheckoutResult(result CheckoutResult, pm progress.Reporter) {
 	e.checkoutStats.mu.Lock()
 	defer e.checkoutStats.mu.Unlock()
 

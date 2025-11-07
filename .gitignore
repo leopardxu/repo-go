@@ -25,3 +25,5 @@ coverage.txt
 *.tmp
 *.log
 .DS_Store
+repo.exe
+.qoder/

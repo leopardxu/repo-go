@@ -125,7 +125,7 @@ func (e *Engine) CherryPickCommit(projects []*project.Project) error {
 }
 
 // processCherryPickResult 处理cherry-pick结果
-func (e *Engine) processCherryPickResult(result CherryPickResult, pm *progress.ConsoleReporter) {
+func (e *Engine) processCherryPickResult(result CherryPickResult, pm progress.Reporter) {
 	e.cherryPickStats.mu.Lock()
 	defer e.cherryPickStats.mu.Unlock()
 

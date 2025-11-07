@@ -8,8 +8,10 @@ import (
 	"sync"
 
 	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/git"
 	"github.com/leopardxu/repo-go/internal/logger"
 	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/progress"
 	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -114,6 +116,12 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 		branchName = opts.Branch
 	}
 
+	// 验证分支名格式（与原生git-repo保持一致）
+	if err := git.CheckRefFormat(fmt.Sprintf("heads/%s", branchName)); err != nil {
+		log.Error("分支名格式验证失败: %v", err)
+		return fmt.Errorf("'%s' is not a valid branch name", branchName)
+	}
+
 	// 获取项目列表
 	projectNames := args[1:]
 
@@ -158,6 +166,9 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 	// 使用goroutine池并发创建分支
 	log.Info("开始创建分支，并行任务数 %d...", opts.Jobs)
 
+	// 创建进度显示器
+	prog := progress.NewProgress(fmt.Sprintf("Starting %s", branchName), len(projects), opts.Quiet)
+
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(projects))
 	resultChan := make(chan string, len(projects))
@@ -174,11 +185,24 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 
 			log.Debug("在项%s 中创建分'%s'...", p.Name, branchName)
 
-			// 确定使用的修订版
+			// 确定使用的修订版和分支合并目标
 			revision := opts.Rev
+
+			// 如果没有指定revision，使用项目的revision
 			if revision == "" {
 				revision = p.Revision
 			}
+
+			// 处理不可变修订版本（SHA1、tag、change）
+			// 如果是不可变的修订版本（如SHA1、tag），使用默认修订版本作为上游
+			if git.IsImmutable(p.Revision) {
+				if manifest.Default.Revision != "" {
+					// 使用默认修订版本作为分支合并目标
+					log.Debug("项目 %s 的修订版本 %s 是不可变的，使用默认修订版本 %s 作为上游",
+						p.Name, p.Revision, manifest.Default.Revision)
+				}
+			}
+
 			log.Debug("项目 %s 使用修订版本: %s", p.Name, revision)
 
 			// 创建分支
@@ -186,11 +210,13 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 				log.Error("项目 %s 创建分支失败: %v", p.Name, err)
 				errChan <- fmt.Errorf("project %s: %w", p.Name, err)
 				stats.increment(false)
+				prog.Update(p.Name + " - 失败")
 				return
 			}
 
 			resultChan <- fmt.Sprintf("项目 %s: 分支 '%s' 创建成功", p.Name, branchName)
 			stats.increment(true)
+			prog.Update(p.Name)
 			log.Debug("项目 %s 分支创建完成", p.Name)
 		}()
 	}
@@ -198,6 +224,7 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 	// 启动一goroutine 来关闭结果通道
 	go func() {
 		wg.Wait()
+		prog.Finish("") // 完成进度
 		close(errChan)
 		close(resultChan)
 	}()

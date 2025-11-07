@@ -549,3 +549,49 @@ func (r *Repository) RemoveRemote(remoteName string) error {
 
 	return nil
 }
+
+// CheckRefFormat 验证引用名称格式是否有效
+// 相当于原生 git-repo 的 git.check_ref_format
+func CheckRefFormat(refName string) error {
+	runner := NewRunner()
+	_, err := runner.Run("check-ref-format", refName)
+	if err != nil {
+		return fmt.Errorf("'%s' is not a valid ref name", refName)
+	}
+	return nil
+}
+
+// IsImmutable 检查修订版本表达式是否是不可变的（SHA1、tag或change）
+// 不可变的修订版本不能直接推送，需要使用dest_branch或默认修订版本
+func IsImmutable(revisionExpr string) bool {
+	if revisionExpr == "" {
+		return false
+	}
+
+	// SHA1 格式检查：40位或7+位十六进制字符
+	if len(revisionExpr) >= 7 {
+		allHex := true
+		for _, c := range revisionExpr {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+				allHex = false
+				break
+			}
+		}
+		if allHex {
+			return true
+		}
+	}
+
+	// refs/tags/ 开头的是tag，不可变
+	if strings.HasPrefix(revisionExpr, "refs/tags/") {
+		return true
+	}
+
+	// refs/changes/ 开头的是change，不可变
+	if strings.HasPrefix(revisionExpr, "refs/changes/") {
+		return true
+	}
+
+	// HEAD, master, main 等分支名是可变的
+	return false
+}

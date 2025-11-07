@@ -196,7 +196,8 @@ func (e *Engine) fetch(projects []*project.Project) (bool, map[string]bool) {
 	// 创建进度
 	var pm progress.Reporter
 	if !e.options.Quiet {
-		pm = progress.New(len(projects))
+		pm = progress.NewConsoleReporter()
+		pm.Start(len(projects))
 	}
 
 	// 按对象目录分组项

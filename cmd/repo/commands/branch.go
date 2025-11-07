@@ -6,9 +6,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/leopardxu/repo-go/internal/color"
 	"github.com/leopardxu/repo-go/internal/config"
 	"github.com/leopardxu/repo-go/internal/logger"
 	"github.com/leopardxu/repo-go/internal/manifest"
+	"github.com/leopardxu/repo-go/internal/progress"
 	"github.com/leopardxu/repo-go/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -106,10 +108,14 @@ func runBranch(opts *BranchOptions, args []string) error {
 		ProjectName   string
 		CurrentBranch string
 		Branches      []string
+		Published     map[string]bool // 分支是否已发布
 		Err           error
 	}
 
 	log.Info("正在获取项目分支信息，并行任务数: %d...", opts.Jobs)
+
+	// 创建进度显示器
+	prog := progress.NewProgress("Fetching branches", len(projects), opts.Quiet)
 
 	results := make(chan branchResult, len(projects))
 	sem := make(chan struct{}, opts.Jobs)
@@ -148,6 +154,10 @@ func runBranch(opts *BranchOptions, args []string) error {
 			branches := strings.Split(strings.TrimSpace(string(branchesOutputBytes)), "\n")
 
 			log.Debug("项目 %s 当前分支: %s, 共有 %d 个分支", p.Name, currentBranch, len(branches))
+
+			// 更新进度
+			prog.Update(p.Name)
+
 			results <- branchResult{ProjectName: p.Name, CurrentBranch: currentBranch, Branches: branches}
 		}()
 	}
@@ -200,19 +210,36 @@ func runBranch(opts *BranchOptions, args []string) error {
 
 	// 显示分支信息
 	if !opts.Quiet {
-		log.Info("分支信息汇")
+		// 完成进度
+		prog.Finish("")
+
+		// 创建颜色输出器
+		useColor := color.ShouldUseColor(opts.Color)
+		coloring := color.NewBranchColoring(useColor)
+
+		log.Info("分支信息汇总")
 
 		for _, branch := range branchNames {
 			projs := branchInfo[branch]
 			prefix := " "
+			branchText := branch
+
 			if currentBranches[branch] {
 				prefix = "*"
+				// 当前分支用绿色显示
+				branchText = coloring.Current(branch)
+			} else {
+				// 普通分支
+				branchText = coloring.Local(branch)
 			}
 
+			// 处理百分号转义
+			branchDisplay := strings.ReplaceAll(branchText, "%", "%%")
+
 			if len(projs) == len(projects) {
-				log.Info("%s %-30s | 所有项目", prefix, branch)
+				log.Info("%s %-30s | 所有项目", prefix, branchDisplay)
 			} else {
-				log.Info("%s %-30s | 在项目 %s", prefix, branch, strings.Join(projs, ", "))
+				log.Info("%s %-30s | 在项目 %s", prefix, branchDisplay, strings.Join(projs, ", "))
 			}
 		}
 

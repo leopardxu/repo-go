@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/git"
 	"github.com/leopardxu/repo-go/internal/logger"
 	"github.com/leopardxu/repo-go/internal/manifest"
 	"github.com/leopardxu/repo-go/internal/project"
@@ -79,6 +80,17 @@ func runAbandon(opts *AbandonOptions, args []string) error {
 	}
 	if opts.Project != "" {
 		projectNames = append(projectNames, opts.Project)
+	}
+
+	// 验证分支名格式（与原生git-repo保持一致）
+	if !opts.All && branchName != "" {
+		// 支持空格分隔的多个分支名
+		branches := strings.Fields(branchName)
+		for _, branch := range branches {
+			if err := git.CheckRefFormat(fmt.Sprintf("heads/%s", branch)); err != nil {
+				return fmt.Errorf("%s are not valid branch names", branches)
+			}
+		}
 	}
 
 	if !opts.Quiet {
