@@ -27,9 +27,11 @@ type SyncOptions struct {
 	ForceSync              bool
 	ForceRemoveDirty       bool
 	ForceOverwrite         bool
+	ForceBroken            bool // 继续同步即使项目已损坏
 	LocalOnly              bool
 	NetworkOnly            bool
 	Prune                  bool
+	NoPrune                bool // 显式禁用prune
 	Quiet                  bool
 	Verbose                bool // 是否显示详细日志
 	SmartSync              bool
@@ -44,11 +46,15 @@ type SyncOptions struct {
 	NoManifestUpdate       bool
 	ManifestServerUsername string
 	ManifestServerPassword string
+	ManifestServerURL      string // manifest服务器URL
+	NoManifestServer       bool   // 禁用manifest服务器
 	UseSuperproject        bool
 	NoUseSuperproject      bool
 	HyperSync              bool
 	SmartTag               string
 	NoThisManifestOnly     bool
+	AutoGC                 bool   // sync后自动运行git gc
+	NoAutoGC               bool   // 禁用自动gc
 	GitLFS                 bool   // 是否启用Git LFS支持
 	DefaultRemote          string // 默认远程仓库名称，用于解决分支匹配多个远程的问题
 	Reference              string // 本地参考仓库路径，用于加速克隆
@@ -126,11 +132,13 @@ func SyncCmd() *cobra.Command {
 	cmd.Flags().BoolVarP(&opts.ForceSync, "force-sync", "f", false, "overwrite local changes")
 	cmd.Flags().BoolVar(&opts.ForceRemoveDirty, "force-remove-dirty", false, "force remove projects with uncommitted modifications")
 	cmd.Flags().BoolVar(&opts.ForceOverwrite, "force-overwrite", false, "force cleanup local uncommitted changes")
+	cmd.Flags().BoolVar(&opts.ForceBroken, "force-broken", false, "continue syncing other projects if a project sync fails")
 	cmd.Flags().BoolVarP(&opts.LocalOnly, "local-only", "l", false, "only update working tree, don't fetch")
 	cmd.Flags().BoolVar(&opts.NoManifestUpdate, "no-manifest-update", false, "use the existing manifest checkout as-is")
 	cmd.Flags().BoolVar(&opts.NoManifestUpdate, "nmu", false, "use the existing manifest checkout as-is")
 	cmd.Flags().BoolVarP(&opts.NetworkOnly, "network-only", "n", false, "fetch only, don't update working tree")
 	cmd.Flags().BoolVarP(&opts.Prune, "prune", "p", false, "delete projects not in manifest")
+	cmd.Flags().BoolVar(&opts.NoPrune, "no-prune", false, "do not delete projects not in manifest")
 	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "only show errors")
 	cmd.Flags().BoolVar(&opts.Verbose, "verbose", false, "show all output including debug logs")
 	cmd.Flags().BoolVarP(&opts.SmartSync, "smart-sync", "s", false, "smart sync using manifest from the latest known good build")
@@ -152,7 +160,11 @@ func SyncCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.NoThisManifestOnly, "all-manifests", false, "operate on this manifest and its submanifests")
 	cmd.Flags().StringVarP(&opts.ManifestServerUsername, "manifest-server-username", "u", "", "username to authenticate with the manifest server")
 	cmd.Flags().StringVarP(&opts.ManifestServerPassword, "manifest-server-password", "w", "", "password to authenticate with the manifest server")
-	cmd.Flags().BoolVar(&opts.GitLFS, "git-lfs", true, "启用 Git LFS 支持")
+	cmd.Flags().StringVar(&opts.ManifestServerURL, "manifest-server-url", "", "manifest server URL")
+	cmd.Flags().BoolVar(&opts.NoManifestServer, "no-manifest-server", false, "do not use the manifest server")
+	cmd.Flags().BoolVar(&opts.AutoGC, "auto-gc", false, "run git gc --auto after syncing")
+	cmd.Flags().BoolVar(&opts.NoAutoGC, "no-auto-gc", false, "do not run git gc --auto after syncing")
+	cmd.Flags().BoolVar(&opts.GitLFS, "git-lfs", false, "启用 Git LFS 支持")
 	cmd.Flags().StringVar(&opts.DefaultRemote, "default-remote", "", "设置默认远程仓库名称，用于解决分支匹配多个远程的问题")
 	cmd.Flags().StringVar(&opts.Reference, "reference", "", "指定本地参考仓库路径，用于加速克隆")
 
@@ -279,9 +291,10 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		ForceSync:              opts.ForceSync,
 		ForceRemoveDirty:       opts.ForceRemoveDirty,
 		ForceOverwrite:         opts.ForceOverwrite,
+		ForceBroken:            opts.ForceBroken,
 		LocalOnly:              opts.LocalOnly,
 		NetworkOnly:            opts.NetworkOnly,
-		Prune:                  opts.Prune,
+		Prune:                  opts.Prune && !opts.NoPrune,
 		Quiet:                  opts.Quiet,
 		Verbose:                opts.Verbose,
 		SmartSync:              opts.SmartSync,
@@ -293,11 +306,14 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		Groups:                 groupsSlice, // 传递已处理的分组信息，确保只克隆指定组的仓
 		FailFast:               opts.FailFast,
 		NoManifestUpdate:       opts.NoManifestUpdate,
+		ManifestServerUsername: opts.ManifestServerUsername,
+		ManifestServerPassword: opts.ManifestServerPassword,
+		ManifestServerURL:      opts.ManifestServerURL,
+		NoManifestServer:       opts.NoManifestServer,
 		UseSuperproject:        opts.UseSuperproject && !opts.NoUseSuperproject,
 		HyperSync:              opts.HyperSync,
 		SmartTag:               opts.SmartTag,
-		ManifestServerUsername: opts.ManifestServerUsername,
-		ManifestServerPassword: opts.ManifestServerPassword,
+		AutoGC:                 opts.AutoGC && !opts.NoAutoGC,
 		GitLFS:                 opts.GitLFS,        // 添加Git LFS支持选项
 		DefaultRemote:          opts.DefaultRemote, // 添加默认远程仓库选项
 		Reference:              opts.Reference,     // 添加本地参考仓库路径选项

@@ -29,10 +29,13 @@ type Options struct {
 	ForceSync              bool
 	ForceOverwrite         bool
 	ForceRemoveDirty       bool // 添加 ForceRemoveDirty 字段
+	ForceBroken            bool // 继续同步即使项目已损坏
 	FailFast               bool
 	HTTPTimeout            time.Duration
 	ManifestServerUsername string
 	ManifestServerPassword string
+	ManifestServerURL      string         // manifest服务器URL
+	NoManifestServer       bool           // 禁用manifest服务器
 	Groups                 []string       // 修改为字符串数组
 	Debug                  bool           // 添加 Debug 字段
 	OptimizedFetch         bool           // 添加 OptimizedFetch 字段
@@ -41,6 +44,7 @@ type Options struct {
 	Depth                  int            // 添加 Depth 字段
 	FetchSubmodules        bool           // 添加 FetchSubmodules 字段
 	NoManifestUpdate       bool           // 添加 NoManifestUpdate 字段
+	AutoGC                 bool           // sync后自动运行git gc
 	DryRun                 bool           // 添加 DryRun 字段，用于模拟执行但不实际修改
 	Config                 *config.Config // 添加 Config 字段，用于存储配置信息
 	DefaultRemote          string         // 添加 DefaultRemote 字段，用于指定默认远程

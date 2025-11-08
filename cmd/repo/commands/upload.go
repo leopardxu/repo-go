@@ -26,6 +26,9 @@ type UploadOptions struct {
 	Reviewers        string
 	Topic            string
 	NoVerify         bool
+	Verify           bool // 启用验证
+	IgnoreHooks      bool // 忽略hooks
+	Replace          bool // 替换现有change
 	Private          bool
 	Wip              bool
 	Jobs             int
@@ -89,6 +92,9 @@ func UploadCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&opts.Reviewers, "reviewers", "r", "", "请求这些人进行代码审核")
 	cmd.Flags().StringVarP(&opts.Topic, "topic", "t", "", "变更的主题")
 	cmd.Flags().BoolVar(&opts.NoVerify, "no-verify", false, "绕过上传前钩子")
+	cmd.Flags().BoolVar(&opts.Verify, "verify", false, "启用上传前验证")
+	cmd.Flags().BoolVar(&opts.IgnoreHooks, "ignore-hooks", false, "忽略所有hooks")
+	cmd.Flags().BoolVar(&opts.Replace, "replace", false, "替换现有的change")
 	cmd.Flags().BoolVar(&opts.Private, "private", false, "上传为私有状态")
 	cmd.Flags().BoolVar(&opts.Wip, "wip", false, "上传为进行中状态")
 	cmd.Flags().IntVarP(&opts.Jobs, "jobs", "j", runtime.NumCPU()*2, "并行运行的任务数量")
