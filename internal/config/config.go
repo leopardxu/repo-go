@@ -86,13 +86,20 @@ type Config struct {
 
 // Load 加载配置
 func Load() (*Config, error) {
-	configPath := filepath.Join(".repo", "config.json")
+	// 先定位顶层 repo 根目录，支持在任意子目录执行
+	repoRoot, err := GetRepoRoot()
+	if err != nil {
+		// 保持原有错误语义：未初始化或不在repo客户端
+		return nil, &ConfigError{Op: "load", Err: err}
+	}
+
+	configPath := filepath.Join(repoRoot, ".repo", "config.json")
 	log.Debug("加载配置文件: %s", configPath)
 
-	// 检查配置文件是否存
+	// 检查配置文件是否存在
 	fileInfo, err := os.Stat(configPath)
 	if os.IsNotExist(err) {
-		log.Error("配置文件不存 %s", configPath)
+		log.Error("配置文件不存在 %s", configPath)
 		return nil, &ConfigError{Op: "load", Path: configPath, Err: fmt.Errorf("repo not initialized, run 'repo init' first")}
 	}
 	if err != nil {
@@ -103,10 +110,12 @@ func Load() (*Config, error) {
 	// 检查缓存是否有效
 	configMutex.RLock()
 	if configCache != nil && !fileInfo.ModTime().After(configLastModTime) {
-		config := configCache
+		// 确保返回的缓存配置包含正确的 RepoRoot
+		cached := *configCache
+		cached.RepoRoot = repoRoot
 		configMutex.RUnlock()
 		log.Debug("使用缓存的配置")
-		return config, nil
+		return &cached, nil
 	}
 	configMutex.RUnlock()
 
@@ -116,7 +125,9 @@ func Load() (*Config, error) {
 
 	// 再次检查，避免在获取写锁期间其他goroutine已经更新了缓存
 	if configCache != nil && !fileInfo.ModTime().After(configLastModTime) {
-		return configCache, nil
+		cached := *configCache
+		cached.RepoRoot = repoRoot
+		return &cached, nil
 	}
 
 	// 读取配置文件
@@ -126,7 +137,7 @@ func Load() (*Config, error) {
 		return nil, &ConfigError{Op: "read", Path: configPath, Err: err}
 	}
 
-	log.Debug("成功读取配置文件，大 %d 字节", len(data))
+	log.Debug("成功读取配置文件，大小 %d 字节", len(data))
 
 	// 解析配置
 	var config Config
@@ -154,6 +165,9 @@ func Load() (*Config, error) {
 		log.Warn("配置验证警告: %v", err)
 	}
 
+	// 写入正确的 RepoRoot，供上层使用
+	config.RepoRoot = repoRoot
+
 	// 更新缓存
 	configCache = &config
 	configLastModTime = fileInfo.ModTime()
@@ -177,12 +191,12 @@ func (c *Config) Save() error {
 		log.Warn("配置验证警告: %v", err)
 	}
 
-	// 确保版本号存
+	// 确保版本号存在
 	if c.Version == 0 {
 		c.Version = 1
 	}
 
-	// 序列化配
+	// 序列化配置
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		log.Error("序列化配置失 %v", err)
@@ -286,7 +300,7 @@ func (c *Config) GetRemoteURL() string {
 					}
 				}
 
-				// 如果没有找到默认远程，但有其他远程，使用第一
+				// 如果没有找到默认远程，但有其他远程，使用第一个
 				if len(manifest.Remotes) > 0 {
 					fetch := manifest.Remotes[0].Fetch
 					// 确保URL以斜杠结尾
@@ -340,7 +354,7 @@ func (c *Config) ExtractBaseURLFromManifestURL(manifestURL string) string {
 
 	// 处理SCP格式: git@example.com:path/to/repo
 	if strings.Contains(manifestURL, "@") && strings.Contains(manifestURL, ":") {
-		// 查找冒号的位
+		// 查找冒号的位置
 		parts := strings.SplitN(manifestURL, ":", 2)
 		if len(parts) == 2 {
 			// 返回 user@hostname 部分
@@ -350,7 +364,7 @@ func (c *Config) ExtractBaseURLFromManifestURL(manifestURL string) string {
 
 	// 处理HTTP/HTTPS URL
 	if strings.HasPrefix(manifestURL, "http://") || strings.HasPrefix(manifestURL, "https://") {
-		// 查找第三个斜杠后的位
+		// 查找第三个斜杠后的部分
 		parts := strings.SplitN(manifestURL, "/", 4)
 		if len(parts) >= 3 {
 			// 返回 protocol://hostname 部分
@@ -417,7 +431,7 @@ func resolveRelativePath(basePath, relativePath string) string {
 	baseDir := filepath.Dir(basePath)
 	resolvedPath := filepath.Join(baseDir, relativePath)
 
-	// 规范化路
+	// 规范化路径
 	resolvedPath = filepath.Clean(resolvedPath)
 
 	log.Debug("解析结果: %s", filepath.ToSlash(resolvedPath))
@@ -428,7 +442,7 @@ func resolveRelativePath(basePath, relativePath string) string {
 func (c *Config) ResolveRelativeURL(relativeURL string) string {
 	log.Debug("解析相对URL: %s", relativeURL)
 
-	// 如果不是相对路径，直接返
+	// 如果不是相对路径，直接返回
 	if !strings.HasPrefix(relativeURL, "../") {
 		return relativeURL
 	}
@@ -456,7 +470,7 @@ func (c *Config) ResolveRelativeURL(relativeURL string) string {
 	return relativeURL
 }
 
-// Validate 验证配置的完整性和正确
+// Validate 验证配置的完整性和正确性
 func (c *Config) Validate() error {
 	var errs []string
 
@@ -516,7 +530,7 @@ func (c *Config) ApplyEnvironment() {
 		c.Platform = platform
 	}
 
-	// 布尔值环境变
+	// 布尔值环境变量
 	if mirror := os.Getenv("GOGO_MIRROR"); mirror == "true" {
 		log.Debug("从环境变量设MIRROR: true")
 		c.Mirror = true
@@ -533,7 +547,7 @@ func (c *Config) ApplyEnvironment() {
 		c.Archive = false
 	}
 
-	// 整数值环境变
+	// 整数值环境变量
 	if depthStr := os.Getenv("GOGO_DEPTH"); depthStr != "" {
 		if depth, err := strconv.Atoi(depthStr); err == nil {
 			log.Debug("从环境变量设DEPTH: %d", depth)
@@ -561,14 +575,14 @@ func (c *Config) ApplyEnvironment() {
 	}
 }
 
-// migrateConfig 根据版本号迁移配
+// migrateConfig 根据版本号迁移配置
 func migrateConfig(config *Config) error {
-	// 如果没有版本号，假设为版
+	// 如果没有版本号，假设为版本1
 	if config.Version == 0 {
 		config.Version = 1
 	}
 
-	// 根据版本号进行迁
+	// 根据版本号进行迁移
 	switch config.Version {
 	case 1:
 		// 当前版本，无需迁移
