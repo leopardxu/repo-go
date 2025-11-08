@@ -180,10 +180,17 @@ func Load() (*Config, error) {
 func (c *Config) Save() error {
 	log.Debug("保存配置")
 
+	// 先定位顶层 repo 根目录，支持在任意子目录执行
+	repoRoot, err := GetRepoRoot()
+	if err != nil {
+		return &ConfigError{Op: "save", Err: err}
+	}
+
 	// 确保.repo目录存在
-	if err := os.MkdirAll(".repo", 0755); err != nil {
+	repoDir := filepath.Join(repoRoot, ".repo")
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
 		log.Error("创建.repo目录失败: %v", err)
-		return &ConfigError{Op: "save", Path: ".repo", Err: fmt.Errorf("failed to create .repo directory: %w", err)}
+		return &ConfigError{Op: "save", Path: repoDir, Err: fmt.Errorf("failed to create .repo directory: %w", err)}
 	}
 
 	// 验证配置
@@ -204,7 +211,7 @@ func (c *Config) Save() error {
 	}
 
 	// 写入配置文件
-	configPath := filepath.Join(".repo", "config.json")
+	configPath := filepath.Join(repoRoot, ".repo", "config.json")
 	if err := os.WriteFile(configPath, data, 0644); err != nil {
 		log.Error("写入配置文件失败: %v", err)
 		return &ConfigError{Op: "write", Path: configPath, Err: err}
@@ -266,8 +273,14 @@ func (c *Config) GetRemoteURL() string {
 		return c.DefaultRemoteURL
 	}
 
+	// 先定位repo根目录
+	repoRoot, err := GetRepoRoot()
+	if err != nil {
+		return ""
+	}
+
 	// 尝试repo/manifest.xml解析远程URL
-	manifestPath := filepath.Join(".repo", "manifest.xml")
+	manifestPath := filepath.Join(repoRoot, ".repo", "manifest.xml")
 	if _, err := os.Stat(manifestPath); err == nil {
 		// 读取manifest.xml文件
 		data, err := os.ReadFile(manifestPath)

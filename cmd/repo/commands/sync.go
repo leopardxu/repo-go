@@ -173,6 +173,14 @@ func SyncCmd() *cobra.Command {
 
 // runSync 执行sync命令
 func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
+	// 确保在repo根目录下执行
+	originalDir, err := EnsureRepoRoot(log)
+	if err != nil {
+		log.Error("查找repo根目录失败: %v", err)
+		return fmt.Errorf("failed to locate repo root: %w", err)
+	}
+	defer RestoreWorkDir(originalDir, log)
+
 	// 创建统计对象
 	stats := &syncStats{}
 
@@ -225,6 +233,31 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 	log.Debug("成功加载清单，包含 %d 个项目", len(manifestObj.Projects))
+
+	// 使用manifest中的default sync-j设置（如果有）
+	if manifestObj.Default.SyncJ > 0 && opts.Jobs == runtime.NumCPU()*2 {
+		// 只在使用默认值时应用manifest的配置
+		log.Info("使用manifest default sync-j: %d", manifestObj.Default.SyncJ)
+		opts.Jobs = manifestObj.Default.SyncJ
+		if opts.JobsNetwork == runtime.NumCPU()*2 {
+			opts.JobsNetwork = opts.Jobs
+		}
+		if opts.JobsCheckout == runtime.NumCPU()*2 {
+			opts.JobsCheckout = opts.Jobs
+		}
+	}
+
+	// 使用manifest中的default sync-c设置（如果有）
+	if manifestObj.Default.SyncC && opts.CurrentBranch {
+		log.Debug("使用manifest default sync-c: true")
+		opts.CurrentBranch = true
+	}
+
+	// 使用manifest中的default sync-tags设置（如果有）
+	if manifestObj.Default.SyncTags {
+		log.Debug("使用manifest default sync-tags: true")
+		opts.Tags = true
+	}
 
 	// 创建项目管理器
 	log.Debug("正在初始化项目管理器...")

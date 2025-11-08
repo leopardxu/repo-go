@@ -78,6 +78,14 @@ func runInfo(opts *InfoOptions, args []string) error {
 
 	log.Info("Starting info command")
 
+	// 确保在repo根目录下执行
+	originalDir, err := EnsureRepoRoot(log)
+	if err != nil {
+		log.Error("Failed to locate repo root: %v", err)
+		return err
+	}
+	defer RestoreWorkDir(originalDir, log)
+
 	// 加载配置
 	cfg, err := config.Load() // 声明err
 	if err != nil {

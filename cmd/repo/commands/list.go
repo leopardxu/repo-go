@@ -93,6 +93,14 @@ func runList(opts *ListOptions, args []string) error {
 
 	log.Info("开始列出项目")
 
+	// 确保在repo根目录下执行
+	originalDir, err := EnsureRepoRoot(log)
+	if err != nil {
+		log.Error("查找repo根目录失败: %v", err)
+		return fmt.Errorf("failed to locate repo root: %w", err)
+	}
+	defer RestoreWorkDir(originalDir, log)
+
 	// 加载配置
 	log.Debug("正在加载配置...")
 	cfg, err := config.Load()
@@ -231,7 +239,8 @@ func runList(opts *ListOptions, args []string) error {
 					output = p.Path
 				}
 			default:
-				output = path
+				// 默认输出项目名称和目录，与原生git-repo保持一致
+				output = fmt.Sprintf("%s : %s", path, p.Name)
 			}
 
 			// 输出项目信息

@@ -127,10 +127,17 @@ func runUpload(opts *UploadOptions, args []string) error {
 		log.SetLevel(logger.LogLevelInfo)
 	}
 
+	// 确保在repo根目录下执行
+	originalDir, err := EnsureRepoRoot(log)
+	if err != nil {
+		log.Error("查找repo根目录失败: %v", err)
+		return fmt.Errorf("failed to locate repo root: %w", err)
+	}
+	defer RestoreWorkDir(originalDir, log)
+
 	log.Info("开始上传代码变更进行审核")
 
 	// 加载配置
-	var err error
 	if opts.Config == nil {
 		opts.Config, err = config.Load()
 		if err != nil {
@@ -172,10 +179,23 @@ func runUpload(opts *UploadOptions, args []string) error {
 
 	log.Info("共有 %d 个项目需要处理", len(projects))
 
+	// 创建manifest项目名到项目的映射，用于访问dest-branch等信息
+	type ManifestProjectInfo struct {
+		DestBranch string
+		Upstream   string
+	}
+	manifestProjectInfo := make(map[string]ManifestProjectInfo)
+	for _, proj := range manifest.Projects {
+		manifestProjectInfo[proj.Name] = ManifestProjectInfo{
+			DestBranch: proj.DestBranch,
+			Upstream:   proj.Upstream,
+		}
+	}
+
 	// 构建上传选项
 	uploadArgs := []string{"push"}
 
-	// 添加目标分支
+	// 添加目标分支，如果没有指定，将在每个项目中处理
 	if opts.Branch != "" {
 		uploadArgs = append(uploadArgs, "origin", opts.Branch)
 	}
@@ -259,6 +279,20 @@ func runUpload(opts *UploadOptions, args []string) error {
 			defer func() { <-sem }()
 
 			log.Debug("处理项目: %s", p.Name)
+
+			// 确定目标分支（dest-branch）
+			destBranch := opts.Destination
+			if destBranch == "" && opts.Branch == "" {
+				// 如果没有指定，从 manifest 获取
+				if projInfo, exists := manifestProjectInfo[p.Name]; exists && projInfo.DestBranch != "" {
+					destBranch = projInfo.DestBranch
+				} else if manifest.Default.DestBranch != "" {
+					// 否则使用 default 的 dest-branch
+					destBranch = manifest.Default.DestBranch
+				}
+			}
+
+			log.Debug("项目 %s 的目标分支: %s", p.Name, destBranch)
 
 			// 如果指定-current-branch，检查当前分
 			if opts.CurrentBranch {

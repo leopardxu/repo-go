@@ -103,6 +103,14 @@ func StartCmd() *cobra.Command {
 
 // runStart 执行start命令
 func runStart(opts *StartOptions, args []string, log logger.Logger) error {
+	// 确保在repo根目录下执行
+	originalDir, err := EnsureRepoRoot(log)
+	if err != nil {
+		log.Error("查找repo根目录失败: %v", err)
+		return fmt.Errorf("failed to locate repo root: %w", err)
+	}
+	defer RestoreWorkDir(originalDir, log)
+
 	// 创建统计对象
 	stats := &startStats{}
 
@@ -166,6 +174,19 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 	// 使用goroutine池并发创建分支
 	log.Info("开始创建分支，并行任务数 %d...", opts.Jobs)
 
+	// 创建manifest项目名到项目的映射，用于访问upstream等信息
+	type ManifestProject struct {
+		Upstream   string
+		DestBranch string
+	}
+	manifestProjectInfo := make(map[string]ManifestProject)
+	for _, proj := range manifest.Projects {
+		manifestProjectInfo[proj.Name] = ManifestProject{
+			Upstream:   proj.Upstream,
+			DestBranch: proj.DestBranch,
+		}
+	}
+
 	// 创建进度显示器
 	prog := progress.NewProgress(fmt.Sprintf("Starting %s", branchName), len(projects), opts.Quiet)
 
@@ -193,6 +214,21 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 				revision = p.Revision
 			}
 
+			// 确定上游分支（用于设置跟踪关系）
+			upstream := ""
+			if projInfo, exists := manifestProjectInfo[p.Name]; exists {
+				upstream = projInfo.Upstream
+			}
+			if upstream == "" {
+				// 如果项目没有指定upstream，使用default的upstream
+				if manifest.Default.Upstream != "" {
+					upstream = manifest.Default.Upstream
+				} else {
+					// 否则使用revision作为upstream
+					upstream = revision
+				}
+			}
+
 			// 处理不可变修订版本（SHA1、tag、change）
 			// 如果是不可变的修订版本（如SHA1、tag），使用默认修订版本作为上游
 			if git.IsImmutable(p.Revision) {
@@ -200,10 +236,11 @@ func runStart(opts *StartOptions, args []string, log logger.Logger) error {
 					// 使用默认修订版本作为分支合并目标
 					log.Debug("项目 %s 的修订版本 %s 是不可变的，使用默认修订版本 %s 作为上游",
 						p.Name, p.Revision, manifest.Default.Revision)
+					upstream = manifest.Default.Revision
 				}
 			}
 
-			log.Debug("项目 %s 使用修订版本: %s", p.Name, revision)
+			log.Debug("项目 %s 使用修订版本: %s, 上游分支: %s", p.Name, revision, upstream)
 
 			// 创建分支
 			if err := p.GitRepo.CreateBranch(branchName, revision); err != nil {

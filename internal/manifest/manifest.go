@@ -48,16 +48,19 @@ type Manifest struct {
 	Remotes        []Remote          `xml:"remote"`
 	Default        Default           `xml:"default"`
 	Projects       []Project         `xml:"project"`
+	ExtendProjects []ExtendProject   `xml:"extend-project"` // 扩展已有项目
 	Includes       []Include         `xml:"include"`
 	RemoveProjects []RemoveProject   `xml:"remove-project"`
-	CustomAttrs    map[string]string `xml:"-"` // 存储自定义属性
+	RepoHooks      *RepoHooks        `xml:"repo-hooks"`                     // repo钩子配置
+	Superproject   *Superproject     `xml:"superproject"`                   // 超级项目配置
+	ManifestServer string            `xml:"manifest-server,attr,omitempty"` // manifest服务器
+	CustomAttrs    map[string]string `xml:"-"`                              // 存储自定义属性
 
 	// 添加与engine.go 兼容的字段
 	Subdir              string   // 清单子目录
 	RepoDir             string   // 仓库目录
 	Topdir              string   // 顶层目录
 	WorkDir             string   // 工作目录
-	ManifestServer      string   // 清单服务器
 	Server              string   // 服务器
 	ManifestProject     *Project // 清单项目
 	RepoProject         *Project // 仓库项目
@@ -97,6 +100,12 @@ func (r *Remote) GetCustomAttr(name string) (string, bool) {
 type Default struct {
 	Remote      string            `xml:"remote,attr"`
 	Revision    string            `xml:"revision,attr"`
+	DestBranch  string            `xml:"dest-branch,attr,omitempty"` // 默认目标分支
+	Upstream    string            `xml:"upstream,attr,omitempty"`    // 默认上游分支
+	SyncJ       int               `xml:"sync-j,attr,omitempty"`      // 默认并发数
+	SyncC       bool              `xml:"sync-c,attr,omitempty"`      // 默认仅同步当前分支
+	SyncS       bool              `xml:"sync-s,attr,omitempty"`      // 默认同步子模块
+	SyncTags    bool              `xml:"sync-tags,attr,omitempty"`   // 默认同步标签
 	Sync        string            `xml:"sync,attr,omitempty"`
 	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
 }
@@ -114,12 +123,15 @@ type Project struct {
 	Path        string            `xml:"path,attr,omitempty"`
 	Remote      string            `xml:"remote,attr,omitempty"`
 	Revision    string            `xml:"revision,attr,omitempty"`
+	Upstream    string            `xml:"upstream,attr,omitempty"`    // 上游分支，用于跟踪
+	DestBranch  string            `xml:"dest-branch,attr,omitempty"` // 目标分支，用于上传审查
 	Groups      string            `xml:"groups,attr,omitempty"`
 	SyncC       bool              `xml:"sync-c,attr,omitempty"`
 	SyncS       bool              `xml:"sync-s,attr,omitempty"`
 	CloneDepth  int               `xml:"clone-depth,attr,omitempty"`
 	Copyfiles   []Copyfile        `xml:"copyfile"`
 	Linkfiles   []Linkfile        `xml:"linkfile"`
+	Annotations []Annotation      `xml:"annotation"` // 项目注解
 	References  string            `xml:"references,attr,omitempty"`
 	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
 
@@ -211,6 +223,35 @@ type Linkfile struct {
 func (l *Linkfile) GetCustomAttr(name string) (string, bool) {
 	val, ok := l.CustomAttrs[name]
 	return val, ok
+}
+
+// Annotation 表示项目注解
+type Annotation struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:"value,attr"`
+}
+
+// ExtendProject 表示扩展已有项目的配置
+type ExtendProject struct {
+	Name      string     `xml:"name,attr"`
+	Path      string     `xml:"path,attr,omitempty"`
+	Groups    string     `xml:"groups,attr,omitempty"`
+	Revision  string     `xml:"revision,attr,omitempty"`
+	Remote    string     `xml:"remote,attr,omitempty"`
+	Copyfiles []Copyfile `xml:"copyfile"`
+	Linkfiles []Linkfile `xml:"linkfile"`
+}
+
+// RepoHooks 表示repo钩子配置
+type RepoHooks struct {
+	InProject   string `xml:"in-project,attr"`
+	EnabledList string `xml:"enabled-list,attr,omitempty"`
+}
+
+// Superproject 表示超级项目配置
+type Superproject struct {
+	Name   string `xml:"name,attr"`
+	Remote string `xml:"remote,attr,omitempty"`
 }
 
 // ToJSON 将清单转换为JSON格式
@@ -608,6 +649,19 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 		return nil, &ManifestError{Op: "process_includes", Err: err}
 	}
 
+	// 应用ExtendProject配置
+	if err := p.applyExtendProjects(&manifest); err != nil {
+		return nil, &ManifestError{Op: "apply_extend_projects", Err: err}
+	}
+
+	// 处理local_manifests（如果存在）
+	if err := p.processLocalManifests(&manifest, groups); err != nil {
+		// local_manifests是可选的，如果出错只记录警告
+		if !p.silentMode {
+			// local_manifests处理失败，继续执行
+		}
+	}
+
 	// 对项目列表进行去重处
 	deduplicatedProjects := make([]Project, 0)
 	projectMap := make(map[string]bool) // 用于跟踪项目名称
@@ -934,6 +988,225 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 	return nil
 }
 
+// applyExtendProjects 应用ExtendProject配置到现有项目
+func (p *Parser) applyExtendProjects(manifest *Manifest) error {
+	if len(manifest.ExtendProjects) == 0 {
+		return nil
+	}
+
+	// 创建项目名称到索引的映射
+	projectMap := make(map[string]int)
+	for i, proj := range manifest.Projects {
+		projectMap[proj.Name] = i
+		if proj.Path != "" && proj.Path != proj.Name {
+			projectMap[proj.Path] = i
+		}
+	}
+
+	// 应用每个ExtendProject
+	for _, extProj := range manifest.ExtendProjects {
+		// 查找对应的项目
+		idx, found := projectMap[extProj.Name]
+		if !found {
+			// 如果通过name找不到，尝试通过path查找
+			if extProj.Path != "" {
+				idx, found = projectMap[extProj.Path]
+			}
+		}
+
+		if !found {
+			// ExtendProject引用的项目不存在，记录警告并跳过
+			if !p.silentMode {
+				// 警告：extend-project引用的项目不存在
+			}
+			continue
+		}
+
+		// 应用扩展配置（增量更新，而非覆盖）
+		proj := &manifest.Projects[idx]
+
+		// 更新path（如果指定）
+		if extProj.Path != "" {
+			proj.Path = extProj.Path
+		}
+
+		// 更新groups（如果指定）
+		if extProj.Groups != "" {
+			proj.Groups = extProj.Groups
+		}
+
+		// 更新revision（如果指定）
+		if extProj.Revision != "" {
+			proj.Revision = extProj.Revision
+		}
+
+		// 更新remote（如果指定）
+		if extProj.Remote != "" {
+			proj.Remote = extProj.Remote
+		}
+
+		// 追加copyfiles
+		if len(extProj.Copyfiles) > 0 {
+			proj.Copyfiles = append(proj.Copyfiles, extProj.Copyfiles...)
+		}
+
+		// 追加linkfiles
+		if len(extProj.Linkfiles) > 0 {
+			proj.Linkfiles = append(proj.Linkfiles, extProj.Linkfiles...)
+		}
+	}
+
+	return nil
+}
+
+// processLocalManifests 处理.repo/local_manifests目录下的所有manifest文件
+func (p *Parser) processLocalManifests(manifest *Manifest, groups []string) error {
+	// 获取当前工作目录
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("无法获取当前工作目录: %w", err)
+	}
+
+	// 查找顶层仓库目录
+	topDir := findTopLevelRepoDir(cwd)
+	if topDir == "" {
+		topDir = cwd
+	}
+
+	// 构建local_manifests目录路径
+	localManifestsDir := filepath.Join(topDir, ".repo", "local_manifests")
+
+	// 检查目录是否存在
+	if _, err := os.Stat(localManifestsDir); os.IsNotExist(err) {
+		// local_manifests目录不存在，这是正常的
+		return nil
+	}
+
+	// 读取目录中的所有.xml文件
+	files, err := os.ReadDir(localManifestsDir)
+	if err != nil {
+		return fmt.Errorf("读取local_manifests目录失败: %w", err)
+	}
+
+	// 按文件名排序以确保确定性顺序
+	var xmlFiles []string
+	for _, file := range files {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".xml") {
+			xmlFiles = append(xmlFiles, filepath.Join(localManifestsDir, file.Name()))
+		}
+	}
+
+	if len(xmlFiles) == 0 {
+		return nil
+	}
+
+	// 处理每个local manifest文件
+	for _, xmlFile := range xmlFiles {
+		data, err := ioutil.ReadFile(xmlFile)
+		if err != nil {
+			// 读取失败，记录警告并继续
+			if !p.silentMode {
+				// 警告：读取local manifest文件失败
+			}
+			continue
+		}
+
+		// 解析local manifest
+		localManifest, err := p.Parse(data, groups)
+		if err != nil {
+			// 解析失败，记录警告并继续
+			if !p.silentMode {
+				// 警告：解析local manifest文件失败
+			}
+			continue
+		}
+
+		// 合并到主manifest
+		if err := p.mergeLocalManifest(manifest, localManifest); err != nil {
+			// 合并失败，记录警告并继续
+			if !p.silentMode {
+				// 警告：合并local manifest失败
+			}
+			continue
+		}
+	}
+
+	return nil
+}
+
+// mergeLocalManifest 将local manifest合并到主manifest
+func (p *Parser) mergeLocalManifest(main *Manifest, local *Manifest) error {
+	// 合并remotes
+	for _, remote := range local.Remotes {
+		exists := false
+		for _, r := range main.Remotes {
+			if r.Name == remote.Name {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			main.Remotes = append(main.Remotes, remote)
+		}
+	}
+
+	// 合并projects（覆盖同名项目）
+	projectMap := make(map[string]int)
+	for i, proj := range main.Projects {
+		projectMap[proj.Name] = i
+	}
+
+	for _, proj := range local.Projects {
+		if idx, exists := projectMap[proj.Name]; exists {
+			// 覆盖现有项目
+			main.Projects[idx] = proj
+		} else {
+			// 添加新项目
+			main.Projects = append(main.Projects, proj)
+			projectMap[proj.Name] = len(main.Projects) - 1
+		}
+	}
+
+	// 处理remove-project
+	for _, rp := range local.RemoveProjects {
+		// 从主manifest中移除项目
+		for i := 0; i < len(main.Projects); i++ {
+			if main.Projects[i].Name == rp.Name {
+				main.Projects = append(main.Projects[:i], main.Projects[i+1:]...)
+				i--
+			}
+		}
+	}
+
+	// 应用extend-project
+	for _, extProj := range local.ExtendProjects {
+		if idx, exists := projectMap[extProj.Name]; exists {
+			proj := &main.Projects[idx]
+			// 增量更新
+			if extProj.Path != "" {
+				proj.Path = extProj.Path
+			}
+			if extProj.Groups != "" {
+				proj.Groups = extProj.Groups
+			}
+			if extProj.Revision != "" {
+				proj.Revision = extProj.Revision
+			}
+			if extProj.Remote != "" {
+				proj.Remote = extProj.Remote
+			}
+			if len(extProj.Copyfiles) > 0 {
+				proj.Copyfiles = append(proj.Copyfiles, extProj.Copyfiles...)
+			}
+			if len(extProj.Linkfiles) > 0 {
+				proj.Linkfiles = append(proj.Linkfiles, extProj.Linkfiles...)
+			}
+		}
+	}
+
+	return nil
+}
+
 // CreateRepoStructure 创建.repo目录结构
 func (m *Manifest) CreateRepoStructure() error {
 	// 创建.repo目录
@@ -997,7 +1270,7 @@ func isStandardManifestAttr(name string) bool {
 
 func isStandardDefaultAttr(name string) bool {
 	switch name {
-	case "remote", "revision", "sync":
+	case "remote", "revision", "sync", "dest-branch", "upstream", "sync-j", "sync-c", "sync-s", "sync-tags":
 		return true
 	}
 	return false
@@ -1026,7 +1299,7 @@ func isStandardRemoteAttr(name string) bool {
 
 func isStandardProjectAttr(name string) bool {
 	switch name {
-	case "name", "path", "remote", "revision", "groups", "sync-c", "sync-s", "clone-depth", "references":
+	case "name", "path", "remote", "revision", "upstream", "dest-branch", "groups", "sync-c", "sync-s", "clone-depth", "references":
 		return true
 	}
 	return false
@@ -1283,7 +1556,8 @@ func containsAll(groups []string) bool {
 	return false
 }
 
-// shouldIncludeProject 检查项目是否应该包含在指定的组
+// shouldIncludeProject 检查项目是否应该包含在指定的组中
+// 支持否定表达式（以"-"开头的组表示排除）
 func shouldIncludeProject(project Project, groups []string) bool {
 	// 如果项目没有指定组，则默认为"default"
 	if project.Groups == "" {
@@ -1292,24 +1566,68 @@ func shouldIncludeProject(project Project, groups []string) bool {
 
 	// 解析项目的组
 	projectGroups := strings.Split(project.Groups, ",")
+	projectGroupSet := make(map[string]bool)
+	for _, pg := range projectGroups {
+		projectGroupSet[strings.TrimSpace(pg)] = true
+	}
 
-	// 检查是否包all"
+	// 分离包含和排除组
+	var includeGroups []string
+	var excludeGroups []string
+
 	for _, group := range groups {
+		group = strings.TrimSpace(group)
+		if group == "" {
+			continue
+		}
+		if strings.HasPrefix(group, "-") {
+			// 排除组
+			excludeGroups = append(excludeGroups, strings.TrimPrefix(group, "-"))
+		} else {
+			// 包含组
+			includeGroups = append(includeGroups, group)
+		}
+	}
+
+	// 检查是否包含"all"
+	for _, group := range includeGroups {
 		if group == "all" {
+			// 即使包含all，也要检查排除组
+			for _, excludeGroup := range excludeGroups {
+				if projectGroupSet[excludeGroup] {
+					return false
+				}
+			}
 			return true
 		}
 	}
 
-	// 检查是否有匹配的组
+	// 检查是否有匹配的包含组
+	hasMatch := false
 	for _, projectGroup := range projectGroups {
 		projectGroup = strings.TrimSpace(projectGroup)
-		for _, group := range groups {
-			group = strings.TrimSpace(group)
+		for _, group := range includeGroups {
 			if projectGroup == group {
-				return true
+				hasMatch = true
+				break
 			}
+		}
+		if hasMatch {
+			break
 		}
 	}
 
-	return false
+	// 如果没有匹配的包含组，返回false
+	if !hasMatch && len(includeGroups) > 0 {
+		return false
+	}
+
+	// 检查排除组
+	for _, excludeGroup := range excludeGroups {
+		if projectGroupSet[excludeGroup] {
+			return false
+		}
+	}
+
+	return hasMatch || len(includeGroups) == 0
 }
