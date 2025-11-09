@@ -333,7 +333,7 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		SmartSync:              opts.SmartSync,
 		Tags:                   opts.Tags && !opts.NoTags,
 		NoCloneBundle:          opts.NoCloneBundle,
-		FetchSubmodules:        opts.FetchSubmodules,
+		FetchSubmodules:        opts.FetchSubmodules || cfg.Submodules, // 命令行参数或配置文件
 		OptimizedFetch:         opts.OptimizedFetch,
 		RetryFetches:           opts.RetryFetches,
 		Groups:                 groupsSlice, // 传递已处理的分组信息，确保只克隆指定组的仓

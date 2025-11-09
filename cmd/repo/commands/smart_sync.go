@@ -190,6 +190,8 @@ func runSmartSync(opts *SmartSyncOptions, args []string, log logger.Logger) erro
 		Prune:            opts.Prune,
 		OptimizedFetch:   opts.OptimizedFetch,
 		UseSuperproject:  opts.UseSuperproject,
+		FetchSubmodules:  opts.FetchSubmodules || cfg.Submodules, // 命令行参数或配置文件
+		Config:           cfg,
 	}
 
 	log.Debug("创建同步引擎，并发任务数: %d", opts.Jobs)

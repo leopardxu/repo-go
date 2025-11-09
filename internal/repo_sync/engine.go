@@ -317,6 +317,15 @@ func (e *Engine) syncProject(p *project.Project) error {
 					}
 				}
 				e.logger.Info("成功处理项目 %s 更新后的链接文件和复制文件", p.Name)
+
+				// 处理 submodule（如果启用）
+				if err := e.updateSubmodules(p); err != nil {
+					e.logger.Error("项目 %s 更新 submodule 失败: %v", p.Name, err)
+					// submodule 更新失败不阻断整个同步流程，只记录错误
+					if !e.options.Quiet {
+						e.logger.Warn("跳过项目 %s 的 submodule 更新", p.Name)
+					}
+				}
 			} else {
 				e.logger.Info("镜像模式，跳过处理项目 %s 的链接文件和复制文件", p.Name)
 			}
@@ -838,6 +847,15 @@ func (e *Engine) cloneProject(p *project.Project) error {
 			}
 		}
 		e.logger.Info("成功处理项目 %s 的链接文件和复制文件", p.Name)
+
+		// 处理 submodule（如果启用）
+		if err := e.updateSubmodules(p); err != nil {
+			e.logger.Error("项目 %s 更新 submodule 失败: %v", p.Name, err)
+			// submodule 更新失败不阻断整个同步流程，只记录错误
+			if !e.options.Quiet {
+				e.logger.Warn("跳过项目 %s 的 submodule 更新", p.Name)
+			}
+		}
 	} else if isMirror {
 		e.logger.Info("镜像模式，跳过处理项目 %s 的链接文件和复制文件", p.Name)
 	} else {
@@ -1613,4 +1631,71 @@ func (e *Engine) Run() error {
 // SetProjects 设置要同步的项目列表
 func (e *Engine) SetProjects(projects []*project.Project) {
 	e.projects = projects
+}
+
+// updateSubmodules 更新项目的 submodule
+func (e *Engine) updateSubmodules(p *project.Project) error {
+	// 检查是否启用 submodule 功能
+	if !e.shouldUpdateSubmodules() {
+		if e.options.Verbose {
+			e.logger.Debug("项目 %s: submodule 功能未启用，跳过", p.Name)
+		}
+		return nil
+	}
+
+	// 检查项目是否包含 .gitmodules 文件
+	gitmodulesPath := filepath.Join(p.Worktree, ".gitmodules")
+	if _, err := os.Stat(gitmodulesPath); os.IsNotExist(err) {
+		// 没有 .gitmodules 文件，跳过
+		if e.options.Verbose {
+			e.logger.Debug("项目 %s 不包含 submodule", p.Name)
+		}
+		return nil
+	}
+
+	if !e.options.Quiet {
+		e.logger.Info("正在更新项目 %s 的 submodule...", p.Name)
+	}
+
+	// 执行 git submodule update --init --recursive
+	args := []string{"-C", p.Worktree, "submodule", "update", "--init", "--recursive"}
+
+	// 如果启用了 Quiet 模式，添加 --quiet 参数
+	if e.options.Quiet {
+		args = append(args, "--quiet")
+	}
+
+	cmd := exec.Command("git", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// submodule 更新失败
+		errorMsg := stderr.String()
+		if errorMsg == "" {
+			errorMsg = err.Error()
+		}
+		return fmt.Errorf("git submodule update 失败: %s", errorMsg)
+	}
+
+	if !e.options.Quiet {
+		e.logger.Info("项目 %s 的 submodule 更新成功", p.Name)
+	}
+
+	return nil
+}
+
+// shouldUpdateSubmodules 判断是否应该更新 submodule
+func (e *Engine) shouldUpdateSubmodules() bool {
+	// 优先检查命令行参数
+	if e.options.FetchSubmodules {
+		return true
+	}
+
+	// 检查配置文件
+	if e.options.Config != nil && e.options.Config.Submodules {
+		return true
+	}
+
+	return false
 }
