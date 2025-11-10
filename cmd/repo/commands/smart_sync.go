@@ -72,7 +72,7 @@ func SmartSyncCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.UseSuperproject, "use-superproject", false, "use the manifest superproject to sync projects")
 	cmd.Flags().BoolVar(&opts.NoUseSuperproject, "no-use-superproject", false, "disable use of manifest superprojects")
 	cmd.Flags().StringVarP(&opts.ManifestServerUsername, "manifest-server-username", "u", "", "username to authenticate with the manifest server")
-	cmd.Flags().StringVarP(&opts.ManifestServerPassword, "manifest-server-password", "p", "", "password to authenticate with the manifest server")
+	cmd.Flags().StringVarP(&opts.ManifestServerPassword, "manifest-server-password", "P", "", "password to authenticate with the manifest server")
 	cmd.Flags().BoolVar(&opts.OuterManifest, "outer-manifest", false, "operate starting at the outermost manifest")
 	cmd.Flags().BoolVar(&opts.NoOuterManifest, "no-outer-manifest", false, "do not operate on outer manifests")
 	cmd.Flags().BoolVar(&opts.ThisManifestOnly, "this-manifest-only", false, "only operate on this (sub)manifest")
