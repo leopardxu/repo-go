@@ -258,8 +258,15 @@ func runUpload(opts *UploadOptions, args []string) error {
 				}
 			}
 
+			// 获取项目的远程名称
+			remoteName := p.RemoteName
+			if remoteName == "" {
+				remoteName = "origin" // 默认值
+			}
+			log.Debug("项目 %s 的远程名称: %s", p.Name, remoteName)
+
 			// 检查是否有更改
-			hasChanges, err := p.GitRepo.HasChangesToPush("origin")
+			hasChanges, err := p.GitRepo.HasChangesToPush(remoteName)
 			if err != nil {
 				errMsg := fmt.Sprintf("检查项目 %s 是否有变更失败: %v", p.Name, err)
 				log.Error(errMsg)
@@ -365,10 +372,10 @@ func runUpload(opts *UploadOptions, args []string) error {
 			}
 
 			// 添加远程和引用
-			// 格式: git push origin HEAD:refs/for/<branch>
-			pushArgs = append(pushArgs, "origin", fmt.Sprintf("HEAD:%s", gerritRef))
+			// 格式: git push <remote> HEAD:refs/for/<branch>
+			pushArgs = append(pushArgs, remoteName, fmt.Sprintf("HEAD:%s", gerritRef))
 
-			log.Info("正在上传项目 %s 的变更到 Gerrit 审查系统 (%s)", p.Name, gerritRef)
+			log.Info("正在上传项目 %s 的变更到 Gerrit 审查系统 (%s -> %s)", p.Name, remoteName, gerritRef)
 			if opts.Wip {
 				log.Info("将创建 WIP (进行中) 状态的审查")
 			}
