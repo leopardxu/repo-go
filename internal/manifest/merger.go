@@ -94,11 +94,23 @@ func (m *Merger) mergeManifest(dst, src *Manifest) error {
 			continue
 		}
 
-		// 检查是否已存在同名项目
+		// 使用 name + path 组合作为唯一标识，支持同一仓库拉取到不同目录
 		exists := false
+		projectPath := project.Path
+		if projectPath == "" {
+			projectPath = project.Name // 如果 path 为空，使用 name 作为 path
+		}
+
 		for i, p := range dst.Projects {
-			if p.Name == project.Name {
-				// 更新现有项目
+			dstPath := p.Path
+			if dstPath == "" {
+				dstPath = p.Name
+			}
+
+			// 比较 name 和 path 的组合
+			if p.Name == project.Name && dstPath == projectPath {
+				// 更新现有项目（相同 name 和 path）
+				logger.Debug("合并: 更新项目 name=%s, path=%s", project.Name, projectPath)
 				dst.Projects[i] = project
 				exists = true
 				updatedProjects++
@@ -106,14 +118,16 @@ func (m *Merger) mergeManifest(dst, src *Manifest) error {
 			}
 		}
 
-		// 如果不存在，添加到目标清
+		// 如果不存在，添加到目标清单（支持同名不同路径）
 		if !exists {
+			logger.Debug("合并: 添加新项目 name=%s, path=%s", project.Name, projectPath)
 			dst.Projects = append(dst.Projects, project)
 			addedProjects++
 		}
 	}
 
 	// 项目合并完成
+	logger.Info("合并项目统计: 添加=%d, 更新=%d, 跳过=%d", addedProjects, updatedProjects, skippedProjects)
 
 	// 合并移除项目
 	removedCount := 0
@@ -136,14 +150,14 @@ func (m *Merger) mergeManifest(dst, src *Manifest) error {
 			// 添加移除项目标记
 		}
 
-		// 从项目列表中移除该项
-		for i, p := range dst.Projects {
-			if p.Name == removeProject.Name {
+		// 从项目列表中移除该项（注意：remove-project 仅根据 name 匹配，不考虑 path）
+		for i := 0; i < len(dst.Projects); i++ {
+			if dst.Projects[i].Name == removeProject.Name {
 				// 移除项目
 				dst.Projects = append(dst.Projects[:i], dst.Projects[i+1:]...)
 				removedCount++
-				// 从项目列表中移除项目
-				break
+				i-- // 调整索引，因为删除了元素
+				// 继续检查，因为可能有多个同名不同 path 的项目
 			}
 		}
 	}

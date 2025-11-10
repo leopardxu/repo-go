@@ -662,26 +662,27 @@ func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
 		}
 	}
 
-	// 对项目列表进行去重处
+	// 对项目列表进行去重处理（使用 name + path 组合作为唯一标识）
 	deduplicatedProjects := make([]Project, 0)
-	projectMap := make(map[string]bool) // 用于跟踪项目名称
-	pathMap := make(map[string]bool)    // 用于跟踪项目路径
+	projectKeyMap := make(map[string]bool) // 用于跟踪 name+path 组合
 
 	for _, proj := range manifest.Projects {
-		// 使用项目名称和路径作为唯一标识
-		key := proj.Name
-		pathKey := proj.Path
+		// 使用 name + path 组合作为唯一标识
+		path := proj.Path
+		if path == "" {
+			path = proj.Name // 如果path为空，使用name作为path
+		}
+		key := proj.Name + "@@" + path // 使用特殊分隔符避免冲突
 
-		// 如果项目名称或路径已存在，则跳过
-		if projectMap[key] || pathMap[pathKey] {
+		// 如果 name+path 组合已存在，则跳过
+		if projectKeyMap[key] {
 			continue
 		}
 
-		// 标记项目名称和路径为已处
-		projectMap[key] = true
-		pathMap[pathKey] = true
+		// 标记 name+path 组合为已处理
+		projectKeyMap[key] = true
 
-		// 添加到去重后的列
+		// 添加到去重后的列表
 		deduplicatedProjects = append(deduplicatedProjects, proj)
 	}
 
@@ -1414,15 +1415,15 @@ func (m *Manifest) ToXML() (string, error) {
 		xml += " />\n"
 	}
 
-	// 添加包含的清单文
-	for _, i := range m.Includes {
-		xml += fmt.Sprintf(`  <include name="%s"`, i.Name)
-		// 添加包含清单的自定义属
-		for k, v := range i.CustomAttrs {
-			xml += fmt.Sprintf(` %s="%s"`, k, v)
-		}
-		xml += " />\n"
-	}
+	// 不输出包含的清单文件（init 合并后不需要 include 标签）
+	// for _, i := range m.Includes {
+	// 	xml += fmt.Sprintf(`  <include name="%s"`, i.Name)
+	// 	// 添加包含清单的自定义属
+	// 	for k, v := range i.CustomAttrs {
+	// 		xml += fmt.Sprintf(` %s="%s"`, k, v)
+	// 	}
+	// 	xml += " />\n"
+	// }
 
 	// 添加项目
 	for _, p := range m.Projects {
