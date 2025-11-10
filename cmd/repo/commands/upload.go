@@ -310,70 +310,72 @@ func runUpload(opts *UploadOptions, args []string) error {
 				pushArgs = append(pushArgs, "--no-verify")
 			}
 
-			// 构建 push-option 参数
-			var pushOptions []string
+			// 构建 Gerrit push options（使用 % 分隔符附加到 refspec）
+			var gerritOptions []string
 
 			// WIP 状态
 			if opts.Wip {
-				pushOptions = append(pushOptions, "wip")
+				gerritOptions = append(gerritOptions, "wip")
 			}
 
 			// Draft 状态
 			if opts.Draft {
-				pushOptions = append(pushOptions, "draft")
+				gerritOptions = append(gerritOptions, "draft")
 			}
 
 			// Private 状态
 			if opts.Private {
-				pushOptions = append(pushOptions, "private")
+				gerritOptions = append(gerritOptions, "private")
 			}
 
 			// Topic
 			if opts.Topic != "" {
-				pushOptions = append(pushOptions, "topic="+opts.Topic)
+				gerritOptions = append(gerritOptions, "topic="+opts.Topic)
 			}
 
 			// Hashtags
 			if opts.Hashtags != "" {
 				for _, tag := range strings.Split(opts.Hashtags, ",") {
-					pushOptions = append(pushOptions, "hashtag="+strings.TrimSpace(tag))
+					gerritOptions = append(gerritOptions, "hashtag="+strings.TrimSpace(tag))
 				}
 			}
 
 			// Labels
 			if opts.Labels != "" {
 				for _, label := range strings.Split(opts.Labels, ",") {
-					pushOptions = append(pushOptions, "label="+strings.TrimSpace(label))
+					gerritOptions = append(gerritOptions, "label="+strings.TrimSpace(label))
 				}
 			}
 
 			// Reviewers
 			if opts.Reviewers != "" {
 				for _, reviewer := range strings.Split(opts.Reviewers, ",") {
-					pushOptions = append(pushOptions, "r="+strings.TrimSpace(reviewer))
+					gerritOptions = append(gerritOptions, "r="+strings.TrimSpace(reviewer))
 				}
 			}
 
 			// CC
 			if opts.CC != "" {
 				for _, cc := range strings.Split(opts.CC, ",") {
-					pushOptions = append(pushOptions, "cc="+strings.TrimSpace(cc))
+					gerritOptions = append(gerritOptions, "cc="+strings.TrimSpace(cc))
 				}
 			}
 
 			// 自定义 push-option
 			if opts.PushOption != "" {
-				pushOptions = append(pushOptions, opts.PushOption)
+				gerritOptions = append(gerritOptions, opts.PushOption)
 			}
 
-			// 添加所有 push-option
-			for _, opt := range pushOptions {
-				pushArgs = append(pushArgs, "-o", opt)
+			// 构建完整的 refspec，将选项附加到 refs 后面
+			// 格式: HEAD:refs/for/<branch>%option1%option2%option3
+			refspec := fmt.Sprintf("HEAD:%s", gerritRef)
+			if len(gerritOptions) > 0 {
+				refspec = refspec + "%" + strings.Join(gerritOptions, ",")
 			}
 
 			// 添加远程和引用
-			// 格式: git push <remote> HEAD:refs/for/<branch>
-			pushArgs = append(pushArgs, remoteName, fmt.Sprintf("HEAD:%s", gerritRef))
+			// 格式: git push <remote> HEAD:refs/for/<branch>%wip%topic=xxx
+			pushArgs = append(pushArgs, remoteName, refspec)
 
 			log.Info("正在上传项目 %s 的变更到 Gerrit 审查系统 (%s -> %s)", p.Name, remoteName, gerritRef)
 			if opts.Wip {
