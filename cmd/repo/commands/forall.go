@@ -89,6 +89,14 @@ func runForall(opts *ForallOptions, projectNames []string) error {
 		log.SetLevel(logger.LogLevelInfo)
 	}
 
+	// 确保在repo根目录下执行
+	originalDir, err := EnsureRepoRoot(log)
+	if err != nil {
+		log.Error("查找repo根目录失败: %v", err)
+		return fmt.Errorf("failed to locate repo root: %w", err)
+	}
+	defer RestoreWorkDir(originalDir, log)
+
 	// 加载清单
 	log.Debug("Loading manifest file")
 	parser := manifest.NewParser()

@@ -76,7 +76,13 @@ func UploadCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "upload [--re --cc] [<project>...]",
 		Short: "Upload changes for code review",
-		Long:  `Upload changes to the code review system.`,
+		Long: `Upload changes to Gerrit code review system.
+
+By default, changes are uploaded as WIP (Work In Progress) status.
+The upload pushes to refs/for/<branch> for Gerrit review, not directly to the branch.
+
+Use --draft for draft changes or --private for private changes.
+Specify reviewers with -r and CC with --cc.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUpload(opts, args)
 		},
@@ -85,18 +91,18 @@ func UploadCmd() *cobra.Command {
 	// 添加命令行选项
 	cmd.Flags().StringVarP(&opts.Branch, "branch", "b", "", "上传指定分支")
 	cmd.Flags().BoolVarP(&opts.CurrentBranch, "current-branch", "c", false, "仅上传当前分支")
-	cmd.Flags().BoolVarP(&opts.Draft, "draft", "d", false, "上传为草稿状态")
+	cmd.Flags().BoolVarP(&opts.Draft, "draft", "d", false, "上传为草稿状态（覆盖默认的 WIP 状态）")
 	cmd.Flags().BoolVarP(&opts.Force, "force", "f", false, "强制上传，即使没有变更")
 	cmd.Flags().BoolVarP(&opts.DryRun, "dry-run", "n", false, "不实际上传，仅显示将要上传的内容")
 	cmd.Flags().StringVarP(&opts.PushOption, "push-option", "o", "", "上传的推送选项")
-	cmd.Flags().StringVarP(&opts.Reviewers, "reviewers", "r", "", "请求这些人进行代码审核")
+	cmd.Flags().StringVarP(&opts.Reviewers, "reviewers", "r", "", "请求这些人进行代码审核（逗号分隔）")
 	cmd.Flags().StringVarP(&opts.Topic, "topic", "t", "", "变更的主题")
 	cmd.Flags().BoolVar(&opts.NoVerify, "no-verify", false, "绕过上传前钩子")
 	cmd.Flags().BoolVar(&opts.Verify, "verify", false, "启用上传前验证")
 	cmd.Flags().BoolVar(&opts.IgnoreHooks, "ignore-hooks", false, "忽略所有hooks")
 	cmd.Flags().BoolVar(&opts.Replace, "replace", false, "替换现有的change")
-	cmd.Flags().BoolVar(&opts.Private, "private", false, "上传为私有状态")
-	cmd.Flags().BoolVar(&opts.Wip, "wip", false, "上传为进行中状态")
+	cmd.Flags().BoolVar(&opts.Private, "private", false, "上传为私有状态（覆盖默认的 WIP 状态）")
+	cmd.Flags().BoolVar(&opts.Wip, "wip", false, "明确指定上传为进行中状态（默认已启用）")
 	cmd.Flags().IntVarP(&opts.Jobs, "jobs", "j", runtime.NumCPU()*2, "并行运行的任务数量")
 	cmd.Flags().StringVar(&opts.Hashtags, "hashtag", "", "添加标签（逗号分隔）到审查中")
 	cmd.Flags().BoolVar(&opts.HashtagBranch, "hashtag-branch", false, "将本地分支名添加为标签")
@@ -192,72 +198,11 @@ func runUpload(opts *UploadOptions, args []string) error {
 		}
 	}
 
-	// 构建上传选项
-	uploadArgs := []string{"push"}
-
-	// 添加目标分支，如果没有指定，将在每个项目中处理
-	if opts.Branch != "" {
-		uploadArgs = append(uploadArgs, "origin", opts.Branch)
+	// 默认为 WIP 状态，除非用户明确指定其他选项
+	if !opts.Draft && !opts.Wip && !opts.Private {
+		opts.Wip = true
+		log.Debug("默认启用 WIP 状态")
 	}
-
-	// 添加其他选项
-	if opts.Draft {
-		uploadArgs = append(uploadArgs, "--draft")
-	}
-
-	if opts.NoVerify {
-		uploadArgs = append(uploadArgs, "--no-verify")
-	}
-
-	if opts.PushOption != "" {
-		uploadArgs = append(uploadArgs, "--push-option="+opts.PushOption)
-	}
-
-	if opts.Topic != "" {
-		uploadArgs = append(uploadArgs, "--topic="+opts.Topic)
-	}
-
-	if opts.Hashtags != "" {
-		uploadArgs = append(uploadArgs, "--hashtag="+opts.Hashtags)
-	}
-
-	if opts.HashtagBranch {
-		uploadArgs = append(uploadArgs, "--hashtag-branch")
-	}
-
-	if opts.Labels != "" {
-		uploadArgs = append(uploadArgs, "--label="+opts.Labels)
-	}
-
-	if opts.CC != "" {
-		uploadArgs = append(uploadArgs, "--cc="+opts.CC)
-	}
-
-	if opts.Destination != "" {
-		uploadArgs = append(uploadArgs, "--destination="+opts.Destination)
-	}
-
-	if opts.NoEmails {
-		uploadArgs = append(uploadArgs, "--no-emails")
-	}
-
-	if opts.Private {
-		uploadArgs = append(uploadArgs, "--private")
-	}
-
-	if opts.Wip {
-		uploadArgs = append(uploadArgs, "--wip")
-	}
-
-	if opts.Yes {
-		uploadArgs = append(uploadArgs, "--yes")
-	}
-
-	if opts.NoCertChecks {
-		uploadArgs = append(uploadArgs, "--no-cert-checks")
-	}
-
-	log.Debug("上传命令参数: git %s", strings.Join(uploadArgs, " "))
 
 	// 创建统计对象
 	stats := &uploadStats{}
@@ -330,17 +275,113 @@ func runUpload(opts *UploadOptions, args []string) error {
 				return
 			}
 
-			log.Info("正在上传项目 %s 的变更", p.Name)
+			// 获取当前分支
+			currentBranch, err := p.GitRepo.CurrentBranch()
+			if err != nil {
+				errMsg := fmt.Sprintf("获取项目 %s 的当前分支失败: %v", p.Name, err)
+				log.Error(errMsg)
+				errChan <- fmt.Errorf(errMsg)
+				stats.increment(false)
+				return
+			}
+
+			// 确定目标分支（用于 Gerrit 审查）
+			targetBranch := destBranch
+			if targetBranch == "" {
+				// 如果没有指定目标分支，使用当前分支
+				targetBranch = currentBranch
+			}
+
+			// 构建 Gerrit 推送引用: refs/for/<branch>
+			gerritRef := fmt.Sprintf("refs/for/%s", targetBranch)
+
+			// 构建推送命令参数
+			pushArgs := []string{"push"}
+
+			// 添加其他选项
+			if opts.NoVerify {
+				pushArgs = append(pushArgs, "--no-verify")
+			}
+
+			// 构建 push-option 参数
+			var pushOptions []string
+
+			// WIP 状态
+			if opts.Wip {
+				pushOptions = append(pushOptions, "wip")
+			}
+
+			// Draft 状态
+			if opts.Draft {
+				pushOptions = append(pushOptions, "draft")
+			}
+
+			// Private 状态
+			if opts.Private {
+				pushOptions = append(pushOptions, "private")
+			}
+
+			// Topic
+			if opts.Topic != "" {
+				pushOptions = append(pushOptions, "topic="+opts.Topic)
+			}
+
+			// Hashtags
+			if opts.Hashtags != "" {
+				for _, tag := range strings.Split(opts.Hashtags, ",") {
+					pushOptions = append(pushOptions, "hashtag="+strings.TrimSpace(tag))
+				}
+			}
+
+			// Labels
+			if opts.Labels != "" {
+				for _, label := range strings.Split(opts.Labels, ",") {
+					pushOptions = append(pushOptions, "label="+strings.TrimSpace(label))
+				}
+			}
+
+			// Reviewers
+			if opts.Reviewers != "" {
+				for _, reviewer := range strings.Split(opts.Reviewers, ",") {
+					pushOptions = append(pushOptions, "r="+strings.TrimSpace(reviewer))
+				}
+			}
+
+			// CC
+			if opts.CC != "" {
+				for _, cc := range strings.Split(opts.CC, ",") {
+					pushOptions = append(pushOptions, "cc="+strings.TrimSpace(cc))
+				}
+			}
+
+			// 自定义 push-option
+			if opts.PushOption != "" {
+				pushOptions = append(pushOptions, opts.PushOption)
+			}
+
+			// 添加所有 push-option
+			for _, opt := range pushOptions {
+				pushArgs = append(pushArgs, "-o", opt)
+			}
+
+			// 添加远程和引用
+			// 格式: git push origin HEAD:refs/for/<branch>
+			pushArgs = append(pushArgs, "origin", fmt.Sprintf("HEAD:%s", gerritRef))
+
+			log.Info("正在上传项目 %s 的变更到 Gerrit 审查系统 (%s)", p.Name, gerritRef)
+			if opts.Wip {
+				log.Info("将创建 WIP (进行中) 状态的审查")
+			}
 
 			// 如果是模拟运行，不实际上传
 			if opts.DryRun {
-				log.Info("模拟运行: 将上传项目 %s 的变更，命令: git %s", p.Name, strings.Join(uploadArgs, " "))
+				log.Info("模拟运行: 将上传项目 %s 的变更，命令: git %s", p.Name, strings.Join(pushArgs, " "))
 				stats.increment(true)
 				return
 			}
 
 			// 执行上传命令
-			outputBytes, err := p.GitRepo.RunCommand(uploadArgs...)
+			outputBytes, err := p.GitRepo.RunCommand(pushArgs...)
 			if err != nil {
 				errMsg := fmt.Sprintf("上传项目 %s 的变更失败: %v\n%s", p.Name, err, string(outputBytes))
 				log.Error(errMsg)
@@ -352,7 +393,7 @@ func runUpload(opts *UploadOptions, args []string) error {
 			log.Info("成功上传项目 %s 的变更", p.Name)
 			output := strings.TrimSpace(string(outputBytes))
 			if output != "" {
-				log.Debug("上传输出:\n%s", output)
+				log.Info("上传输出:\n%s", output)
 			}
 			stats.increment(true)
 		}()
