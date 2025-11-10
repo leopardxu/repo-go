@@ -482,19 +482,38 @@ func (r *Repository) CreateBranch(branch string, startPoint string) error {
 }
 
 // HasChangesToPush 检查是否有需要推送的更改
-func (r *Repository) HasChangesToPush(branch string) (bool, error) {
-	// 获取远程分支名称
-	remoteBranch := "origin/" + branch
+// remote 参数是远程名称（如 "origin"）
+func (r *Repository) HasChangesToPush(remote string) (bool, error) {
+	// 获取当前分支名称
+	currentBranch, err := r.CurrentBranch()
+	if err != nil {
+		return false, fmt.Errorf("failed to get current branch: %w", err)
+	}
 
-	// 检查本地分支和远程分支之间的差
-	output, err := r.Runner.RunInDir(r.Path, "rev-list", "--count", branch, "^"+remoteBranch)
+	// 如果当前是 detached HEAD 状态，返回 false
+	if currentBranch == "HEAD" {
+		return false, nil
+	}
+
+	// 构造远程分支名称
+	remoteBranch := remote + "/" + currentBranch
+
+	// 检查远程分支是否存在
+	_, err = r.Runner.RunInDir(r.Path, "rev-parse", "--verify", remoteBranch)
+	if err != nil {
+		// 远程分支不存在，说明是新分支，有需要推送的内容
+		return true, nil
+	}
+
+	// 检查本地分支和远程分支之间的差异
+	output, err := r.Runner.RunInDir(r.Path, "rev-list", "--count", currentBranch, "^"+remoteBranch)
 	if err != nil {
 		return false, fmt.Errorf("failed to check changes to push: %w", err)
 	}
 
 	// 如果输出不为0，则有更改需要推
 	count := strings.TrimSpace(string(output))
-	return count != "0", nil
+	return count != "0" && count != "", nil
 }
 
 // GetBranchName 获取当前分支名称

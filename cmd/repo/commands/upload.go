@@ -316,8 +316,9 @@ func runUpload(opts *UploadOptions, args []string) error {
 			// 检查是否有更改
 			hasChanges, err := p.GitRepo.HasChangesToPush("origin")
 			if err != nil {
-				errMsg := fmt.Sprintf("检查项%s 是否有变更失 %v", p.Name, err)
+				errMsg := fmt.Sprintf("检查项目 %s 是否有变更失败: %v", p.Name, err)
 				log.Error(errMsg)
+				log.Debug("请确保项目已正确配置远程仓库，并且当前在有效的分支上")
 				errChan <- fmt.Errorf(errMsg)
 				stats.increment(false)
 				return

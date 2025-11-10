@@ -244,14 +244,20 @@ func runRebase(opts *RebaseOptions, args []string) error {
 			output := string(outputBytes)
 
 			if err != nil {
+				// 显示详细的错误信息
 				log.Error("项目 %s rebase失败: %v", p.Name, err)
+				if output != "" {
+					log.Error("Git 输出:\n%s", output)
+				}
 
 				// 更新统计信息
 				stats.mu.Lock()
 				stats.failed++
 				stats.mu.Unlock()
 			} else {
-				log.Debug("项目 %s rebase成功", p.Name)
+				if !opts.Quiet {
+					log.Info("项目 %s rebase成功", p.Name)
+				}
 
 				// 更新统计信息
 				stats.mu.Lock()
@@ -276,15 +282,20 @@ func runRebase(opts *RebaseOptions, args []string) error {
 	log.Debug("处理rebase结果...")
 	var hasError bool
 	var errs []error
+	var failedProjects []string
 
 	// 收集所有结
 	for res := range results {
 		if res.Err != nil {
 			hasError = true
+			failedProjects = append(failedProjects, res.Project.Name)
 			errs = append(errs, fmt.Errorf("项目 %s: %w", res.Project.Name, res.Err))
 
-			if opts.Verbose {
-				log.Error("项目 %s 出错: %v", res.Project.Name, res.Err)
+			if opts.Verbose || !opts.Quiet {
+				log.Error("项目 %s rebase失败", res.Project.Name)
+				if res.Output != "" {
+					log.Error("Git 输出:\n%s", res.Output)
+				}
 			}
 
 			if opts.FailFast {
@@ -309,7 +320,11 @@ func runRebase(opts *RebaseOptions, args []string) error {
 		stats.total, stats.success, stats.failed)
 
 	if hasError {
-		log.Error("部分项目rebase失败")
+		log.Error("以下项目 rebase 失败:")
+		for _, name := range failedProjects {
+			log.Error("  - %s", name)
+		}
+		log.Error("\n请检查错误信息并手动解决冲突，然后使用 'repo rebase --continue' 继续")
 		return fmt.Errorf("some projects failed to rebase")
 	}
 	return nil
