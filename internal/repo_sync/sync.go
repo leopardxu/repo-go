@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/leopardxu/repo-go/internal/config"
 	"github.com/leopardxu/repo-go/internal/git"
 	"github.com/leopardxu/repo-go/internal/manifest"
 	"github.com/leopardxu/repo-go/internal/project"
@@ -348,6 +349,65 @@ func (e *Engine) syncProjectImpl(p *project.Project) error {
 							fmt.Printf("项目目录 %s 已存在但不是git仓库，尝试移除后重新克隆...\n", p.Worktree)
 						}
 						// 尝试移除目录
+						// 检查是否为镜像模式
+						isMirror := e.options.Config != nil && e.options.Config.Mirror
+
+						if isMirror {
+							// 对于镜像模式，项目路径是根据远程URL确定的，可能不在.repo目录下
+							// 我们只需要确保路径是安全的，不删除系统目录
+							absWorktree, absErr := filepath.Abs(p.Worktree)
+							if absErr != nil {
+								return fmt.Errorf("无法获取工作目录绝对路径: %w", absErr)
+							}
+
+							// 获取当前工作目录
+							currentDir, dirErr := os.Getwd()
+							if dirErr != nil {
+								return fmt.Errorf("无法获取当前工作目录: %w", dirErr)
+							}
+
+							// 绝对禁止删除系统关键目录
+							// 检查是否为危险路径
+							if p.Worktree == "." || p.Worktree == ".." ||
+								strings.HasPrefix(p.Worktree, "../") || strings.HasPrefix(p.Worktree, "..\\") ||
+								absWorktree == "/" || absWorktree == "\\" ||
+								filepath.VolumeName(absWorktree) == absWorktree { // Windows根目录
+								// 路径绝对不安全，拒绝删除
+								return fmt.Errorf("工作目录 %s 是系统关键目录，绝对禁止删除", p.Worktree)
+							}
+
+							// 检查路径是否在.repo目录下或当前目录下
+							// 只有在这两个目录下的路径才允许删除
+							// 特殊处理：如果路径是.repo目录本身或其子目录，则允许删除
+							inRepoDir := strings.HasPrefix(absWorktree, e.repoRoot)
+							inCurrentDir := strings.HasPrefix(absWorktree, currentDir)
+							isRepoSubDir := absWorktree == e.repoRoot || strings.HasPrefix(absWorktree, e.repoRoot+string(filepath.Separator))
+
+							if !inRepoDir && !inCurrentDir && !isRepoSubDir {
+								// 路径不在允许的范围内，拒绝删除
+								return fmt.Errorf("工作目录 %s 不在允许的范围内（.repo目录或当前目录），拒绝删除", p.Worktree)
+							}
+						} else {
+							// 非镜像模式下，保持原有的安全检查
+							// 安全检查：确保要删除的目录在repo根目录下
+							repoRoot, repoErr := config.GetRepoRoot()
+							if repoErr != nil {
+								return fmt.Errorf("无法获取repo根目录: %w", repoErr)
+							}
+
+							// 检查工作目录是否在repo根目录下
+							absWorktree, absErr := filepath.Abs(p.Worktree)
+							if absErr != nil {
+								return fmt.Errorf("无法获取工作目录绝对路径: %w", absErr)
+							}
+
+							relPath, relErr := filepath.Rel(repoRoot, absWorktree)
+							if relErr != nil || strings.HasPrefix(relPath, "..") {
+								// 目录不在repo根目录下，拒绝删除
+								return fmt.Errorf("工作目录 %s 不在repo根目录下，拒绝删除", p.Worktree)
+							}
+						}
+
 						if err := os.RemoveAll(p.Worktree); err == nil {
 							// 移除成功，创建父目录
 							os.MkdirAll(filepath.Dir(p.Worktree), 0755)

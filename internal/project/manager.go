@@ -2,6 +2,7 @@ package project
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,11 +36,11 @@ func NewManager(manifestURL, manifestName, repoDir string, gitRunner git.Runner)
 	}
 }
 
-// NewManagerFromManifest 从清单和配置创建项目管理器
+// NewManagerFromManifest 从清单创建项目管理器
 func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
-	logger.Info("从清单创建项目管理器，清单服务器: %s", m.ManifestServer)
+	logger.Info("开始创建项目管理器")
 
-	// 创建一个新的Manager实例
+	// 创建项目管理器
 	manager := &Manager{
 		Projects:     make([]*Project, 0),
 		ManifestURL:  m.ManifestServer,
@@ -48,10 +49,11 @@ func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
 		GitRunner:    git.NewRunner(),
 	}
 
-	// 记录项目加载开始
-	logger.Info("开始从清单加载 %d 个项目", len(m.Projects))
-
 	// 从清单中加载项目
+	// 在镜像模式下，需要去重
+	isMirror := cfg != nil && cfg.Mirror
+	seenPaths := make(map[string]bool) // 用于跟踪已处理的路径，避免重复
+
 	for _, p := range m.Projects {
 		// 获取远程信息
 		var remoteName, remoteURL string
@@ -76,7 +78,25 @@ func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
 		}
 
 		// 创建项目路径
-		projectPath := filepath.Join(m.RepoDir, p.Path)
+		var projectPath string
+		if isMirror {
+			// 在镜像模式下，根据远程URL的路径结构确定项目路径
+			projectPath = manager.getMirrorProjectPath(p.Path, remoteURL, p.Name)
+		} else {
+			// 普通模式下，使用清单中的路径
+			projectPath = filepath.Join(m.RepoDir, p.Path)
+		}
+
+		// 在镜像模式下进行去重检查
+		if isMirror {
+			if seenPaths[projectPath] {
+				// 路径已存在，跳过这个项目
+				logger.Debug("镜像模式下去重，跳过项目: %s (路径: %s)", p.Name, projectPath)
+				continue
+			}
+			// 标记路径已处理
+			seenPaths[projectPath] = true
+		}
 
 		// 创建项目对象
 		project := NewProject(
@@ -634,4 +654,58 @@ func (m *Manager) FilterProjects(filter func(*Project) bool) []*Project {
 	}
 
 	return filtered
+}
+
+// getMirrorProjectPath 根据远程URL的路径结构确定镜像模式下的项目路径
+func (m *Manager) getMirrorProjectPath(manifestPath, remoteURL, projectName string) string {
+	// 如果远程URL为空，使用清单中的路径
+	if remoteURL == "" {
+		// 在镜像模式下，路径需要以.git结尾
+		path := filepath.Join(m.RepoDir, manifestPath)
+		if !strings.HasSuffix(path, ".git") {
+			path += ".git"
+		}
+		return path
+	}
+
+	// 解析远程URL，提取路径部分
+	var path string
+
+	// 处理SSH格式: user@host:path/to/repo.git
+	if strings.Contains(remoteURL, "@") && strings.Contains(remoteURL, ":") {
+		parts := strings.Split(remoteURL, ":")
+		if len(parts) == 2 {
+			path = parts[1]
+		}
+	} else if strings.HasPrefix(remoteURL, "ssh://") ||
+		strings.HasPrefix(remoteURL, "http://") ||
+		strings.HasPrefix(remoteURL, "https://") {
+		// 处理标准URL格式
+		u, err := url.Parse(remoteURL)
+		if err == nil {
+			path = u.Path
+		}
+	} else {
+		// 其他格式，直接使用URL作为路径
+		path = remoteURL
+	}
+
+	// 确保返回的路径是安全的，基于.repo目录
+	// 使用filepath.Clean来清理路径，避免出现..等不安全的路径
+	cleanPath := filepath.Clean(path)
+
+	// 确保路径不以..开头，避免访问上级目录
+	if strings.HasPrefix(cleanPath, "..") {
+		// 如果路径以..开头，使用项目名称作为路径
+		cleanPath = projectName
+	}
+
+	// 在镜像模式下，路径需要以.git结尾
+	if !strings.HasSuffix(cleanPath, ".git") {
+		cleanPath += ".git"
+	}
+
+	// 确保返回绝对路径，避免相对路径导致的安全问题
+	absPath := filepath.Join(m.RepoDir, cleanPath)
+	return absPath
 }

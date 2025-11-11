@@ -344,7 +344,7 @@ func (e *Engine) resolveRemoteURL(p *project.Project) string {
 		remoteURL = ".."
 	}
 
-	// 如果是相对路径，转换为完整的 URL
+	// 如果是相对路径，转换为完整的 URL（镜像模式下也需要处理相对路径）
 	if remoteURL == ".." || strings.HasPrefix(remoteURL, "../") || strings.HasPrefix(remoteURL, "./") {
 		// 尝试从清单中获取远程URL
 		var baseURL string
@@ -766,6 +766,91 @@ func (e *Engine) cloneProject(p *project.Project) error {
 
 			// 检查目标目录是否已存在但不完整，如果存在则删除
 			if _, err := os.Stat(p.Worktree); err == nil {
+				// 在镜像模式下，检查项目路径是否在.repo目录下
+				if isMirror {
+					// 对于镜像模式，项目路径是根据远程URL确定的，可能不在.repo目录下
+					// 我们只需要确保路径是安全的，不删除系统目录
+					absWorktree, absErr := filepath.Abs(p.Worktree)
+					if absErr != nil {
+						return &SyncError{
+							ProjectName: p.Name,
+							Phase:       "clone",
+							Err:         fmt.Errorf("无法获取工作目录绝对路径: %w", absErr),
+						}
+					}
+
+					// 获取当前工作目录
+					currentDir, dirErr := os.Getwd()
+					if dirErr != nil {
+						return &SyncError{
+							ProjectName: p.Name,
+							Phase:       "clone",
+							Err:         fmt.Errorf("无法获取当前工作目录: %w", dirErr),
+						}
+					}
+
+					// 绝对禁止删除系统关键目录
+					// 检查是否为危险路径
+					if p.Worktree == "." || p.Worktree == ".." ||
+						strings.HasPrefix(p.Worktree, "../") || strings.HasPrefix(p.Worktree, "..\\") ||
+						absWorktree == "/" || absWorktree == "\\" ||
+						filepath.VolumeName(absWorktree) == absWorktree { // Windows根目录
+						// 路径绝对不安全，拒绝删除
+						return &SyncError{
+							ProjectName: p.Name,
+							Phase:       "clone",
+							Err:         fmt.Errorf("工作目录 %s 是系统关键目录，绝对禁止删除", p.Worktree),
+						}
+					}
+
+					// 检查路径是否在.repo目录下或当前目录下
+					// 只有在这两个目录下的路径才允许删除
+					// 特殊处理：如果路径是.repo目录本身或其子目录，则允许删除
+					inRepoDir := strings.HasPrefix(absWorktree, e.repoRoot)
+					inCurrentDir := strings.HasPrefix(absWorktree, currentDir)
+					isRepoSubDir := absWorktree == e.repoRoot || strings.HasPrefix(absWorktree, e.repoRoot+string(filepath.Separator))
+
+					if !inRepoDir && !inCurrentDir && !isRepoSubDir {
+						// 路径不在允许的范围内，拒绝删除
+						return &SyncError{
+							ProjectName: p.Name,
+							Phase:       "clone",
+							Err:         fmt.Errorf("工作目录 %s 不在允许的范围内（.repo目录或当前目录），拒绝删除", p.Worktree),
+						}
+					}
+				} else {
+					// 非镜像模式下，保持原有的安全检查
+					// 安全检查：确保要删除的目录在repo根目录下
+					repoRoot, repoErr := config.GetRepoRoot()
+					if repoErr != nil {
+						return &SyncError{
+							ProjectName: p.Name,
+							Phase:       "clone",
+							Err:         fmt.Errorf("无法获取repo根目录: %w", repoErr),
+						}
+					}
+
+					// 检查工作目录是否在repo根目录下
+					absWorktree, absErr := filepath.Abs(p.Worktree)
+					if absErr != nil {
+						return &SyncError{
+							ProjectName: p.Name,
+							Phase:       "clone",
+							Err:         fmt.Errorf("无法获取工作目录绝对路径: %w", absErr),
+						}
+					}
+
+					relPath, relErr := filepath.Rel(repoRoot, absWorktree)
+					if relErr != nil || strings.HasPrefix(relPath, "..") {
+						// 目录不在repo根目录下，拒绝删除
+						return &SyncError{
+							ProjectName: p.Name,
+							Phase:       "clone",
+							Err:         fmt.Errorf("工作目录 %s 不在repo根目录下，拒绝删除", p.Worktree),
+						}
+					}
+				}
+
 				e.logger.Info("删除不完整的克隆目录: %s", p.Worktree)
 				os.RemoveAll(p.Worktree)
 			}

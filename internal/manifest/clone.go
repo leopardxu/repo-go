@@ -124,6 +124,14 @@ func CloneManifestRepo(gitRunner GitRunner, cfg *Config) error {
 		return fmt.Errorf("清单文件 %s 不存在", cfg.ManifestName)
 	}
 
+	// 检查是否为镜像模式
+	isMirror := cfg != nil && cfg.Mirror
+
+	if isMirror {
+		// 在镜像模式下，manifestFile 应该直接指向 manifestsDir
+		manifestFile = manifestsDir
+	}
+
 	// 创建相对路径
 	relPath, err := filepath.Rel(repoDir, manifestFile)
 	if err != nil {

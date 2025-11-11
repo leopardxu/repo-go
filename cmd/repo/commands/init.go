@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/leopardxu/repo-go/internal/config"
 	"github.com/leopardxu/repo-go/internal/git"
 	"github.com/leopardxu/repo-go/internal/hook"
 	"github.com/leopardxu/repo-go/internal/logger"
@@ -258,6 +259,11 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 		if len(files) > 0 {
 			// 检查是否是有效的git仓库
 			gitDirPath := filepath.Join(manifestsDir, ".git")
+			// 对于mirror模式，.git就是目录本身
+			// if cfg.Mirror {
+			// 	gitDirPath = manifestsDir
+			// }
+
 			if _, err := os.Stat(gitDirPath); err == nil {
 				// 是有效的git仓库，执行fetch更新
 				currentDir, err := os.Getwd()
@@ -270,61 +276,69 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 					return fmt.Errorf("failed to change to manifests directory: %w", err)
 				}
 
-				// 执行git fetch更新
-				_, err = gitRunner.Run("fetch", "--all")
+				// 对于mirror模式，使用remote update；普通模式使用fetch --all
+				// if cfg.Mirror {
+				// 	// mirror模式下使用remote update避免重复更新引用
+				// 	_, err = gitRunner.Run("remote", "update", "--prune")
+				// } else {
+				// 	_, err = gitRunner.Run("fetch", "--all")
+				// }
 
-				// 如果指定了分支，切换到该分支
-				if cfg.ManifestBranch != "" {
-					// 先检查分支是否存在
-					output, err := gitRunner.Run("branch", "-a")
-					if err != nil {
-						// 返回原目录
-						if chErr := os.Chdir(currentDir); chErr != nil {
-							return fmt.Errorf("failed to return to original directory: %w", chErr)
+				// 对于mirror模式，不应该执行分支切换逻辑（没有工作目录）
+				if !cfg.Mirror {
+					// 如果指定了分支，切换到该分支
+					if cfg.ManifestBranch != "" {
+						// 先检查分支是否存在
+						output, err := gitRunner.Run("branch", "-a")
+						if err != nil {
+							// 返回原目录
+							if chErr := os.Chdir(currentDir); chErr != nil {
+								return fmt.Errorf("failed to return to original directory: %w", chErr)
+							}
+							return fmt.Errorf("failed to list branches: %w", err)
 						}
-						return fmt.Errorf("failed to list branches: %w", err)
-					}
 
-					// 检查分支是否存在
-					branchExists := false
-					remoteBranchExists := false
-					remoteBranchName := "remotes/origin/" + cfg.ManifestBranch
-					for _, line := range strings.Split(string(output), "\n") {
-						if strings.Contains(line, " "+cfg.ManifestBranch) || strings.Contains(line, "* "+cfg.ManifestBranch) {
-							branchExists = true
+						// 检查分支是否存在
+						branchExists := false
+						remoteBranchExists := false
+						remoteBranchName := "remotes/origin/" + cfg.ManifestBranch
+						for _, line := range strings.Split(string(output), "\n") {
+							if strings.Contains(line, " "+cfg.ManifestBranch) || strings.Contains(line, "* "+cfg.ManifestBranch) {
+								branchExists = true
+							}
+							if strings.Contains(line, remoteBranchName) {
+								remoteBranchExists = true
+							}
+							if branchExists && remoteBranchExists {
+								break
+							}
 						}
-						if strings.Contains(line, remoteBranchName) {
-							remoteBranchExists = true
-						}
-						if branchExists && remoteBranchExists {
-							break
-						}
-					}
 
-					if branchExists {
-						// 本地分支存在，切换到该分支
-						_, err = gitRunner.Run("checkout", cfg.ManifestBranch)
-					} else if remoteBranchExists {
-						// 远程分支存在，从远程创建本地分支
-						_, err = gitRunner.Run("checkout", "-b", cfg.ManifestBranch, "origin/"+cfg.ManifestBranch)
-					} else {
-						// 分支不存在，尝试从远程获取
-						_, err = gitRunner.Run("fetch", "origin", cfg.ManifestBranch+":"+cfg.ManifestBranch)
-						if err == nil {
+						if branchExists {
+							// 本地分支存在，切换到该分支
 							_, err = gitRunner.Run("checkout", cfg.ManifestBranch)
+						} else if remoteBranchExists {
+							// 远程分支存在，从远程创建本地分支
+							_, err = gitRunner.Run("checkout", "-b", cfg.ManifestBranch, "origin/"+cfg.ManifestBranch)
 						} else {
-							// 如果远程分支不存在，记录警告但继续使用当前分支
-							log.Printf("警告: 无法获取指定的分支 %s，将使用当前分支", cfg.ManifestBranch)
-							err = nil
+							// 分支不存在，尝试从远程获取
+							_, err = gitRunner.Run("fetch", "origin", cfg.ManifestBranch+":"+cfg.ManifestBranch)
+							if err == nil {
+								_, err = gitRunner.Run("checkout", cfg.ManifestBranch)
+							} else {
+								// 如果远程分支不存在，记录警告但继续使用当前分支
+								log.Printf("警告: 无法获取指定的分支 %s，将使用当前分支", cfg.ManifestBranch)
+								err = nil
+							}
 						}
-					}
 
-					if err != nil {
-						// 返回原目录
-						if chErr := os.Chdir(currentDir); chErr != nil {
-							return fmt.Errorf("failed to return to original directory: %w", chErr)
+						if err != nil {
+							// 返回原目录
+							if chErr := os.Chdir(currentDir); chErr != nil {
+								return fmt.Errorf("failed to return to original directory: %w", chErr)
+							}
+							return fmt.Errorf("failed to checkout branch %s: %w", cfg.ManifestBranch, err)
 						}
-						return fmt.Errorf("failed to checkout branch %s: %w", cfg.ManifestBranch, err)
 					}
 				}
 
@@ -341,6 +355,24 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 				return nil
 			} else {
 				// 不是有效的git仓库，需要清空目录
+				// 安全检查：确保要删除的目录在repo根目录下
+				repoRoot, repoErr := config.GetRepoRoot()
+				if repoErr != nil {
+					return fmt.Errorf("无法获取repo根目录: %w", repoErr)
+				}
+
+				// 检查工作目录是否在repo根目录下
+				absManifestsDir, absErr := filepath.Abs(manifestsDir)
+				if absErr != nil {
+					return fmt.Errorf("无法获取manifests目录绝对路径: %w", absErr)
+				}
+
+				relPath, relErr := filepath.Rel(repoRoot, absManifestsDir)
+				if relErr != nil || strings.HasPrefix(relPath, "..") {
+					// 目录不在repo根目录下，拒绝删除
+					return fmt.Errorf("manifests目录 %s 不在repo根目录下，拒绝删除", manifestsDir)
+				}
+
 				if err := os.RemoveAll(manifestsDir); err != nil {
 					return fmt.Errorf("failed to clean manifests directory: %w", err)
 				}
@@ -372,9 +404,9 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 	}
 
 	// 添加镜像参数
-	if cfg.Mirror {
-		args = append(args, "--mirror")
-	}
+	// if cfg.Mirror {
+	// 	args = append(args, "--mirror")
+	// }
 
 	// 添加引用参数
 	if cfg.Reference != "" {
@@ -393,20 +425,55 @@ func cloneManifestRepo(gitRunner git.Runner, cfg *RepoConfig) error {
 	errChan := make(chan error, 1)
 	go func() {
 		var lastErr error
-		for i := 0; i < 3; i++ {
-			_, err := gitRunner.Run(args...)
-			if err == nil {
+		// 在每次重试前检查仓库是否已存在（特别是mirror模式）
+		// 检查目录是否已存在且是有效的git仓库
+		gitDirPath := filepath.Join(manifestsDir, ".git")
+		// 对于mirror模式，.git就是目录本身
+		// if cfg.Mirror {
+		// 	gitDirPath = manifestsDir
+		// }
+
+		if _, err := os.Stat(gitDirPath); err == nil {
+			// 仓库已存在，对于mirror模式直接返回成功
+			// if cfg.Mirror {
+			// 	errChan <- nil
+			// 	return
+			// }
+			// 对于非mirror模式，执行fetch更新
+			currentDir, err := os.Getwd()
+			if err != nil {
+				lastErr = fmt.Errorf("failed to get current directory: %w", err)
+			}
+
+			// 切换到manifests目录
+			if err := os.Chdir(manifestsDir); err != nil {
+				lastErr = fmt.Errorf("failed to change to manifests directory: %w", err)
+			}
+
+			// 执行更新而不是重新克隆
+			_, fetchErr := gitRunner.Run("fetch", "--all")
+
+			// 返回原目录
+			if chErr := os.Chdir(currentDir); chErr != nil {
+				lastErr = fmt.Errorf("failed to return to original directory: %w", chErr)
+			}
+
+			if fetchErr == nil {
 				errChan <- nil
 				return
 			}
-			lastErr = err
-			if strings.Contains(err.Error(), "Permission denied (publickey)") {
-				errChan <- fmt.Errorf("SSH authentication failed: please ensure your SSH key is properly configured and added to the git server\nOriginal error: %w", err)
-				return
-			}
-			if i < 2 {
-				time.Sleep(time.Second * 2)
-			}
+			lastErr = fetchErr
+		}
+
+		_, err := gitRunner.Run(args...)
+		if err == nil {
+			errChan <- nil
+			return
+		}
+		lastErr = err
+		if strings.Contains(err.Error(), "Permission denied (publickey)") {
+			errChan <- fmt.Errorf("SSH authentication failed: please ensure your SSH key is properly configured and added to the git server\nOriginal error: %w", err)
+			return
 		}
 		if strings.Contains(lastErr.Error(), "fatal: repository '") {
 			errChan <- fmt.Errorf("清单仓库URL无效或无法访问 %s\n请检查URL是否正确且网络可访问", lastErr)
@@ -822,9 +889,9 @@ func initRepoStructure(repoDir string) error {
 	dirs := []string{
 		".repo",
 		".repo/manifests",
-		".repo/project-objects",
-		".repo/repo",
-		".repo/projects",
+		// ".repo/project-objects",
+		// ".repo/repo",
+		// ".repo/projects",
 		".repo/hooks",
 	}
 

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/leopardxu/repo-go/internal/config"
 	"github.com/leopardxu/repo-go/internal/git"
 	"github.com/leopardxu/repo-go/internal/logger"
 )
@@ -427,6 +428,27 @@ func (p *Project) DeleteWorktree(quiet bool, forceRemoveDirty bool) error {
 	// 删除工作
 	if !quiet {
 		logger.Info("删除项目 %s 的工作树 %s", p.Name, p.Worktree)
+	}
+
+	// 安全检查：确保要删除的目录在repo根目录下
+	repoRoot, repoErr := config.GetRepoRoot()
+	if repoErr != nil {
+		logger.Error("无法获取repo根目录: %v", repoErr)
+		return fmt.Errorf("无法获取repo根目录: %w", repoErr)
+	}
+
+	// 检查工作目录是否在repo根目录下
+	absWorktree, absErr := filepath.Abs(p.Worktree)
+	if absErr != nil {
+		logger.Error("无法获取工作目录绝对路径: %v", absErr)
+		return fmt.Errorf("无法获取工作目录绝对路径: %w", absErr)
+	}
+
+	relPath, relErr := filepath.Rel(repoRoot, absWorktree)
+	if relErr != nil || strings.HasPrefix(relPath, "..") {
+		// 目录不在repo根目录下，拒绝删除
+		logger.Error("工作目录 %s 不在repo根目录下，拒绝删除", p.Worktree)
+		return fmt.Errorf("工作目录 %s 不在repo根目录下，拒绝删除", p.Worktree)
 	}
 
 	if err := os.RemoveAll(p.Worktree); err != nil {

@@ -237,6 +237,46 @@ func runPrune(opts *PruneOptions, args []string) error {
 
 			// 删除项目目录
 			log.Debug("删除项目目录: %s", projectPath)
+
+			// 安全检查：确保要删除的目录在repo根目录下
+			repoRoot, repoErr := config.GetRepoRoot()
+			if repoErr != nil {
+				log.Error("无法获取repo根目录: %v", repoErr)
+				errChan <- fmt.Errorf("无法获取repo根目录: %w", repoErr)
+
+				// 更新统计信息
+				stats.mu.Lock()
+				stats.failed++
+				stats.mu.Unlock()
+				return
+			}
+
+			// 检查工作目录是否在repo根目录下
+			absProjectPath, absErr := filepath.Abs(projectPath)
+			if absErr != nil {
+				log.Error("无法获取项目目录绝对路径: %v", absErr)
+				errChan <- fmt.Errorf("无法获取项目目录绝对路径: %w", absErr)
+
+				// 更新统计信息
+				stats.mu.Lock()
+				stats.failed++
+				stats.mu.Unlock()
+				return
+			}
+
+			relPath, relErr := filepath.Rel(repoRoot, absProjectPath)
+			if relErr != nil || strings.HasPrefix(relPath, "..") {
+				// 目录不在repo根目录下，拒绝删除
+				log.Error("项目目录 %s 不在repo根目录下，拒绝删除", projectPath)
+				errChan <- fmt.Errorf("项目目录 %s 不在repo根目录下，拒绝删除", projectPath)
+
+				// 更新统计信息
+				stats.mu.Lock()
+				stats.failed++
+				stats.mu.Unlock()
+				return
+			}
+
 			if err := os.RemoveAll(projectPath); err != nil {
 				log.Error("删除项目 %s 失败: %v", name, err)
 				errChan <- fmt.Errorf("failed to remove project %s: %w", name, err)
