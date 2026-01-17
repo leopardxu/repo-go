@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/leopardxu/repo-go/internal/config"
+	"github.com/leopardxu/repo-go/internal/git"
 	"github.com/leopardxu/repo-go/internal/logger"
 	"github.com/leopardxu/repo-go/internal/manifest"
 	"github.com/leopardxu/repo-go/internal/progress"
@@ -145,6 +146,13 @@ func (e *Engine) Sync() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // 确保函数退出时取消上下文
 
+	// 首先更新 manifest 仓库
+	err := e.UpdateManifestRepo()
+	if err != nil {
+		e.logger.Warn("更新 manifest 仓库失败: %v", err)
+		// 不返回错误，继续执行同步
+	}
+
 	totalProjects := len(e.projects)
 	if totalProjects == 0 {
 		e.logger.Info("没有项目需要同步")
@@ -168,11 +176,11 @@ func (e *Engine) Sync() error {
 	// 提交同步任务
 	for _, p := range e.projects {
 		project := p // 创建副本避免闭包问题
-		e.workerPool.Submit(func() {
+		e.workerPool.Submit(func() (interface{}, error) {
 			// 检查上下文是否已取消
 			select {
 			case <-ctx.Done():
-				return // 如果上下文已取消，则不执行任务
+				return nil, ctx.Err() // 如果上下文已取消，则不执行任务
 			default:
 				// 继续执行
 			}
@@ -217,6 +225,7 @@ func (e *Engine) Sync() error {
 			} else if !e.options.Quiet {
 				e.logger.Debug("同步项目 %s 完成", project.Name)
 			}
+			return nil, nil
 		})
 	}
 
@@ -239,6 +248,216 @@ func (e *Engine) Sync() error {
 
 	e.logger.Info("所有项目同步完成，总耗时: %s", formatDuration(totalDuration))
 	return nil
+}
+
+// UpdateManifestRepo 更新 manifest 仓库并重新生成 .repo/manifest.xml
+func (e *Engine) UpdateManifestRepo() error {
+	if e.options.NoManifestUpdate {
+		e.logger.Debug("跳过 manifest 仓库更新，因为设置了 --no-manifest-update 选项")
+		return nil
+	}
+
+	manifestProjectPath := filepath.Join(e.repoRoot, ".repo", "manifests")
+	e.logger.Info("正在更新 manifest 仓库: %s", manifestProjectPath)
+
+	// 检查 manifest 仓库是否存在
+	if _, err := os.Stat(manifestProjectPath); os.IsNotExist(err) {
+		e.logger.Warn("manifest 仓库不存在: %s", manifestProjectPath)
+		return nil
+	}
+
+	// 切换到 manifest 仓库目录并执行 git fetch 和 git merge
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("获取当前目录失败: %w", err)
+	}
+
+	// 切换到 manifests 目录
+	if err := os.Chdir(manifestProjectPath); err != nil {
+		return fmt.Errorf("切换到 manifest 目录失败: %w", err)
+	}
+
+	defer func() {
+		// 确保返回原目录
+		if chErr := os.Chdir(currentDir); chErr != nil {
+			e.logger.Error("无法返回原目录: %v", chErr)
+		}
+	}()
+
+	// 创建 git runner
+	gitRunner := git.NewRunner()
+
+	// 获取更新前的 HEAD 提交哈希以检查是否有更新
+	oldHeadOutput, err := gitRunner.Run("rev-parse", "HEAD")
+	oldHead := strings.TrimSpace(string(oldHeadOutput))
+	if err != nil {
+		e.logger.Warn("获取当前 HEAD 失败: %v", err)
+	}
+
+	// 执行 fetch 操作
+	e.logger.Debug("正在获取 manifest 仓库更新...")
+	_, err = gitRunner.Run("fetch", "origin")
+	if err != nil {
+		e.logger.Warn("获取 manifest 仓库更新失败: %v", err)
+		// 尝试获取所有远程分支
+		_, fetchErr := gitRunner.Run("fetch", "--all")
+		if fetchErr != nil {
+			e.logger.Warn("获取所有远程分支也失败: %v", fetchErr)
+		}
+	}
+
+	// 获取当前分支
+	output, err := gitRunner.Run("rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return fmt.Errorf("获取当前分支失败: %w", err)
+	}
+	currentBranch := strings.TrimSpace(string(output))
+
+	// 执行合并操作
+	e.logger.Debug("正在合并 manifest 仓库更新到分支 %s...", currentBranch)
+	_, err = gitRunner.Run("merge", "origin/"+currentBranch)
+	if err != nil {
+		e.logger.Warn("合并 manifest 仓库更新失败: %v", err)
+		// 尝试使用 pull 命令
+		_, pullErr := gitRunner.Run("pull", "origin", currentBranch)
+		if pullErr != nil {
+			e.logger.Warn("拉取 manifest 仓库更新也失败: %v", pullErr)
+			return fmt.Errorf("无法更新 manifest 仓库，fetch/merge/pull 均失败")
+		}
+	}
+
+	// 检查是否有更新
+	newHeadOutput, err := gitRunner.Run("rev-parse", "HEAD")
+	newHead := strings.TrimSpace(string(newHeadOutput))
+	if err != nil {
+		e.logger.Warn("获取更新后的 HEAD 失败: %v", err)
+	}
+
+	e.logger.Info("manifest 仓库更新成功")
+
+	// 如果 manifest 仓库有更新，则重新生成 .repo/manifest.xml
+	if oldHead != newHead {
+		e.logger.Info("检测到 manifest 仓库有更新，重新生成 .repo/manifest.xml")
+		if err := e.regenerateManifestXML(); err != nil {
+			e.logger.Warn("重新生成 .repo/manifest.xml 失败: %v", err)
+			// 不返回错误，继续执行同步
+		}
+	} else {
+		e.logger.Debug("manifest 仓库没有新更新，跳过 .repo/manifest.xml 重新生成")
+	}
+
+	return nil
+}
+
+// regenerateManifestXML 重新生成 .repo/manifest.xml 文件
+func (e *Engine) regenerateManifestXML() error {
+	// 获取配置信息
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("加载配置失败: %w", err)
+	}
+
+	// 确定主 manifest 文件路径
+	manifestPath := filepath.Join(e.repoRoot, ".repo", "manifests", cfg.ManifestName)
+	e.logger.Debug("解析主 manifest 文件: %s", manifestPath)
+
+	// 解析主 manifest 文件
+	parser := manifest.NewParser()
+	groups := e.options.Groups
+	if groups == nil && cfg.Groups != "" {
+		groups = strings.Split(cfg.Groups, ",")
+	}
+
+	// 解析主 manifest
+	mainManifest, err := parser.ParseFromFile(manifestPath, groups)
+	if err != nil {
+		return fmt.Errorf("解析主 manifest 文件失败: %w", err)
+	}
+
+	// 处理 include 标签
+	if len(mainManifest.Includes) > 0 {
+		e.logger.Info("处理 %d 个 include 标签", len(mainManifest.Includes))
+		merger := manifest.NewMerger(parser, filepath.Join(e.repoRoot, ".repo", "manifests"))
+
+		// 创建包含所有清单的切片，从主清单开始
+		allManifests := []*manifest.Manifest{mainManifest}
+
+		// 处理每个 include
+		for _, include := range mainManifest.Includes {
+			includePath := filepath.Join(e.repoRoot, ".repo", "manifests", include.Name)
+			e.logger.Debug("加载包含的 manifest: %s", include.Name)
+
+			includeManifest, err := parser.ParseFromFile(includePath, groups)
+			if err != nil {
+				e.logger.Warn("解析包含的 manifest %s 失败: %v", include.Name, err)
+				continue
+			}
+
+			allManifests = append(allManifests, includeManifest)
+		}
+
+		// 合并所有清单
+		mergedManifest, err := merger.Merge(allManifests)
+		if err != nil {
+			return fmt.Errorf("合并 manifest 失败: %w", err)
+		}
+
+		mainManifest = mergedManifest
+	}
+
+	// 根据 groups 过滤项目
+	if len(groups) > 0 {
+		e.logger.Info("根据 groups %v 过滤项目", groups)
+		filteredProjects := make([]manifest.Project, 0)
+		for _, p := range mainManifest.Projects {
+			if p.Groups == "" || containsAnyGroup(p.Groups, groups) {
+				filteredProjects = append(filteredProjects, p)
+			}
+		}
+		mainManifest.Projects = filteredProjects
+		e.logger.Info("过滤后剩余 %d 个项目", len(mainManifest.Projects))
+	}
+
+	// 生成合并后的 manifest XML
+	mergedData, err := mainManifest.ToXML()
+	if err != nil {
+		return fmt.Errorf("生成合并后的 manifest XML 失败: %w", err)
+	}
+
+	// 保存到 .repo/manifest.xml
+	outputPath := filepath.Join(e.repoRoot, ".repo", "manifest.xml")
+	e.logger.Debug("保存合并后的 manifest 到: %s", outputPath)
+	if err := os.WriteFile(outputPath, []byte(mergedData), 0644); err != nil {
+		return fmt.Errorf("保存 manifest 文件失败: %w", err)
+	}
+
+	e.logger.Info("成功重新生成 .repo/manifest.xml，包含 %d 个项目", len(mainManifest.Projects))
+	return nil
+}
+
+// containsAnyGroup 检查项目是否属于指定的任何组
+func containsAnyGroup(projectGroups string, targetGroups []string) bool {
+	projectGroupList := strings.Split(projectGroups, ",")
+	for _, pg := range projectGroupList {
+		pg = strings.TrimSpace(pg)
+		if pg == "all" {
+			return true
+		}
+		if strings.HasPrefix(pg, "-") {
+			// 排除组，跳过
+			continue
+		}
+		for _, tg := range targetGroups {
+			tg = strings.TrimSpace(tg)
+			if tg == "all" {
+				return true
+			}
+			if pg == tg {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // formatDuration 格式化持续时间为人类可读格式

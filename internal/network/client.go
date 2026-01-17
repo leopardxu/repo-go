@@ -15,10 +15,13 @@ import (
 
 // Client 网络客户端
 type Client struct {
-	httpClient *http.Client
-	userAgent  string
-	retryCount int
-	retryDelay time.Duration
+	httpClient         *http.Client
+	userAgent          string
+	retryCount         int
+	retryDelay         time.Duration
+	maxBodySize        int64  // 最大响应体大小
+	proxyURL           string // 代理URL
+	insecureSkipVerify bool   // 是否跳过证书验证
 }
 
 // ClientOption 客户端选项函数类型
@@ -46,6 +49,27 @@ func WithRetry(count int, delay time.Duration) ClientOption {
 	}
 }
 
+// WithMaxBodySize 设置最大响应体大小
+func WithMaxBodySize(size int64) ClientOption {
+	return func(c *Client) {
+		c.maxBodySize = size
+	}
+}
+
+// WithProxy 设置代理
+func WithProxy(proxyURL string) ClientOption {
+	return func(c *Client) {
+		c.proxyURL = proxyURL
+	}
+}
+
+// WithInsecureSkipVerify 设置是否跳过证书验证
+func WithInsecureSkipVerify(skip bool) ClientOption {
+	return func(c *Client) {
+		c.insecureSkipVerify = skip
+	}
+}
+
 // NewClient 创建网络客户
 func NewClient(options ...ClientOption) *Client {
 	// 创建HTTP客户
@@ -53,24 +77,41 @@ func NewClient(options ...ClientOption) *Client {
 		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
+				MinVersion:         tls.VersionTLS12,
+				InsecureSkipVerify: false, // 默认不跳过证书验证
 			},
-			DisableCompression: false,
-			MaxIdleConns:       10,
-			IdleConnTimeout:    30 * time.Second,
+			DisableCompression:    false,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
 		},
 	}
 
 	client := &Client{
-		httpClient: httpClient,
-		userAgent:  "gogo-repo/1.0",
-		retryCount: 3,
-		retryDelay: 2 * time.Second,
+		httpClient:  httpClient,
+		userAgent:   "gogo-repo/1.0",
+		retryCount:  3,
+		retryDelay:  2 * time.Second,
+		maxBodySize: 100 << 20, // 默认100MB
 	}
 
 	// 应用选项
 	for _, option := range options {
 		option(client)
+	}
+
+	// 如果设置了代理，则配置传输层
+	if client.proxyURL != "" {
+		if proxyURL, err := url.Parse(client.proxyURL); err == nil {
+			httpClient.Transport.(*http.Transport).Proxy = http.ProxyURL(proxyURL)
+		}
+	}
+
+	// 如果设置了跳过证书验证，则更新TLS配置
+	if client.insecureSkipVerify {
+		httpClient.Transport.(*http.Transport).TLSClientConfig.InsecureSkipVerify = true
 	}
 
 	return client
@@ -119,6 +160,9 @@ func (c *Client) Download(url string, destPath string) error {
 	return fmt.Errorf("下载失败，已达到最大重试次 %w", lastErr)
 }
 
+// ProgressCallback 进度回调函数
+type ProgressCallback func(current, total int64)
+
 // doDownload 执行实际的下载操
 func (c *Client) doDownload(url string, destPath string) error {
 	// 创建请求
@@ -143,6 +187,12 @@ func (c *Client) doDownload(url string, destPath string) error {
 		return fmt.Errorf("服务器返回非成功状态码: %s", resp.Status)
 	}
 
+	// 检查响应体大小
+	contentLength := resp.ContentLength
+	if contentLength > c.maxBodySize && c.maxBodySize > 0 {
+		return fmt.Errorf("响应体过大: %d bytes, 超过限制 %d bytes", contentLength, c.maxBodySize)
+	}
+
 	// 创建目标文件
 	out, err := os.Create(destPath)
 	if err != nil {
@@ -150,13 +200,51 @@ func (c *Client) doDownload(url string, destPath string) error {
 	}
 	defer out.Close()
 
-	// 复制数据
-	_, err = io.Copy(out, resp.Body)
+	// 使用带进度的复制
+	if contentLength > 0 {
+		_, err = c.copyWithProgress(out, resp.Body, contentLength, func(current, total int64) {
+			// 进度回调
+		})
+	} else {
+		// 如果不知道大小，直接复制
+		_, err = io.Copy(out, resp.Body)
+	}
 	if err != nil {
 		return fmt.Errorf("写入文件失败: %w", err)
 	}
 
 	return nil
+}
+
+// copyWithProgress 带进度的复制
+func (c *Client) copyWithProgress(dst io.Writer, src io.Reader, total int64, callback ProgressCallback) (int64, error) {
+	buf := make([]byte, 32*1024) // 32KB缓冲区
+	var copied int64
+
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			written, writeErr := dst.Write(buf[0:n])
+			copied += int64(written)
+			if callback != nil {
+				callback(copied, total)
+			}
+
+			if writeErr != nil {
+				return copied, writeErr
+			}
+			if n != written {
+				return copied, io.ErrShortWrite
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return copied, err
+		}
+	}
+	return copied, nil
 }
 
 // Get 发送GET请求并返回响

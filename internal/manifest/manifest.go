@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -79,14 +80,15 @@ func (m *Manifest) GetCustomAttr(name string) (string, bool) {
 }
 
 // Remote 表示远程Git服务器
-// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属
+// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属性
 type Remote struct {
 	Name        string            `xml:"name,attr"`
 	Fetch       string            `xml:"fetch,attr"`
 	Review      string            `xml:"review,attr,omitempty"`
 	Revision    string            `xml:"revision,attr,omitempty"`
 	Alias       string            `xml:"alias,attr,omitempty"`
-	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
+	PushURL     string            `xml:"pushurl,attr,omitempty"` // 新增：推送URL
+	CustomAttrs map[string]string `xml:"-"`                      // 存储自定义属性
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -185,10 +187,12 @@ func (i *Include) GetCustomAttr(name string) (string, bool) {
 }
 
 // RemoveProject 表示要移除的项目
-// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属
+// 支持自定义属性，可以通过CustomAttrs字段访问未在结构体中定义的XML属性
 type RemoveProject struct {
 	Name        string            `xml:"name,attr"`
-	CustomAttrs map[string]string `xml:"-"` // 存储自定义属
+	Path        string            `xml:"path,attr,omitempty"`     // 新增：路径
+	Optional    bool              `xml:"optional,attr,omitempty"` // 新增：可选标志
+	CustomAttrs map[string]string `xml:"-"`                       // 存储自定义属性
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -225,10 +229,30 @@ func (l *Linkfile) GetCustomAttr(name string) (string, bool) {
 	return val, ok
 }
 
+// detectIncludeCycle 检测include循环引用
+func (p *Parser) detectIncludeCycle(filename string) bool {
+	if p.visitedFiles == nil {
+		p.visitedFiles = make(map[string]bool)
+	}
+	if p.visitedFiles[filename] {
+		return true // 发现循环引用
+	}
+	p.visitedFiles[filename] = true
+	return false
+}
+
+// removeVisitedFile 从访问记录中移除文件（用于递归处理）
+func (p *Parser) removeVisitedFile(filename string) {
+	if p.visitedFiles != nil {
+		delete(p.visitedFiles, filename)
+	}
+}
+
 // Annotation 表示项目注解
 type Annotation struct {
 	Name  string `xml:"name,attr"`
 	Value string `xml:"value,attr"`
+	Keep  string `xml:"keep,attr,omitempty"` // 新增：保留标志，默认为"true"
 }
 
 // ExtendProject 表示扩展已有项目的配置
@@ -250,8 +274,9 @@ type RepoHooks struct {
 
 // Superproject 表示超级项目配置
 type Superproject struct {
-	Name   string `xml:"name,attr"`
-	Remote string `xml:"remote,attr,omitempty"`
+	Name     string `xml:"name,attr"`
+	Remote   string `xml:"remote,attr,omitempty"`
+	Revision string `xml:"revision,attr,omitempty"` // 新增：修订版本
 }
 
 // ToJSON 将清单转换为JSON格式
@@ -281,12 +306,51 @@ func (m *Manifest) GetOuterManifest() *Manifest {
 	return m.Includes[0].GetOuterManifest()
 }
 
-// GetInnerManifest 获取最内层的清
+// GetInnerManifest 获取最内层的清单
 func (m *Manifest) GetInnerManifest() *Manifest {
 	if m.Includes == nil || len(m.Includes) == 0 {
 		return m
 	}
 	return m.Includes[len(m.Includes)-1].GetInnerManifest()
+}
+
+// replaceVariables 替换内容中的变量引用，支持 ${VAR} 和 $VAR 格式
+func (p *Parser) replaceVariables(content []byte, envVars map[string]string) []byte {
+	// 首先处理 ${VAR} 格式
+	re := regexp.MustCompile(`\$\{([^}]+)\}`)
+	result := re.ReplaceAllFunc(content, func(match []byte) []byte {
+		varName := string(match[2 : len(match)-1])
+		if val, exists := envVars[varName]; exists {
+			return []byte(val)
+		}
+		// 如果变量未定义，保持原样
+		return match
+	})
+
+	// 然后处理 $VAR 格式（单个字母或数字的变量名）
+	reSimple := regexp.MustCompile(`\$([a-zA-Z_][a-zA-Z0-9_]*)`)
+	result = reSimple.ReplaceAllFunc(result, func(match []byte) []byte {
+		varName := string(match[1:])
+		if val, exists := envVars[varName]; exists {
+			return []byte(val)
+		}
+		// 如果变量未定义，保持原样
+		return match
+	})
+
+	return result
+}
+
+// getEnvVars 获取环境变量映射
+func (p *Parser) getEnvVars() map[string]string {
+	vars := make(map[string]string)
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			vars[parts[0]] = parts[1]
+		}
+	}
+	return vars
 }
 
 // GetThisManifest 获取当前清单
@@ -308,14 +372,16 @@ func SetSilentMode(silent bool) {
 type Parser struct {
 	silentMode   bool
 	cacheEnabled bool
+	visitedFiles map[string]bool // 用于检测循环引用
 }
 
-// NewParser 创建清单解析
+// NewParser 创建清单解析器
 // 这是一个包级别函数，供外部调用
 func NewParser() *Parser {
 	return &Parser{
 		silentMode:   globalSilentMode,
 		cacheEnabled: true,
+		visitedFiles: make(map[string]bool),
 	}
 }
 
@@ -540,9 +606,13 @@ func (p *Parser) ParseFromBytes(data []byte, groups []string) (*Manifest, error)
 
 // Parse 解析清单数据
 func (p *Parser) Parse(data []byte, groups []string) (*Manifest, error) {
-	// 首先使用标准解析
+	// 首先进行变量替换
+	envVars := p.getEnvVars()
+	processedData := p.replaceVariables(data, envVars)
+
+	// 使用处理后的数据进行标准解析
 	var manifest Manifest
-	if err := xml.Unmarshal(data, &manifest); err != nil {
+	if err := xml.Unmarshal(processedData, &manifest); err != nil {
 		return nil, &ManifestError{Op: "parse", Err: fmt.Errorf("解析清单XML失败: %w", err)}
 	}
 
@@ -895,7 +965,7 @@ func findTopLevelRepoDir(startDir string) string {
 // filterProjectsByGroups 根据组过滤项
 // 已删除重复声
 
-// processIncludes 处理包含的清单文
+// processIncludes 处理包含的清单文件
 func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 	// 获取当前工作目录
 	cwd, err := os.Getwd()
@@ -913,10 +983,15 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 	for i, include := range manifest.Includes {
 		includeName := include.Name
 
-		// 构建可能的路
+		// 检测循环引用
+		if p.detectIncludeCycle(includeName) {
+			return fmt.Errorf("检测到include循环引用: %s", includeName)
+		}
+
+		// 构建可能的路径
 		paths := []string{}
 
-		// 尝试repo/manifests/目录下查
+		// 尝试repo/manifests/目录下查找
 		paths = append(paths, filepath.Join(".repo", "manifests", includeName))
 		paths = append(paths, filepath.Join(cwd, ".repo", "manifests", includeName))
 		paths = append(paths, filepath.Join(topDir, ".repo", "manifests", includeName))
@@ -926,7 +1001,7 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 		paths = append(paths, filepath.Join(cwd, includeName))
 		paths = append(paths, filepath.Join(topDir, includeName))
 
-		// 去除重复的路
+		// 去除重复的路径
 		uniquePaths := make([]string, 0, len(paths))
 		pathMap := make(map[string]bool)
 		for _, path := range paths {
@@ -952,11 +1027,15 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 		}
 
 		if !foundFile {
+			// 移除访问记录，因为文件不存在
+			p.removeVisitedFile(includeName)
 			return fmt.Errorf("failed to read included manifest file %s: %w", includeName, readErr)
 		}
 
-		// 解析包含的清单文
+		// 解析包含的清单文件
 		includedManifest, err := p.Parse(data, groups)
+		// 解析完成后移除访问记录，允许在其他路径中再次包含
+		p.removeVisitedFile(includeName)
 		if err != nil {
 			return fmt.Errorf("failed to parse included manifest %s: %w", includeName, err)
 		}
@@ -966,7 +1045,7 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 
 		// 合并远程仓库列表
 		for _, remote := range includedManifest.Remotes {
-			// 检查是否已存在相同名称的远程仓
+			// 检查是否已存在相同名称的远程仓库
 			var exists bool
 			for _, existingRemote := range manifest.Remotes {
 				if existingRemote.Name == remote.Name {
@@ -1292,7 +1371,7 @@ func isKnownRemoteAttr(name string) bool {
 
 func isStandardRemoteAttr(name string) bool {
 	switch name {
-	case "name", "fetch", "review", "revision", "alias":
+	case "name", "fetch", "review", "revision", "alias", "pushurl":
 		return true
 	}
 	return false
@@ -1322,9 +1401,9 @@ func isStandardLinkfileAttr(name string) bool {
 	return false
 }
 
-func isStandardIncludeAttr(name string) bool {
+func isStandardAnnotationAttr(name string) bool {
 	switch name {
-	case "name":
+	case "name", "value", "keep":
 		return true
 	}
 	return false
@@ -1332,7 +1411,7 @@ func isStandardIncludeAttr(name string) bool {
 
 func isStandardRemoveProjectAttr(name string) bool {
 	switch name {
-	case "name":
+	case "name", "path", "optional":
 		return true
 	}
 	return false
@@ -1359,9 +1438,17 @@ func isKnownRemoveProjectAttr(name string) bool {
 	return isStandardRemoveProjectAttr(name)
 }
 
-// 这些函数已在前面定义，这里删除重复声
+// 这些函数已在前面定义，这里删除重复声明
 
-// WriteToFile 将清单写入文
+func isStandardIncludeAttr(name string) bool {
+	switch name {
+	case "name", "groups", "revision":
+		return true
+	}
+	return false
+}
+
+// WriteToFile 将清单写入文件
 func (m *Manifest) WriteToFile(filename string) error {
 	xml, err := m.ToXML()
 	if err != nil {
@@ -1408,7 +1495,10 @@ func (m *Manifest) ToXML() (string, error) {
 		if r.Alias != "" {
 			xml += fmt.Sprintf(` alias="%s"`, r.Alias)
 		}
-		// 添加远程仓库的自定义属
+		if r.PushURL != "" {
+			xml += fmt.Sprintf(` pushurl="%s"`, r.PushURL)
+		}
+		// 添加远程仓库的自定义属性
 		for k, v := range r.CustomAttrs {
 			xml += fmt.Sprintf(` %s="%s"`, k, v)
 		}
@@ -1497,9 +1587,27 @@ func (m *Manifest) ToXML() (string, error) {
 	// 添加移除项目
 	for _, r := range m.RemoveProjects {
 		xml += fmt.Sprintf(`  <remove-project name="%s"`, r.Name)
-		// 添加移除项目的自定义属
+		if r.Path != "" {
+			xml += fmt.Sprintf(` path="%s"`, r.Path)
+		}
+		if r.Optional {
+			xml += ` optional="true"`
+		}
+		// 添加移除项目的自定义属性
 		for k, v := range r.CustomAttrs {
 			xml += fmt.Sprintf(` %s="%s"`, k, v)
+		}
+		xml += " />\n"
+	}
+
+	// 添加superproject（如果存在）
+	if m.Superproject != nil {
+		xml += fmt.Sprintf(`  <superproject name="%s"`, m.Superproject.Name)
+		if m.Superproject.Remote != "" {
+			xml += fmt.Sprintf(` remote="%s"`, m.Superproject.Remote)
+		}
+		if m.Superproject.Revision != "" {
+			xml += fmt.Sprintf(` revision="%s"`, m.Superproject.Revision)
 		}
 		xml += " />\n"
 	}

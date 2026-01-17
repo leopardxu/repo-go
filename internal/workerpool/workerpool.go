@@ -1,16 +1,31 @@
 package workerpool
 
 import (
+	"context"
 	"sync"
 )
+
+// TaskResult 任务执行结果
+type TaskResult struct {
+	Error error
+	Data  interface{}
+}
+
+// Task 任务定义
+type Task struct {
+	Fn   func() (interface{}, error)
+	Done chan TaskResult
+}
 
 // WorkerPool 工作池
 type WorkerPool struct {
 	workers int
-	tasks   chan func()
+	tasks   chan Task
 	wg      sync.WaitGroup
 	once    sync.Once
 	quit    chan struct{}
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 // New 创建工作池
@@ -19,10 +34,14 @@ func New(workers int) *WorkerPool {
 		workers = 1
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	pool := &WorkerPool{
 		workers: workers,
-		tasks:   make(chan func(), workers*2),
+		tasks:   make(chan Task, workers*2),
 		quit:    make(chan struct{}),
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 	pool.start()
 	return pool
@@ -38,8 +57,11 @@ func (p *WorkerPool) start() {
 					if !ok {
 						return
 					}
-					task()
+					result, err := task.Fn()
+					task.Done <- TaskResult{Error: err, Data: result}
 				case <-p.quit:
+					return
+				case <-p.ctx.Done():
 					return
 				}
 			}
@@ -48,23 +70,64 @@ func (p *WorkerPool) start() {
 }
 
 // Submit 提交任务
-func (p *WorkerPool) Submit(task func()) {
-	p.wg.Add(1)
-	p.tasks <- func() {
-		defer p.wg.Done()
-		task()
+func (p *WorkerPool) Submit(fn func() (interface{}, error)) <-chan TaskResult {
+	done := make(chan TaskResult, 1)
+	task := Task{
+		Fn:   fn,
+		Done: done,
 	}
+
+	select {
+	case p.tasks <- task:
+	case <-p.ctx.Done():
+		result := TaskResult{Error: p.ctx.Err()}
+		select {
+		case done <- result:
+		default:
+		}
+		close(done)
+		return done
+	}
+
+	return done
 }
 
-// Wait 等待所有任务完
+// SubmitAndWait 提交任务并等待完成
+func (p *WorkerPool) SubmitAndWait(fn func() (interface{}, error)) (interface{}, error) {
+	resultChan := p.Submit(fn)
+	result := <-resultChan
+	return result.Data, result.Error
+}
+
+// Wait 等待所有任务完成
 func (p *WorkerPool) Wait() {
-	p.wg.Wait()
+	// 由于任务是立即执行的，这里主要是等待上下文结束
+	<-p.ctx.Done()
 }
 
-// Stop 停止工作
+// Stop 停止工作池
 func (p *WorkerPool) Stop() {
 	p.once.Do(func() {
+		p.cancel()
 		close(p.quit)
 		close(p.tasks)
 	})
+}
+
+// SubmitBatch 提交一批任务并等待全部完成
+func (p *WorkerPool) SubmitBatch(fns []func() (interface{}, error)) []TaskResult {
+	results := make([]TaskResult, len(fns))
+	var wg sync.WaitGroup
+
+	for i, fn := range fns {
+		wg.Add(1)
+		go func(index int, f func() (interface{}, error)) {
+			defer wg.Done()
+			result, err := p.SubmitAndWait(f)
+			results[index] = TaskResult{Error: err, Data: result}
+		}(i, fn)
+	}
+
+	wg.Wait()
+	return results
 }

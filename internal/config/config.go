@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,13 +54,13 @@ func (e *ConfigError) Unwrap() error {
 type Config struct {
 	Version             int    `json:"version"`               // 配置版本
 	ManifestURL         string `json:"manifest_url"`          // 清单仓库的URL
-	ManifestBranch      string `json:"manifest_branch"`       // 清单仓库的分
-	ManifestName        string `json:"manifest_name"`         // 清单文件的名
-	Groups              string `json:"groups"`                // 项目
+	ManifestBranch      string `json:"manifest_branch"`       // 清单仓库的分支
+	ManifestName        string `json:"manifest_name"`         // 清单文件的名称
+	Groups              string `json:"groups"`                // 项目组
 	Platform            string `json:"platform"`              // 平台
-	Mirror              bool   `json:"mirror"`                // 是否为镜
-	Archive             bool   `json:"archive"`               // 是否为存
-	Worktree            bool   `json:"worktree"`              // 是否使用工作
+	Mirror              bool   `json:"mirror"`                // 是否为镜像
+	Archive             bool   `json:"archive"`               // 是否为存档
+	Worktree            bool   `json:"worktree"`              // 是否使用工作树
 	Reference           string `json:"reference"`             // 引用
 	NoSmartCache        bool   `json:"no_smart_cache"`        // 是否禁用智能缓存
 	Dissociate          bool   `json:"dissociate"`            // 是否解除关联
@@ -68,20 +69,34 @@ type Config struct {
 	PartialCloneExclude string `json:"partial_clone_exclude"` // 部分克隆排除
 	CloneFilter         string `json:"clone_filter"`          // 克隆过滤
 	UseSuperproject     bool   `json:"use_superproject"`      // 是否使用超级项目
-	CloneBundle         bool   `json:"clone_bundle"`          // 是否使用克隆
+	CloneBundle         bool   `json:"clone_bundle"`          // 是否使用克隆包
 	GitLFS              bool   `json:"git_lfs"`               // 是否使用Git LFS
 	RepoURL             string `json:"repo_url"`              // Repo URL
 	RepoRev             string `json:"repo_rev"`              // Repo版本
 	NoRepoVerify        bool   `json:"no_repo_verify"`        // 是否禁用Repo验证
-	StandaloneManifest  bool   `json:"standalone_manifest"`   // 是否为独立清
-	Submodules          bool   `json:"submodules"`            // 是否包含子模
+	StandaloneManifest  bool   `json:"standalone_manifest"`   // 是否为独立清单
+	Submodules          bool   `json:"submodules"`            // 是否包含子模块
 	CurrentBranch       bool   `json:"current_branch"`        // 是否使用当前分支
 	Tags                bool   `json:"tags"`                  // 是否包含标签
 	ConfigName          string `json:"config_name"`           // 配置名称
-	RepoRoot            string `yaml:"repo_root"`             // 仓库根目
+	RepoRoot            string `json:"repo_root"`             // 仓库根目录
 	DefaultRemoteURL    string `json:"default_remote_url"`    // 默认远程URL
 	Verbose             bool   `json:"verbose"`               // 是否详细输出
 	Quiet               bool   `json:"quiet"`                 // 是否安静模式
+	Jobs                int    `json:"jobs"`                  // 并发任务数
+	Color               string `json:"color"`                 // 输出颜色设置
+	Trace               bool   `json:"trace"`                 // 是否启用跟踪
+	ThisManifestOnly    bool   `json:"this_manifest_only"`    // 仅使用当前清单
+	AllManifests        bool   `json:"all_manifests"`         // 使用所有清单
+	ManifestProject     bool   `json:"manifest_project"`      // 清单项目标记
+	NoCurrentBranch     bool   `json:"no_current_branch"`     // 不使用当前分支
+	NoTags              bool   `json:"no_tags"`               // 不包含标签
+	NoPartialClone      bool   `json:"no_partial_clone"`      // 不使用部分克隆
+	NoUseSuperproject   bool   `json:"no_use_superproject"`   // 不使用超级项目
+	NoCloneBundle       bool   `json:"no_clone_bundle"`       // 不使用克隆包
+	NoGitLFS            bool   `json:"no_git_lfs"`            // 不使用Git LFS
+	OuterManifest       bool   `json:"outer_manifest"`        // 外部清单
+	NoOuterManifest     bool   `json:"no_outer_manifest"`     // 不使用外部清单
 }
 
 // Load 加载配置
@@ -501,9 +516,42 @@ func (c *Config) Validate() error {
 		errs = append(errs, "depth must be non-negative")
 	}
 
+	// 验证Jobs参数
+	if c.Jobs < 0 {
+		errs = append(errs, "jobs must be non-negative")
+	}
+
 	// 验证互斥选项
 	if c.Mirror && c.Archive {
 		errs = append(errs, "mirror and archive options are mutually exclusive")
+	}
+
+	if c.CurrentBranch && c.NoCurrentBranch {
+		errs = append(errs, "current_branch and no_current_branch options are mutually exclusive")
+	}
+
+	if c.Tags && c.NoTags {
+		errs = append(errs, "tags and no_tags options are mutually exclusive")
+	}
+
+	if c.PartialClone && c.NoPartialClone {
+		errs = append(errs, "partial_clone and no_partial_clone options are mutually exclusive")
+	}
+
+	if c.UseSuperproject && c.NoUseSuperproject {
+		errs = append(errs, "use_superproject and no_use_superproject options are mutually exclusive")
+	}
+
+	if c.CloneBundle && c.NoCloneBundle {
+		errs = append(errs, "clone_bundle and no_clone_bundle options are mutually exclusive")
+	}
+
+	if c.GitLFS && c.NoGitLFS {
+		errs = append(errs, "git_lfs and no_git_lfs options are mutually exclusive")
+	}
+
+	if c.OuterManifest && c.NoOuterManifest {
+		errs = append(errs, "outer_manifest and no_outer_manifest options are mutually exclusive")
 	}
 
 	if len(errs) > 0 {
@@ -511,6 +559,99 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// GetJobs 获取并发任务数，如果没有设置则返回默认值
+func (c *Config) GetJobs() int {
+	if c.Jobs > 0 {
+		return c.Jobs
+	}
+	// 默认使用CPU核心数
+	return runtime.NumCPU()
+}
+
+// IsColorEnabled 检查是否启用颜色输出
+func (c *Config) IsColorEnabled() bool {
+	if c.Color == "never" {
+		return false
+	}
+	if c.Color == "always" {
+		return true
+	}
+	// auto 或其他值，默认启用颜色（如果终端支持）
+	return true
+}
+
+// GetDefaultGroups 获取默认项目组
+func (c *Config) GetDefaultGroups() []string {
+	if c.Groups == "" {
+		return []string{"all"}
+	}
+	return strings.Split(c.Groups, ",")
+}
+
+// GetDefaultPlatform 获取默认平台
+func (c *Config) GetDefaultPlatform() []string {
+	if c.Platform == "" {
+		return []string{}
+	}
+	return strings.Split(c.Platform, ",")
+}
+
+// IsCurrentBranchMode 检查是否使用当前分支模式
+func (c *Config) IsCurrentBranchMode() bool {
+	if c.NoCurrentBranch {
+		return false
+	}
+	return c.CurrentBranch
+}
+
+// IsTagsEnabled 检查是否启用标签
+func (c *Config) IsTagsEnabled() bool {
+	if c.NoTags {
+		return false
+	}
+	return c.Tags
+}
+
+// IsPartialCloneEnabled 检查是否启用部分克隆
+func (c *Config) IsPartialCloneEnabled() bool {
+	if c.NoPartialClone {
+		return false
+	}
+	return c.PartialClone
+}
+
+// IsSuperprojectEnabled 检查是否启用超级项目
+func (c *Config) IsSuperprojectEnabled() bool {
+	if c.NoUseSuperproject {
+		return false
+	}
+	return c.UseSuperproject
+}
+
+// IsCloneBundleEnabled 检查是否启用克隆包
+func (c *Config) IsCloneBundleEnabled() bool {
+	if c.NoCloneBundle {
+		return false
+	}
+	return c.CloneBundle
+}
+
+// IsGitLFSEnabled 检查是否启用Git LFS
+func (c *Config) IsGitLFSEnabled() bool {
+	if c.NoGitLFS {
+		return false
+	}
+	return c.GitLFS
+}
+
+// IsOuterManifestEnabled 检查是否启用外部清单
+func (c *Config) IsOuterManifestEnabled() bool {
+	if c.NoOuterManifest {
+		return false
+	}
+	return c.OuterManifest
 }
 
 // ApplyEnvironment 应用环境变量覆盖配置

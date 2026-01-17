@@ -181,9 +181,6 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 	}
 	defer RestoreWorkDir(originalDir, log)
 
-	// 创建统计对象
-	stats := &syncStats{}
-
 	// 加载配置
 	cfg, err := config.Load()
 	if err != nil {
@@ -233,6 +230,12 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
 	log.Debug("成功加载清单，包含 %d 个项目", len(manifestObj.Projects))
+
+	// 使用配置中的Jobs设置覆盖默认值
+	if cfg.Jobs > 0 && opts.Jobs == runtime.NumCPU()*2 {
+		log.Info("使用配置文件中的并发数: %d", cfg.Jobs)
+		opts.Jobs = cfg.Jobs
+	}
 
 	// 使用manifest中的default sync-j设置（如果有）
 	if manifestObj.Default.SyncJ > 0 && opts.Jobs == runtime.NumCPU()*2 {
@@ -300,12 +303,6 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		return fmt.Errorf("在指定组 %v 中未找到匹配的项目", groupsSlice)
 	}
 
-	// 检查是否有项目需要同步
-	if len(projects) == 0 {
-		log.Warn("没有找到匹配的项目需要同步")
-		return fmt.Errorf("没有找到匹配的项目需要同步")
-	}
-
 	// 创建同步引擎
 	log.Debug("创建同步引擎...")
 	// 使用已经处理好的 groupsSlice，避免重复处理
@@ -362,15 +359,11 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 
 	// 处理同步结果
 	if err != nil {
-		log.Error("同步操作完成，但有错 %v", err)
-		stats.failed = len(projects) // 更新统计信息
+		log.Error("同步操作失败: %v", err)
 		return err
 	}
 
-	// 更新统计信息
-	stats.total = len(projects)
-	stats.success = len(projects)
-	log.Info("同步操作成功完成，共同步 %d 个项目", stats.total)
+	log.Info("同步操作成功完成，共同步 %d 个项目", len(projects))
 	return nil
 }
 

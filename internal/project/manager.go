@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/leopardxu/repo-go/internal/git"
 	"github.com/leopardxu/repo-go/internal/logger"
 	"github.com/leopardxu/repo-go/internal/manifest"
+	"golang.org/x/sync/errgroup"
 )
 
 // Manager 管理项目列表
@@ -576,43 +578,26 @@ func (m *Manager) ForEachProject(fn func(*Project) error, concurrency int) error
 		return nil
 	}
 
-	// 并发执行
-	var wg sync.WaitGroup
-	errChan := make(chan error, len(projects))
-	semaphore := make(chan struct{}, concurrency)
+	// 使用errgroup来处理并发
+	ctx := context.Background()
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(concurrency)
 
 	for _, p := range projects {
-		wg.Add(1)
-		go func(proj *Project) {
-			defer wg.Done()
-
-			// 获取信号			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			if err := fn(proj); err != nil {
-				errChan <- err
+		// 捕获循环变量
+		proj := p
+		g.Go(func() error {
+			// 检查上下文是否被取消
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
 			}
-		}(p)
+			return fn(proj)
+		})
 	}
 
-	// 等待所有任务完成
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
-
-	// 收集错误
-	var errs []error
-	for err := range errChan {
-		errs = append(errs, err)
-	}
-
-	if len(errs) > 0 {
-		// 返回第一个错误
-		return errs[0]
-	}
-
-	return nil
+	return g.Wait()
 }
 
 // SyncProjects 同步所有项目，支持并发

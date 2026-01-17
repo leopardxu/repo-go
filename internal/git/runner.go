@@ -52,6 +52,8 @@ type defaultRunner struct {
 	concurrency int
 	semaphore   chan struct{}
 	mutex       sync.RWMutex
+	timeout     time.Duration     // 默认超时时间
+	environment map[string]string // 环境变量
 }
 
 // SetVerbose 设置是否显示详细输出
@@ -101,6 +103,27 @@ func (r *defaultRunner) SetConcurrency(concurrency int) {
 	}
 }
 
+// SetTimeout 设置默认超时时间
+func (r *defaultRunner) SetTimeout(timeout time.Duration) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.timeout = timeout
+}
+
+// SetEnvironment 设置环境变量
+func (r *defaultRunner) SetEnvironment(env map[string]string) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	r.environment = env
+}
+
+// GetEnvironment 获取环境变量
+func (r *defaultRunner) GetEnvironment() map[string]string {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	return r.environment
+}
+
 // Run 执行Git命令
 func (r *defaultRunner) Run(args ...string) ([]byte, error) {
 	return r.runGitCommand("", 0, args...)
@@ -130,7 +153,14 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 	retryDelay := r.RetryDelay
 	verbose := r.Verbose
 	quiet := r.Quiet
+	defaultTimeout := r.timeout
+	env := r.environment
 	r.mutex.RUnlock()
+
+	// 如果没有显式设置超时，使用默认超时
+	if timeout == 0 {
+		timeout = defaultTimeout
+	}
 
 	// 检查REPO_TRACE环境变量
 	repoTrace := os.Getenv("REPO_TRACE") != ""
@@ -172,13 +202,20 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 
 		if timeout > 0 {
 			ctx, cancel = context.WithTimeout(ctx, timeout)
-			defer cancel()
+			// 注意：不能在这里defer cancel()，因为我们需要在下面手动调用
 		}
 
 		cmd := exec.CommandContext(ctx, "git", cmdArgs...)
 
 		if dir != "" {
 			cmd.Dir = dir
+		}
+
+		// 设置环境变量
+		if env != nil {
+			for k, v := range env {
+				cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
+			}
 		}
 
 		// 如果设置了REPO_TRACE，记录环境变量
@@ -194,6 +231,11 @@ func (r *defaultRunner) runGitCommand(dir string, timeout time.Duration, args ..
 		err := cmd.Run()
 		stdoutBytes = stdout.Bytes()
 		stderrBytes = stderr.Bytes()
+
+		// 手动调用cancel()确保资源释放
+		if cancel != nil {
+			cancel()
+		}
 
 		// 处理输出
 		if (verbose || repoTrace) && len(stdoutBytes) > 0 {
@@ -294,6 +336,7 @@ func NewRunner() Runner {
 		RetryDelay:  time.Second * 2,
 		concurrency: 5,
 		semaphore:   make(chan struct{}, 5),
+		timeout:     30 * time.Minute, // 默认30分钟超时
 	}
 }
 
@@ -304,11 +347,16 @@ func NewCommandRunnerWithConfig(cfg *config.Config) (Runner, error) {
 		RetryDelay:  time.Second * 2,
 		concurrency: 5,
 		semaphore:   make(chan struct{}, 5),
+		timeout:     30 * time.Minute, // 默认30分钟超时
 	}
 
 	if cfg != nil {
 		runner.Verbose = cfg.Verbose
 		runner.Quiet = cfg.Quiet
+		// 根据配置调整并发数
+		if cfg.Jobs > 0 {
+			runner.SetConcurrency(cfg.Jobs)
+		}
 	}
 
 	return runner, nil
