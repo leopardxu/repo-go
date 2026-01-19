@@ -203,6 +203,25 @@ func runSync(opts *SyncOptions, args []string, log logger.Logger) error {
 		log.Info("使用配置文件中的组信息 %s", cfg.Groups)
 	}
 
+	// 首先更新 manifest 仓库
+	if !opts.NoManifestUpdate {
+		log.Info("正在更新 manifest 仓库...")
+		// 创建临时引擎用于更新 manifest 仓库
+		tempEngine := repo_sync.NewEngine(&repo_sync.Options{
+			NoManifestUpdate: opts.NoManifestUpdate,
+			Config:           cfg,
+			Quiet:            opts.Quiet,
+			Verbose:          opts.Verbose,
+		}, nil, log)
+
+		if err := tempEngine.UpdateManifestRepo(); err != nil {
+			log.Warn("更新 manifest 仓库失败: %v", err)
+			// 不返回错误，继续执行同步
+		} else {
+			log.Info("manifest 仓库更新完成")
+		}
+	}
+
 	// 加载合并后的清单文件(.repo/manifest.xml)，不使用原始仓库列表
 	log.Debug("正在加载合并后的清单文件: %s", manifestPath)
 	parser := manifest.NewParser()

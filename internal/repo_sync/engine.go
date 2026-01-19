@@ -146,13 +146,6 @@ func (e *Engine) Sync() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // 确保函数退出时取消上下文
 
-	// 首先更新 manifest 仓库
-	err := e.UpdateManifestRepo()
-	if err != nil {
-		e.logger.Warn("更新 manifest 仓库失败: %v", err)
-		// 不返回错误，继续执行同步
-	}
-
 	totalProjects := len(e.projects)
 	if totalProjects == 0 {
 		e.logger.Info("没有项目需要同步")
