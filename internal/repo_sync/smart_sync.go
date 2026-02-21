@@ -16,11 +16,11 @@ import (
 
 // handleSmartSync 处理智能同步
 func (e *Engine) handleSmartSync() error {
-	if e.manifest.ManifestServer == "" {
+	if e.manifest.ManifestServer == nil {
 		return errors.New("无法进行智能同步: 清单中未定义清单服务器")
 	}
 
-	manifestServer := e.manifest.ManifestServer
+	manifestServer := e.manifest.ManifestServer.URL
 	if !e.options.Quiet {
 		fmt.Printf("使用清单服务%s\n", manifestServer)
 	}

@@ -329,29 +329,29 @@ func (e *Engine) fetchProjectList(projects []*project.Project) []FetchResult {
 }
 
 // fetchOne 获取单个项目
-func (e *Engine) fetchOne(project *project.Project) bool {
+func (e *Engine) fetchOne(proj *project.Project) bool {
 	if !e.options.Quiet {
-		fmt.Printf("获取项目 %s\n", project.Name)
+		fmt.Printf("获取项目 %s\n", proj.Name)
 	}
 
 	// 执行网络同步
-	success := project.SyncNetworkHalf(
-		e.options.Quiet,
-		e.options.CurrentBranch,
-		e.options.ForceSync,
-		e.options.NoCloneBundle,
-		e.options.Tags,
-		e.manifest.IsArchive,
-		e.options.OptimizedFetch,
-		e.options.RetryFetches,
-		true, // prune
-		e.sshProxy,
-		e.manifest.CloneFilter,
-		e.manifest.PartialCloneExclude,
-	)
+	success := proj.SyncNetworkHalf(project.SyncNetworkOptions{
+		Quiet:               e.options.Quiet,
+		CurrentBranch:       e.options.CurrentBranch,
+		ForceSync:           e.options.ForceSync,
+		NoCloneBundle:       e.options.NoCloneBundle,
+		Tags:                e.options.Tags,
+		IsArchive:           e.manifest.IsArchive,
+		OptimizedFetch:      e.options.OptimizedFetch,
+		RetryFetches:        e.options.RetryFetches,
+		Prune:               true, // prune
+		SSHProxy:            e.sshProxy,
+		CloneFilter:         e.manifest.CloneFilter,
+		PartialCloneExclude: e.manifest.PartialCloneExclude,
+	})
 
 	if !success && !e.options.Quiet {
-		fmt.Printf("错误: 无法%s 获取 %s\n", project.RemoteURL, project.Name)
+		fmt.Printf("错误: 无法%s 获取 %s\n", proj.RemoteURL, proj.Name)
 	}
 
 	return success

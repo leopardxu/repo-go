@@ -358,7 +358,7 @@ func (c *ChangeInfo) getChangeViaSSH(changeID string) (*ChangeInfo, error) {
 	output, err := cmd.Output()
 	if err != nil {
 		// 提供更明确的错误信息，指导用户如何手动执行SSH命令
-		return nil, fmt.Errorf("执行SSH命令失败: %w，请使用 ssh 协议 ssh gerrit gerrit query --format=JSON %s 输出json，然后执行后续逻辑", changeID)
+		return nil, fmt.Errorf("执行SSH命令失败: %w，请使用 ssh 协议 ssh gerrit gerrit query --format=JSON %s 输出json，然后执行后续逻辑", err, changeID)
 	}
 
 	// 解析JSON输出

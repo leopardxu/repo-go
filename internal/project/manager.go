@@ -45,10 +45,13 @@ func NewManagerFromManifest(m *manifest.Manifest, cfg *config.Config) *Manager {
 	// 创建项目管理器
 	manager := &Manager{
 		Projects:     make([]*Project, 0),
-		ManifestURL:  m.ManifestServer,
+		ManifestURL:  "",
 		ManifestName: "default.xml", // 默认清单名称
 		RepoDir:      m.RepoDir,
 		GitRunner:    git.NewRunner(),
+	}
+	if m.ManifestServer != nil {
+		manager.ManifestURL = m.ManifestServer.URL
 	}
 
 	// 从清单中加载项目

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -52,10 +51,10 @@ type Manifest struct {
 	ExtendProjects []ExtendProject   `xml:"extend-project"` // 扩展已有项目
 	Includes       []Include         `xml:"include"`
 	RemoveProjects []RemoveProject   `xml:"remove-project"`
-	RepoHooks      *RepoHooks        `xml:"repo-hooks"`                     // repo钩子配置
-	Superproject   *Superproject     `xml:"superproject"`                   // 超级项目配置
-	ManifestServer string            `xml:"manifest-server,attr,omitempty"` // manifest服务器
-	CustomAttrs    map[string]string `xml:"-"`                              // 存储自定义属性
+	RepoHooks      *RepoHooks        `xml:"repo-hooks"`      // repo钩子配置
+	Superproject   *Superproject     `xml:"superproject"`    // 超级项目配置
+	ManifestServer *ManifestServer   `xml:"manifest-server"` // manifest服务器
+	CustomAttrs    map[string]string `xml:"-"`               // 存储自定义属性
 
 	// 添加与engine.go 兼容的字段
 	Subdir              string   // 清单子目录
@@ -71,6 +70,11 @@ type Manifest struct {
 
 	// 静默模式控制
 	SilentMode bool // 是否启用静默模式，不输出非关键日志
+}
+
+// ManifestServer 表示 manifest-server 节点
+type ManifestServer struct {
+	URL string `xml:"url,attr"`
 }
 
 // GetCustomAttr 获取自定义属性值
@@ -131,6 +135,7 @@ type Project struct {
 	SyncC       bool              `xml:"sync-c,attr,omitempty"`
 	SyncS       bool              `xml:"sync-s,attr,omitempty"`
 	CloneDepth  int               `xml:"clone-depth,attr,omitempty"`
+	ForcePath   bool              `xml:"force-path,attr,omitempty"` // 强制通过 path 而非 name 使用本地镜像
 	Copyfiles   []Copyfile        `xml:"copyfile"`
 	Linkfiles   []Linkfile        `xml:"linkfile"`
 	Annotations []Annotation      `xml:"annotation"` // 项目注解
@@ -437,7 +442,7 @@ func (p *Parser) ParseFromFile(filename string, groups []string) (*Manifest, err
 	}
 
 	// 读取文件
-	data, err := ioutil.ReadFile(successPath)
+	data, err := os.ReadFile(successPath)
 	if err != nil {
 		return nil, &ManifestError{Op: "read", Path: successPath, Err: err}
 	}
@@ -1019,7 +1024,7 @@ func (p *Parser) processIncludes(manifest *Manifest, groups []string) error {
 		var foundFile bool
 
 		for _, path := range paths {
-			data, readErr = ioutil.ReadFile(path)
+			data, readErr = os.ReadFile(path)
 			if readErr == nil {
 				foundFile = true
 				break
@@ -1182,7 +1187,7 @@ func (p *Parser) processLocalManifests(manifest *Manifest, groups []string) erro
 
 	// 处理每个local manifest文件
 	for _, xmlFile := range xmlFiles {
-		data, err := ioutil.ReadFile(xmlFile)
+		data, err := os.ReadFile(xmlFile)
 		if err != nil {
 			// 读取失败，记录警告并继续
 			if !p.silentMode {

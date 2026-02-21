@@ -44,22 +44,22 @@ func (e *Engine) AbandonTopics(projects []*project.Project, topic string) []Aban
 
 			// 放弃本地分支
 			if !e.options.Quiet {
-				if e.log != nil {
-					e.log.Debug("正在删除项目 %s 的分%s", proj.Name, branch)
+				if e.logger != nil {
+					e.logger.Debug("正在删除项目 %s 的分%s", proj.Name, branch)
 				}
 			}
 
 			err := proj.DeleteBranch(branch)
 			if err != nil {
-				if e.log != nil {
-					e.log.Error("删除项目 %s 的分%s 失败: %v", proj.Name, branch, err)
+				if e.logger != nil {
+					e.logger.Error("删除项目 %s 的分%s 失败: %v", proj.Name, branch, err)
 				}
 				resultsChan <- AbandonResult{Project: proj, Branch: branch, Success: false, Error: err}
 				return
 			}
 
-			if !e.options.Quiet && e.log != nil {
-				e.log.Debug("成功删除项目 %s 的分%s", proj.Name, branch)
+			if !e.options.Quiet && e.logger != nil {
+				e.logger.Debug("成功删除项目 %s 的分%s", proj.Name, branch)
 			}
 			resultsChan <- AbandonResult{Project: proj, Branch: branch, Success: true, Error: nil}
 		}(p)

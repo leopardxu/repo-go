@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -52,7 +53,13 @@ func (e *SyncError) Error() string {
 		timeStr, e.ProjectName, e.Phase, retryInfo, e.Err)
 }
 
+// Unwrap 返回底层错误，支持 errors.Is/errors.As 穿透
+func (e *SyncError) Unwrap() error {
+	return e.Err
+}
+
 // NewMultiError 创建包含多个错误的错误对象
+// 使用 errors.Join 保留所有错误详情
 func NewMultiError(errs []error) error {
 	if len(errs) == 0 {
 		return nil
@@ -60,7 +67,7 @@ func NewMultiError(errs []error) error {
 	if len(errs) == 1 {
 		return errs[0]
 	}
-	return fmt.Errorf("发生了 %d 个错误", len(errs))
+	return errors.Join(errs...)
 }
 
 // Options 包含同步引擎的选项
@@ -78,6 +85,7 @@ type Engine struct {
 	errors          []error
 	errorsMu        sync.Mutex
 	errResults      []string
+	errResultsMu    sync.Mutex // 保护 errResults 的互斥锁
 	manifestCache   []byte
 	manifest        *manifest.Manifest
 	errEvent        chan error           // 添加 errEvent 字段
@@ -85,7 +93,6 @@ type Engine struct {
 	fetchTimes      map[string]time.Time // 添加 fetchTimes 字段
 	fetchTimesLock  sync.Mutex           // 添加 fetchTimesLock 字段
 	ctx             context.Context      // 添加 ctx 字段
-	log             logger.Logger        // 添加 log 字段
 	branchName      string               // 要检出的分支名称
 	checkoutStats   *checkoutStats       // 检出操作的统计信息
 	commitHash      string               // 要cherry-pick的提交哈希
@@ -94,6 +101,11 @@ type Engine struct {
 
 // NewEngine 创建同步引擎
 func NewEngine(options *Options, manifest *manifest.Manifest, log logger.Logger) *Engine {
+	return NewEngineWithContext(context.Background(), options, manifest, log)
+}
+
+// NewEngineWithContext 创建支持 context 取消的同步引擎
+func NewEngineWithContext(ctx context.Context, options *Options, manifest *manifest.Manifest, log logger.Logger) *Engine {
 	if options.Jobs <= 0 {
 		options.Jobs = runtime.NumCPU()
 	}
@@ -135,8 +147,7 @@ func NewEngine(options *Options, manifest *manifest.Manifest, log logger.Logger)
 		repoRoot:       repoRoot,                   // 设置仓库根目录
 		errEvent:       make(chan error),           // 初始化errEvent 字段
 		fetchTimes:     make(map[string]time.Time), // 初始化fetchTimes 映射
-		ctx:            context.Background(),       // 初始化ctx 字段
-		log:            log,                        // 初始化log 字段
+		ctx:            ctx,                        // 使用传入的 context
 	}
 }
 
@@ -259,29 +270,11 @@ func (e *Engine) UpdateManifestRepo() error {
 		return nil
 	}
 
-	// 切换到 manifest 仓库目录并执行 git fetch 和 git merge
-	currentDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("获取当前目录失败: %w", err)
-	}
-
-	// 切换到 manifests 目录
-	if err := os.Chdir(manifestProjectPath); err != nil {
-		return fmt.Errorf("切换到 manifest 目录失败: %w", err)
-	}
-
-	defer func() {
-		// 确保返回原目录
-		if chErr := os.Chdir(currentDir); chErr != nil {
-			e.logger.Error("无法返回原目录: %v", chErr)
-		}
-	}()
-
-	// 创建 git runner
+	// 使用 git -C 参数在指定目录执行命令，避免 os.Chdir 的线程安全问题
 	gitRunner := git.NewRunner()
 
 	// 获取更新前的 HEAD 提交哈希以检查是否有更新
-	oldHeadOutput, err := gitRunner.Run("rev-parse", "HEAD")
+	oldHeadOutput, err := gitRunner.RunInDir(manifestProjectPath, "rev-parse", "HEAD")
 	oldHead := strings.TrimSpace(string(oldHeadOutput))
 	if err != nil {
 		e.logger.Warn("获取当前 HEAD 失败: %v", err)
@@ -289,18 +282,18 @@ func (e *Engine) UpdateManifestRepo() error {
 
 	// 执行 fetch 操作
 	e.logger.Debug("正在获取 manifest 仓库更新...")
-	_, err = gitRunner.Run("fetch", "origin")
+	_, err = gitRunner.RunInDir(manifestProjectPath, "fetch", "origin")
 	if err != nil {
 		e.logger.Warn("获取 manifest 仓库更新失败: %v", err)
 		// 尝试获取所有远程分支
-		_, fetchErr := gitRunner.Run("fetch", "--all")
+		_, fetchErr := gitRunner.RunInDir(manifestProjectPath, "fetch", "--all")
 		if fetchErr != nil {
 			e.logger.Warn("获取所有远程分支也失败: %v", fetchErr)
 		}
 	}
 
 	// 获取当前分支
-	output, err := gitRunner.Run("rev-parse", "--abbrev-ref", "HEAD")
+	output, err := gitRunner.RunInDir(manifestProjectPath, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return fmt.Errorf("获取当前分支失败: %w", err)
 	}
@@ -308,11 +301,11 @@ func (e *Engine) UpdateManifestRepo() error {
 
 	// 执行合并操作
 	e.logger.Debug("正在合并 manifest 仓库更新到分支 %s...", currentBranch)
-	_, err = gitRunner.Run("merge", "origin/"+currentBranch)
+	_, err = gitRunner.RunInDir(manifestProjectPath, "merge", "origin/"+currentBranch)
 	if err != nil {
 		e.logger.Warn("合并 manifest 仓库更新失败: %v", err)
 		// 尝试使用 pull 命令
-		_, pullErr := gitRunner.Run("pull", "origin", currentBranch)
+		_, pullErr := gitRunner.RunInDir(manifestProjectPath, "pull", "origin", currentBranch)
 		if pullErr != nil {
 			e.logger.Warn("拉取 manifest 仓库更新也失败: %v", pullErr)
 			return fmt.Errorf("无法更新 manifest 仓库，fetch/merge/pull 均失败")
@@ -320,7 +313,7 @@ func (e *Engine) UpdateManifestRepo() error {
 	}
 
 	// 检查是否有更新
-	newHeadOutput, err := gitRunner.Run("rev-parse", "HEAD")
+	newHeadOutput, err := gitRunner.RunInDir(manifestProjectPath, "rev-parse", "HEAD")
 	newHead := strings.TrimSpace(string(newHeadOutput))
 	if err != nil {
 		e.logger.Warn("获取更新后的 HEAD 失败: %v", err)

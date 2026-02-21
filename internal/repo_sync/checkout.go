@@ -32,12 +32,12 @@ func (e *Engine) GetCheckoutStats() (int, int) {
 
 // CheckoutBranch 检出指定分支
 func (e *Engine) CheckoutBranch(projects []*project.Project) error {
-	if e.log == nil {
-		e.log = logger.NewDefaultLogger()
+	if e.logger == nil {
+		e.logger = logger.NewDefaultLogger()
 		if e.options.Verbose {
-			e.log.SetLevel(logger.LogLevelDebug)
+			e.logger.SetLevel(logger.LogLevelDebug)
 		} else if e.options.Quiet {
-			e.log.SetLevel(logger.LogLevelError)
+			e.logger.SetLevel(logger.LogLevelError)
 		}
 	}
 
@@ -45,7 +45,7 @@ func (e *Engine) CheckoutBranch(projects []*project.Project) error {
 		return fmt.Errorf("branch name is not specified")
 	}
 
-	e.log.Info("开始检出分支'%s' 到%d 个项目", e.branchName, len(projects))
+	e.logger.Info("开始检出分支'%s' 到%d 个项目", e.branchName, len(projects))
 
 	// 初始化统计信息
 	e.checkoutStats = &checkoutStats{}
@@ -66,19 +66,19 @@ func (e *Engine) CheckoutBranch(projects []*project.Project) error {
 
 	// 执行检出
 	if len(worktreeProjects) == 0 {
-		e.log.Info("没有可检出的项目")
+		e.logger.Info("没有可检出的项目")
 		return nil
 	}
 
 	if e.options.JobsCheckout == 1 {
-		e.log.Debug("使用单线程模式检出项")
+		e.logger.Debug("使用单线程模式检出项")
 		for _, project := range worktreeProjects {
 			result := e.checkoutOneBranch(project)
 			e.processCheckoutResult(result, pm)
 		}
 	} else {
 		// 多线程检出
-		e.log.Debug("使用多线程模式检出项目，并发数 %d", e.options.JobsCheckout)
+		e.logger.Debug("使用多线程模式检出项目，并发数 %d", e.options.JobsCheckout)
 
 		// 创建工作组
 		var wg sync.WaitGroup
@@ -118,7 +118,7 @@ func (e *Engine) CheckoutBranch(projects []*project.Project) error {
 		pm.Finish()
 	}
 
-	e.log.Info("检出分支'%s' 完成: %d 成功, %d 失败", e.branchName, e.checkoutStats.Success, e.checkoutStats.Failed)
+	e.logger.Info("检出分支'%s' 完成: %d 成功, %d 失败", e.branchName, e.checkoutStats.Success, e.checkoutStats.Failed)
 
 	if e.checkoutStats.Failed > 0 {
 		return fmt.Errorf("检出失败: %d 个项目出错", e.checkoutStats.Failed)
@@ -135,13 +135,13 @@ func (e *Engine) processCheckoutResult(result CheckoutResult, pm progress.Report
 	if result.Success {
 		e.checkoutStats.Success++
 		if e.options.Verbose && !e.options.Quiet {
-			e.log.Debug("项目 %s 检出成功", result.Project.Name)
+			e.logger.Debug("项目 %s 检出成功", result.Project.Name)
 		}
 	} else {
 		e.checkoutStats.Failed++
 		e.errResults = append(e.errResults, result.Project.Path)
 		if !e.options.Quiet {
-			e.log.Error("项目 %s 检出失败", result.Project.Name)
+			e.logger.Error("项目 %s 检出失败", result.Project.Name)
 		}
 	}
 
@@ -266,20 +266,20 @@ type CheckoutResult struct {
 // checkoutOneBranch 检出单个项目的指定分支
 func (e *Engine) checkoutOneBranch(project *project.Project) CheckoutResult {
 	if !e.options.Quiet {
-		e.log.Info("检出项%s 的分%s", project.Name, e.branchName)
+		e.logger.Info("检出项%s 的分%s", project.Name, e.branchName)
 	}
 
 	// 如果是分离模式，检出项目的修订版本
 	if e.options.Detach {
-		e.log.Debug("项目 %s 使用分离模式检出修订版%s", project.Name, project.Revision)
+		e.logger.Debug("项目 %s 使用分离模式检出修订版%s", project.Name, project.Revision)
 		_, err := project.GitRepo.RunCommand("checkout", project.Revision)
 		if err != nil {
-			e.log.Error("项目 %s 检出修订版本失 %v", project.Name, err)
+			e.logger.Error("项目 %s 检出修订版本失 %v", project.Name, err)
 			return CheckoutResult{Success: false, Project: project}
 		}
 	} else {
 		// 否则，创建并检出指定分
-		e.log.Debug("项目 %s 创建并检出分%s", project.Name, e.branchName)
+		e.logger.Debug("项目 %s 创建并检出分%s", project.Name, e.branchName)
 
 		// 先检查远程分支是否存在冲
 		output, _ := project.GitRepo.RunCommand("branch", "-r", "--list", fmt.Sprintf("*/%s", e.branchName))
@@ -304,7 +304,7 @@ func (e *Engine) checkoutOneBranch(project *project.Project) CheckoutResult {
 					// 使用项目自身的远
 					_, err := project.GitRepo.RunCommand("checkout", "--track", fmt.Sprintf("%s/%s", project.RemoteName, e.branchName))
 					if err != nil {
-						e.log.Error("项目 %s 检出远程分支失 %v", project.Name, err)
+						e.logger.Error("项目 %s 检出远程分支失 %v", project.Name, err)
 						return CheckoutResult{Success: false, Project: project}
 					}
 					return CheckoutResult{Success: true, Project: project}
@@ -327,24 +327,24 @@ func (e *Engine) checkoutOneBranch(project *project.Project) CheckoutResult {
 					// 使用配置的默认远
 					_, err := project.GitRepo.RunCommand("checkout", "--track", fmt.Sprintf("%s/%s", e.options.DefaultRemote, e.branchName))
 					if err != nil {
-						e.log.Error("项目 %s 检出远程分支失 %v", project.Name, err)
+						e.logger.Error("项目 %s 检出远程分支失 %v", project.Name, err)
 						return CheckoutResult{Success: false, Project: project}
 					}
 					return CheckoutResult{Success: true, Project: project}
 				} else {
 					// 默认远程不包含该分支，记录详细信
-					e.log.Error("项目 %s 检出失 默认远程 '%s' 不包含分'%s'", project.Name, e.options.DefaultRemote, e.branchName)
+					e.logger.Error("项目 %s 检出失 默认远程 '%s' 不包含分'%s'", project.Name, e.options.DefaultRemote, e.branchName)
 				}
 			} else {
 				// 没有配置默认远程，返回错
-				e.log.Error("项目 %s 检出失 分支 '%s' 匹配多个远程跟踪分支，请使用 --default-remote 指定默认远程", project.Name, e.branchName)
+				e.logger.Error("项目 %s 检出失 分支 '%s' 匹配多个远程跟踪分支，请使用 --default-remote 指定默认远程", project.Name, e.branchName)
 			}
 
 			// 输出可用的远程分支列表，帮助用户选择
-			e.log.Info("项目 %s 的可用远程分", project.Name)
+			e.logger.Info("项目 %s 的可用远程分", project.Name)
 			for _, remoteBranch := range remoteBranches {
 				if remoteBranch != "" {
-					e.log.Info("  %s", strings.TrimSpace(remoteBranch))
+					e.logger.Info("  %s", strings.TrimSpace(remoteBranch))
 				}
 			}
 
@@ -354,14 +354,14 @@ func (e *Engine) checkoutOneBranch(project *project.Project) CheckoutResult {
 			remoteBranch := strings.TrimSpace(remoteBranches[0])
 			_, err := project.GitRepo.RunCommand("checkout", "--track", remoteBranch)
 			if err != nil {
-				e.log.Error("项目 %s 检出远程分支失 %v", project.Name, err)
+				e.logger.Error("项目 %s 检出远程分支失 %v", project.Name, err)
 				return CheckoutResult{Success: false, Project: project}
 			}
 		} else {
 			// 没有远程分支匹配，创建新分支
 			_, err := project.GitRepo.RunCommand("checkout", "-B", e.branchName)
 			if err != nil {
-				e.log.Error("项目 %s 创建并检出分支失 %v", project.Name, err)
+				e.logger.Error("项目 %s 创建并检出分支失 %v", project.Name, err)
 				return CheckoutResult{Success: false, Project: project}
 			}
 		}
@@ -372,7 +372,7 @@ func (e *Engine) checkoutOneBranch(project *project.Project) CheckoutResult {
 	projectGitDir := filepath.Join(project.Worktree, ".git")
 
 	if err := copyHooksToProject(repoHooksDir, projectGitDir); err != nil {
-		e.log.Warn("无法复制钩子脚本到项%s: %v", project.Name, err)
+		e.logger.Warn("无法复制钩子脚本到项%s: %v", project.Name, err)
 		// 不因为钩子复制失败而导致整个检出失
 	}
 
@@ -382,8 +382,8 @@ func (e *Engine) checkoutOneBranch(project *project.Project) CheckoutResult {
 // checkoutOne 检出单个项
 func (e *Engine) checkoutOne(project *project.Project) CheckoutResult {
 	if !e.options.Quiet {
-		if e.log != nil {
-			e.log.Info("检出项%s", project.Name)
+		if e.logger != nil {
+			e.logger.Info("检出项%s", project.Name)
 		} else {
 			fmt.Printf("检出项%s\n", project.Name)
 		}
@@ -406,15 +406,15 @@ func (e *Engine) checkoutOne(project *project.Project) CheckoutResult {
 
 		// 复制钩子脚本
 		if err := copyHooksToProject(repoHooksDir, projectGitDir); err != nil && !e.options.Quiet {
-			if e.log != nil {
-				e.log.Warn("无法复制钩子脚本到项%s: %v", project.Name, err)
+			if e.logger != nil {
+				e.logger.Warn("无法复制钩子脚本到项%s: %v", project.Name, err)
 			} else {
 				fmt.Printf("警告: 无法复制钩子脚本到项%s: %v\n", project.Name, err)
 			}
 		}
 	} else if !e.options.Quiet {
-		if e.log != nil {
-			e.log.Error("无法检出项%s", project.Name)
+		if e.logger != nil {
+			e.logger.Error("无法检出项%s", project.Name)
 		} else {
 			fmt.Printf("error: Cannot checkout %s\n", project.Name)
 		}

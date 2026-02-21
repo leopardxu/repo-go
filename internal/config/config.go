@@ -478,9 +478,12 @@ func (c *Config) ResolveRelativeURL(relativeURL string) string {
 	// 如果是相对路径，尝试将其转换为完整URL
 	if !strings.Contains(relativeURL, "://") {
 		// 从配置中获取基础URL
-		baseURL := "ssh://git@gitmirror.cixtech.com/"
+		// 从配置中获取基础URL
+		var baseURL string
 		if c.DefaultRemoteURL != "" {
 			baseURL = c.DefaultRemoteURL
+		} else if c.ManifestURL != "" {
+			baseURL = c.ExtractBaseURLFromManifestURL(c.ManifestURL)
 		}
 
 		// 确保baseURL结尾

@@ -256,10 +256,24 @@ func (p *Project) GC() error {
 	return nil
 }
 
+// SyncNetworkOptions 包含网络同步的选项
+type SyncNetworkOptions struct {
+	Quiet               bool
+	CurrentBranch       bool
+	ForceSync           bool
+	NoCloneBundle       bool
+	Tags                bool
+	IsArchive           bool
+	OptimizedFetch      bool
+	RetryFetches        int
+	Prune               bool
+	SSHProxy            interface{}
+	CloneFilter         string
+	PartialCloneExclude string
+}
+
 // SyncNetworkHalf 执行网络同步
-func (p *Project) SyncNetworkHalf(quiet bool, currentBranch bool, forceSync bool, noCloneBundle bool,
-	tags bool, isArchive bool, optimizedFetch bool, retryFetches int, prune bool,
-	sshProxy interface{}, cloneFilter string, partialCloneExclude string) bool {
+func (p *Project) SyncNetworkHalf(opts SyncNetworkOptions) bool {
 
 	logger.Debug("开始执行项目%s 的网络同步", p.Name)
 
@@ -272,7 +286,7 @@ func (p *Project) SyncNetworkHalf(quiet bool, currentBranch bool, forceSync bool
 
 	// 如果不存在，克隆仓库
 	if !exists {
-		if !quiet {
+		if !opts.Quiet {
 			logger.Info("克隆项目 %s %s", p.Name, p.RemoteURL)
 		}
 
@@ -289,8 +303,8 @@ func (p *Project) SyncNetworkHalf(quiet bool, currentBranch bool, forceSync bool
 		}
 
 		// 如果指定了深度，设置深度
-		if retryFetches > 0 {
-			options.Depth = retryFetches
+		if opts.RetryFetches > 0 {
+			options.Depth = opts.RetryFetches
 		}
 
 		// 克隆仓库
@@ -304,7 +318,7 @@ func (p *Project) SyncNetworkHalf(quiet bool, currentBranch bool, forceSync bool
 	}
 
 	// 如果存在，获取更新
-	if !quiet {
+	if !opts.Quiet {
 		logger.Info("获取项目 %s 的更新", p.Name)
 	}
 
@@ -315,25 +329,25 @@ func (p *Project) SyncNetworkHalf(quiet bool, currentBranch bool, forceSync bool
 
 	// 获取选项
 	fetchOpts := git.FetchOptions{
-		Prune: prune,
-		Tags:  tags,
+		Prune: opts.Prune,
+		Tags:  opts.Tags,
 	}
 
 	// 如果指定了深度，设置深度
-	if retryFetches > 0 {
-		fetchOpts.Depth = retryFetches
+	if opts.RetryFetches > 0 {
+		fetchOpts.Depth = opts.RetryFetches
 	}
 
 	// 执行获取，支持重
 	var fetchErr error
-	for i := 0; i <= retryFetches; i++ {
+	for i := 0; i <= opts.RetryFetches; i++ {
 		fetchErr = p.GitRepo.Fetch(p.RemoteName, fetchOpts)
 		if fetchErr == nil {
 			break
 		}
 
-		if i < retryFetches {
-			logger.Warn("获取项目 %s 更新失败，将重试 (%d/%d): %v", p.Name, i+1, retryFetches, fetchErr)
+		if i < opts.RetryFetches {
+			logger.Warn("获取项目 %s 更新失败，将重试 (%d/%d): %v", p.Name, i+1, opts.RetryFetches, fetchErr)
 			time.Sleep(time.Second * time.Duration(i+1)) // 指数退
 		}
 	}

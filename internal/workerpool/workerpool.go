@@ -21,12 +21,13 @@ type Task struct {
 type WorkerPool struct {
 	workers     int
 	tasks       chan Task
-	wg          sync.WaitGroup
 	once        sync.Once
 	quit        chan struct{}
 	ctx         context.Context
 	cancel      context.CancelFunc
 	activeTasks sync.WaitGroup // 追踪活跃任务数
+	closed      bool           // 标记 tasks channel 是否已关闭
+	closeMu     sync.Mutex     // 保护 closed 标记
 }
 
 // New 创建工作池
@@ -48,7 +49,8 @@ func New(workers int) *WorkerPool {
 	return pool
 }
 
-// start 启动工作
+// start 启动工作协程
+// 每个 worker 直接在自己的 goroutine 中执行任务，确保并发度 = workers 数
 func (p *WorkerPool) start() {
 	for i := 0; i < p.workers; i++ {
 		go func() {
@@ -58,12 +60,12 @@ func (p *WorkerPool) start() {
 					if !ok {
 						return
 					}
-					p.activeTasks.Add(1) // 增加活跃任务计数
-					go func(t Task) {
-						defer p.activeTasks.Done() // 完成时减少活跃任务计数
-						result, err := t.Fn()
-						t.Done <- TaskResult{Error: err, Data: result}
-					}(task)
+					p.activeTasks.Add(1)
+					// 直接在 worker goroutine 中执行任务，不再启动额外 goroutine
+					// 这样确保同时执行的任务数不会超过 workers 数
+					result, err := task.Fn()
+					task.Done <- TaskResult{Error: err, Data: result}
+					p.activeTasks.Done()
 				case <-p.quit:
 					return
 				case <-p.ctx.Done():
@@ -104,13 +106,18 @@ func (p *WorkerPool) SubmitAndWait(fn func() (interface{}, error)) (interface{},
 	return result.Data, result.Error
 }
 
-// Wait 等待所有任务完成
+// Wait 等待所有已提交的任务完成
 func (p *WorkerPool) Wait() {
 	// 等待所有活跃任务完成
 	p.activeTasks.Wait()
 
-	// 然后关闭任务通道并等待工作者退出
-	close(p.tasks)
+	// 安全关闭任务通道（仅关闭一次）
+	p.closeMu.Lock()
+	if !p.closed {
+		p.closed = true
+		close(p.tasks)
+	}
+	p.closeMu.Unlock()
 }
 
 // Stop 停止工作池
@@ -118,7 +125,12 @@ func (p *WorkerPool) Stop() {
 	p.once.Do(func() {
 		p.cancel()
 		close(p.quit)
-		close(p.tasks)
+		p.closeMu.Lock()
+		if !p.closed {
+			p.closed = true
+			close(p.tasks)
+		}
+		p.closeMu.Unlock()
 	})
 }
 

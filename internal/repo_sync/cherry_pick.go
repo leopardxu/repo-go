@@ -28,12 +28,12 @@ func (e *Engine) GetCherryPickStats() (int, int) {
 
 // CherryPickCommit 在指定项目中应用cherry-pick
 func (e *Engine) CherryPickCommit(projects []*project.Project) error {
-	if e.log == nil {
-		e.log = logger.NewDefaultLogger()
+	if e.logger == nil {
+		e.logger = logger.NewDefaultLogger()
 		if e.options.Verbose {
-			e.log.SetLevel(logger.LogLevelDebug)
+			e.logger.SetLevel(logger.LogLevelDebug)
 		} else if e.options.Quiet {
-			e.log.SetLevel(logger.LogLevelError)
+			e.logger.SetLevel(logger.LogLevelError)
 		}
 	}
 
@@ -41,7 +41,7 @@ func (e *Engine) CherryPickCommit(projects []*project.Project) error {
 		return fmt.Errorf("commit hash is not specified")
 	}
 
-	e.log.Info("开始在 %d 个项目中应用 cherry-pick '%s'", len(projects), e.commitHash)
+	e.logger.Info("开始在 %d 个项目中应用 cherry-pick '%s'", len(projects), e.commitHash)
 
 	// 初始化统计信息
 	e.cherryPickStats = &cherryPickStats{}
@@ -62,20 +62,20 @@ func (e *Engine) CherryPickCommit(projects []*project.Project) error {
 
 	// 执行cherry-pick
 	if len(worktreeProjects) == 0 {
-		e.log.Info("没有可应用的项目")
+		e.logger.Info("没有可应用的项目")
 		return nil
 	}
 
 	if e.options.Jobs == 1 {
 		// 单线程执行
-		e.log.Debug("使用单线程模式应用cherry-pick")
+		e.logger.Debug("使用单线程模式应用cherry-pick")
 		for _, project := range worktreeProjects {
 			result := e.cherryPickOne(project)
 			e.processCherryPickResult(result, pm)
 		}
 	} else {
 		// 多线程执行
-		e.log.Debug("使用多线程模式应用cherry-pick，并发数: %d", e.options.Jobs)
+		e.logger.Debug("使用多线程模式应用cherry-pick，并发数: %d", e.options.Jobs)
 
 		// 创建工作组
 		var wg sync.WaitGroup
@@ -115,7 +115,7 @@ func (e *Engine) CherryPickCommit(projects []*project.Project) error {
 		pm.Finish()
 	}
 
-	e.log.Info("Cherry-pick '%s' 完成: %d 成功, %d 失败", e.commitHash, e.cherryPickStats.Success, e.cherryPickStats.Failed)
+	e.logger.Info("Cherry-pick '%s' 完成: %d 成功, %d 失败", e.commitHash, e.cherryPickStats.Success, e.cherryPickStats.Failed)
 
 	if e.cherryPickStats.Failed > 0 {
 		return fmt.Errorf("Cherry-pick 失败: %d 个项目出错", e.cherryPickStats.Failed)
@@ -132,13 +132,13 @@ func (e *Engine) processCherryPickResult(result CherryPickResult, pm progress.Re
 	if result.Success {
 		e.cherryPickStats.Success++
 		if e.options.Verbose && !e.options.Quiet {
-			e.log.Debug("项目 %s cherry-pick 成功", result.Project.Name)
+			e.logger.Debug("项目 %s cherry-pick 成功", result.Project.Name)
 		}
 	} else {
 		e.cherryPickStats.Failed++
 		e.errResults = append(e.errResults, result.Project.Path)
 		if !e.options.Quiet {
-			e.log.Error("项目 %s cherry-pick 失败: %v", result.Project.Name, result.Error)
+			e.logger.Error("项目 %s cherry-pick 失败: %v", result.Project.Name, result.Error)
 		}
 	}
 
@@ -157,13 +157,13 @@ type CherryPickResult struct {
 // cherryPickOne 在单个项目中应用cherry-pick
 func (e *Engine) cherryPickOne(project *project.Project) CherryPickResult {
 	if !e.options.Quiet {
-		e.log.Info("在项目 %s 中应用 cherry-pick %s", project.Name, e.commitHash)
+		e.logger.Info("在项目 %s 中应用 cherry-pick %s", project.Name, e.commitHash)
 	}
 
 	// 执行git cherry-pick命令
 	_, err := project.GitRepo.RunCommand("cherry-pick", e.commitHash)
 	if err != nil {
-		e.log.Error("项目 %s cherry-pick 失败: %v", project.Name, err)
+		e.logger.Error("项目 %s cherry-pick 失败: %v", project.Name, err)
 		return CherryPickResult{Success: false, Project: project, Error: err}
 	}
 

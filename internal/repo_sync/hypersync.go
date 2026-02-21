@@ -22,10 +22,10 @@ func (e *Engine) getHyperSyncProjects() ([]*project.Project, error) {
 	}
 
 	// 获取清单服务器
-	manifestServer := e.manifest.ManifestServer
-	if manifestServer == "" {
+	if e.manifest.ManifestServer == nil {
 		return nil, fmt.Errorf("无法进行HyperSync: 清单中未定义清单服务器")
 	}
+	manifestServer := e.manifest.ManifestServer.URL
 
 	if !e.options.Quiet {
 		fmt.Printf("使用清单服务器%s 进行HyperSync\n", manifestServer)
@@ -100,10 +100,10 @@ func (e *Engine) getHyperSyncProjects() ([]*project.Project, error) {
 // getChangedProjectsFromServer 从服务器获取已更改的项目
 func (e *Engine) getChangedProjectsFromServer() ([]string, error) {
 	// 获取清单服务器
-	manifestServer := e.manifest.ManifestServer
-	if manifestServer == "" {
+	if e.manifest.ManifestServer == nil {
 		return nil, fmt.Errorf("无法获取已更改的项目: 清单中未定义清单服务器")
 	}
+	manifestServer := e.manifest.ManifestServer.URL
 
 	// 处理认证
 	if !strings.Contains(manifestServer, "@") {
