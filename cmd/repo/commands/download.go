@@ -220,8 +220,44 @@ func downloadProjects(opts *DownloadOptions, manager *project.Manager, projectNa
 			defer func() { <-sem }()
 
 			log.Debug("Downloading project %s", proj.Name)
+
+			// 先获取远程更新
 			_, err := proj.GitRepo.RunCommand("fetch", "--prune")
-			results <- downloadResult{Name: proj.Name, Err: err}
+			if err != nil {
+				results <- downloadResult{Name: proj.Name, Err: fmt.Errorf("fetch failed: %w", err)}
+				return
+			}
+
+			// 获取当前分支
+			branchOutput, err := proj.GitRepo.RunCommand("rev-parse", "--abbrev-ref", "HEAD")
+			if err != nil {
+				results <- downloadResult{Name: proj.Name, Err: fmt.Errorf("get current branch failed: %w", err)}
+				return
+			}
+			currentBranch := strings.TrimSpace(string(branchOutput))
+
+			// 如果当前分支不是HEAD（分离状态），则尝试pull更新
+			if currentBranch != "HEAD" {
+				// 获取远程跟踪分支
+				remoteOutput, err := proj.GitRepo.RunCommand("config", "--get", fmt.Sprintf("branch.%s.remote", currentBranch))
+				if err == nil {
+					remote := strings.TrimSpace(string(remoteOutput))
+					if remote != "" {
+						// 尝试merge远程分支的更新
+						_, err = proj.GitRepo.RunCommand("merge", fmt.Sprintf("%s/%s", remote, currentBranch), "--ff-only")
+						if err != nil {
+							// fast-forward失败，可能是因为有本地提交，尝试普通merge
+							_, err = proj.GitRepo.RunCommand("merge", fmt.Sprintf("%s/%s", remote, currentBranch))
+							if err != nil {
+								log.Warn("Failed to merge %s/%s into %s: %v", remote, currentBranch, proj.Name, err)
+								// fetch成功也算成功，merge失败只记录警告
+							}
+						}
+					}
+				}
+			}
+
+			results <- downloadResult{Name: proj.Name, Err: nil}
 		}(p)
 	}
 
@@ -324,8 +360,22 @@ func downloadAndCherryPickChanges(opts *DownloadOptions, manager *project.Manage
 		log.Info("Cherry-picking FETCH_HEAD")
 		_, err = proj.GitRepo.RunCommand("cherry-pick", "FETCH_HEAD")
 		if err != nil {
-			log.Error("Failed to cherry-pick change: %v", err)
-			return fmt.Errorf("failed to cherry-pick change: %w", err)
+			// 检查是否是空提交的情况
+			// 获取cherry-pick的状态
+			statusOutput, statusErr := proj.GitRepo.RunCommand("status", "--porcelain")
+			if statusErr == nil && len(statusOutput) == 0 {
+				// 工作区干净，可能是空提交，尝试跳过
+				log.Warn("Cherry-pick resulted in empty commit, skipping")
+				_, skipErr := proj.GitRepo.RunCommand("cherry-pick", "--skip")
+				if skipErr != nil {
+					log.Error("Failed to skip empty cherry-pick: %v", skipErr)
+					return fmt.Errorf("failed to cherry-pick change (empty commit): %w", err)
+				}
+				log.Info("Skipped empty cherry-pick for change %s", change.ChangeID)
+			} else {
+				log.Error("Failed to cherry-pick change: %v", err)
+				return fmt.Errorf("failed to cherry-pick change: %w", err)
+			}
 		}
 
 		log.Info("Successfully cherry-picked change %s to project %s", change.ChangeID, change.Project)
