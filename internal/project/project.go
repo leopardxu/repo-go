@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -528,15 +529,43 @@ func (p *Project) DeleteBranch(branch string) error {
 	// 删除分支
 	output, err := p.GitRepo.RunCommand("branch", "-D", branch)
 	if err != nil {
-		// 检查错误类型，如果是分支被工作区使用或其他可忽略的错误，则记录警告而不是报错
+		// 获取错误信息和stderr输出
 		errStr := err.Error()
-		if strings.Contains(errStr, "无法强制更新被工作区") ||
-			strings.Contains(errStr, "cannot force update the branch") ||
-			strings.Contains(errStr, "is currently checked out") ||
-			strings.Contains(errStr, "checked out at") {
-			logger.Warn("项目 %s 的分支 %s 被工作区使用，无法删除: %v", p.Name, branch, err)
+		outputStr := string(output)
+
+		// 尝试获取GitCommandError中的Stderr（支持多层嵌套错误）
+		var stderrStr string
+		var gitErr *git.GitCommandError
+		if errors.As(err, &gitErr) {
+			stderrStr = gitErr.Stderr
+		}
+
+		// 合并所有可能的错误信息源
+		allErrOutput := errStr + " " + outputStr + " " + stderrStr
+
+		logger.Debug("删除分支错误信息: %s", allErrOutput)
+
+		// 检查错误信息和输出中是否包含可忽略的关键字
+		if strings.Contains(allErrOutput, "无法强制更新被工作区") ||
+			strings.Contains(allErrOutput, "cannot force update the branch") ||
+			strings.Contains(allErrOutput, "is currently checked out") ||
+			strings.Contains(allErrOutput, "checked out at") ||
+			strings.Contains(allErrOutput, "Cannot delete branch") ||
+			strings.Contains(allErrOutput, "is used by worktree") ||
+			strings.Contains(allErrOutput, "worktree") ||
+			strings.Contains(allErrOutput, "error: Cannot delete branch") {
+			logger.Warn("项目 %s 的分支 %s 被工作区使用，无法删除", p.Name, branch)
 			return nil
 		}
+
+		// 检查是否是分支不存在的错误
+		if strings.Contains(allErrOutput, "branch '"+branch+"' not found") ||
+			strings.Contains(allErrOutput, "error: branch '"+branch+"' not found") ||
+			strings.Contains(allErrOutput, "Invalid branch") {
+			logger.Debug("项目 %s 中不存在分支 %s，忽略", p.Name, branch)
+			return nil
+		}
+
 		logger.Error("删除项目 %s 的分支%s 失败: %v\n%s", p.Name, branch, err, output)
 		return fmt.Errorf("删除分支失败: %w\n%s", err, output)
 	}
