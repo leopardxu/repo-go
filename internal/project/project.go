@@ -509,19 +509,34 @@ func (p *Project) DeleteBranch(branch string) error {
 		return fmt.Errorf("分支名为空")
 	}
 
+	// 检查是否是分离HEAD状态，这种情况下不需要删除分支
+	if strings.HasPrefix(branch, "HEAD detached at ") {
+		logger.Debug("项目 %s 处于分离HEAD状态，无需删除分支", p.Name)
+		return nil
+	}
+
 	// 检查分支是否存在
 	exists, err := p.HasBranch(branch)
 	if err != nil {
 		return err
 	}
 	if !exists {
-		logger.Warn("项目 %s 中不存在分支 %s", p.Name, branch)
-		return fmt.Errorf("分支 '%s' 不存在", branch)
+		logger.Debug("项目 %s 中不存在分支 %s，忽略", p.Name, branch)
+		return nil
 	}
 
 	// 删除分支
 	output, err := p.GitRepo.RunCommand("branch", "-D", branch)
 	if err != nil {
+		// 检查错误类型，如果是分支被工作区使用或其他可忽略的错误，则记录警告而不是报错
+		errStr := err.Error()
+		if strings.Contains(errStr, "无法强制更新被工作区") ||
+			strings.Contains(errStr, "cannot force update the branch") ||
+			strings.Contains(errStr, "is currently checked out") ||
+			strings.Contains(errStr, "checked out at") {
+			logger.Warn("项目 %s 的分支 %s 被工作区使用，无法删除: %v", p.Name, branch, err)
+			return nil
+		}
 		logger.Error("删除项目 %s 的分支%s 失败: %v\n%s", p.Name, branch, err, output)
 		return fmt.Errorf("删除分支失败: %w\n%s", err, output)
 	}
